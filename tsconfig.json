@@ -17,5 +17,5 @@
     "allowJs": true,
     "checkJs": true
   },
-  "include": ["src", "test", "eslint-rules", "hooks", "statusline"]
+  "include": ["src", "test", "eslint-rules", "hooks", "statusline", "scripts"]
 }
