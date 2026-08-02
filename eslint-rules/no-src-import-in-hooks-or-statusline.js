@@ -2,7 +2,7 @@
 // from src/.
 
 import path from "node:path";
-import { relativeFilename } from "./lib/paths.js";
+import { PROJECT_ROOT, relativeFilename } from "./lib/paths.js";
 import { createImportVisitor } from "./lib/import-visitor.js";
 
 const GUARDED_DIR = /^(hooks|statusline)\//;
@@ -48,17 +48,14 @@ const rule = {
       return {};
     }
 
-    const fileDir = path.dirname(path.resolve(context.cwd, context.filename));
-    const srcDir = path.resolve(context.cwd, "src");
+    const fileDir = path.dirname(path.resolve(PROJECT_ROOT, context.filename));
+    const srcDir = path.resolve(PROJECT_ROOT, "src");
 
-    return createImportVisitor(
-      (specifier, node) => {
-        if (reachesIntoSrc(specifier, fileDir, srcDir)) {
-          context.report({ node, messageId: "forbidden" });
-        }
-      },
-      { includeRequire: true },
-    );
+    return createImportVisitor((specifier, node) => {
+      if (reachesIntoSrc(specifier, fileDir, srcDir)) {
+        context.report({ node, messageId: "forbidden" });
+      }
+    });
   },
 };
 

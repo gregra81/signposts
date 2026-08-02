@@ -1,12 +1,14 @@
 // Shared ESLint visitor factory for rules that need to inspect every
-// static import/export/require specifier in a file.
+// static import/export/require specifier in a file. Both current callers
+// need require() covered too (SDK imports and src/ reach-ins can both
+// arrive via require()), so it's always included rather than gated
+// behind an option nobody turns off.
 
 /**
  * @param {(specifier: string, node: import('estree').Node) => void} checkSpecifier
- * @param {{ includeRequire?: boolean }} [options]
  * @returns {import('eslint').Rule.RuleListener}
  */
-export function createImportVisitor(checkSpecifier, options = {}) {
+export function createImportVisitor(checkSpecifier) {
   /**
    * @param {import('estree').ImportDeclaration | import('estree').ExportNamedDeclaration | import('estree').ExportAllDeclaration} node
    */
@@ -16,8 +18,7 @@ export function createImportVisitor(checkSpecifier, options = {}) {
     }
   }
 
-  /** @type {import('eslint').Rule.RuleListener} */
-  const visitor = {
+  return {
     ImportDeclaration: checkSource,
     ExportNamedDeclaration: checkSource,
     ExportAllDeclaration: checkSource,
@@ -27,11 +28,8 @@ export function createImportVisitor(checkSpecifier, options = {}) {
         checkSpecifier(node.source.value, node);
       }
     },
-  };
-
-  if (options.includeRequire) {
     /** @param {import('estree').CallExpression} node */
-    visitor.CallExpression = function (node) {
+    CallExpression(node) {
       const arg = node.arguments[0];
       if (
         node.callee.type === "Identifier" &&
@@ -43,8 +41,6 @@ export function createImportVisitor(checkSpecifier, options = {}) {
       ) {
         checkSpecifier(arg.value, node);
       }
-    };
-  }
-
-  return visitor;
+    },
+  };
 }

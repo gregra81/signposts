@@ -1,0 +1,5 @@
+// Fixture for no-magic-literal.test.ts: a constants module mid-edit,
+// the state a developer is actually in while adding a constant. Must
+// not crash the rule. (.ts.txt so tsc/eslint don't try to lint this
+// deliberately broken file as project source.)
+export const X =

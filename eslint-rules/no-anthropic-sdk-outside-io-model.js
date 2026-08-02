@@ -32,14 +32,11 @@ const rule = {
       return {};
     }
 
-    return createImportVisitor(
-      (specifier, node) => {
-        if (isSdkSpecifier(specifier)) {
-          context.report({ node, messageId: "forbidden" });
-        }
-      },
-      { includeRequire: true },
-    );
+    return createImportVisitor((specifier, node) => {
+      if (isSdkSpecifier(specifier)) {
+        context.report({ node, messageId: "forbidden" });
+      }
+    });
   },
 };
 
