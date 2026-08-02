@@ -96,16 +96,35 @@ async function main() {
 
   /** @type {Map<string, { module: string, break: number, mutants: Array<{ status: string }> }>} */
   const byModule = new Map();
+  /** Mutated core files no threshold entry claims. @type {string[]} */
+  const unclaimed = [];
 
   for (const [file, data] of files) {
     const threshold = thresholdFor(file);
-    if (threshold === undefined) continue;
+    if (threshold === undefined) {
+      if (data.mutants.length > 0) unclaimed.push(file);
+      continue;
+    }
     const bucket = byModule.get(threshold.module) ?? {
       ...threshold,
       mutants: [],
     };
     bucket.mutants.push(...data.mutants);
     byModule.set(threshold.module, bucket);
+  }
+
+  // Without this, renaming or adding a core module makes its mutants fall
+  // through every prefix and the gate passes silently — an enforcement
+  // mechanism that quietly stops enforcing is worse than none, because you
+  // stop looking. Fail loudly and make someone update THRESHOLDS.
+  if (unclaimed.length > 0) {
+    console.error(
+      "mutation-gate: these mutated files match no entry in THRESHOLDS.\n" +
+        "Add them (or correct a renamed module path) in scripts/mutation-gate.mjs:\n" +
+        unclaimed.map((file) => `  ${file}`).join("\n"),
+    );
+    process.exitCode = 1;
+    return;
   }
 
   if (byModule.size === 0) {
