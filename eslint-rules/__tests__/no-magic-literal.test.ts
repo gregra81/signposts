@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { RuleTester } from "eslint";
 import tsParser from "@typescript-eslint/parser";
 import rule, { findExistingModule } from "../no-magic-literal.js";
+import { IDLE_HOURS } from "../../src/core/config/constants.js";
 
 RuleTester.describe = describe;
 RuleTester.it = it;
@@ -62,9 +63,9 @@ ruleTester.run("no-magic-literal", rule, {
       options: [{ constantsModule: MISSING_CONSTANTS_MODULE }],
     },
     {
-      // Quiet with the default constants module path too, since it
-      // doesn't exist yet in this repo (it lands in a later build step).
-      code: "const idleHours = 24;",
+      // Quiet with the default constants module path when the literal
+      // doesn't collide with anything it exports.
+      code: "const label = 'unrelated-value';",
       filename: "src/core/eligibility/index.ts",
     },
     {
@@ -98,6 +99,16 @@ ruleTester.run("no-magic-literal", rule, {
       code: 'const leaked = "not-a-real-secret-value";',
       filename: "src/core/redact/index.ts",
       options: [{ constantsModule: FIXTURE_CONSTANTS_MODULE }],
+      errors: [{ messageId: "duplicatesConstant" }],
+    },
+    {
+      // The default module resolution now finds the real constants
+      // module (src/core/config/constants.ts landed in the config
+      // build step), so this is no longer a no-op case. Built from the
+      // real IDLE_HOURS rather than a hardcoded 24, so this stays true
+      // even after the golden set re-tunes it.
+      code: `const idleHours = ${IDLE_HOURS};`,
+      filename: "src/core/eligibility/index.ts",
       errors: [{ messageId: "duplicatesConstant" }],
     },
   ],

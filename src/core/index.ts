@@ -1,2 +1,2 @@
-// Placeholder entry point for src/core. No logic yet.
-export type Placeholder = never;
+export { resolveConfig, type ResolveConfigInput, type ResolvedConfig } from "./config/resolve.js";
+export * as configConstants from "./config/constants.js";
