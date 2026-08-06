@@ -1,0 +1,290 @@
+// Every signposts tunable, transcribed from 13-constants.md. One named
+// export per row in that document's `Name` column, byte-identical.
+//
+// This is the module `eslint-rules/no-magic-literal.js` looks for: no
+// other file under src/ may repeat one of these literal values inline.
+// Re-tuning a constant (the golden set is expected to re-tune several)
+// must stay a one-line change here.
+
+// ---------------------------------------------------------------------------
+// Runtime
+// ---------------------------------------------------------------------------
+
+/** LTS floor. Declared in `engines`; `doctor` checks the running version against it. */
+export const NODE_MIN_VERSION = 24;
+
+/**
+ * Descriptive, not enforced by a single check (unlike NODE_MIN_VERSION and
+ * SQLITE_BINDING) — recorded here anyway so every Name in 13-constants.md's
+ * tables has a corresponding export.
+ */
+export const LANGUAGE = "TypeScript, ESM, strict";
+
+/**
+ * One binding. `node:sqlite` would drop a native dep, but the LangGraph
+ * checkpointer pulls `better-sqlite3` in transitively anyway.
+ */
+export const SQLITE_BINDING = "better-sqlite3";
+
+// ---------------------------------------------------------------------------
+// Eligibility
+// ---------------------------------------------------------------------------
+
+/** Load-bearing: sessions are resumable, lower means extracting from unfinished work. */
+export const IDLE_HOURS = 24;
+
+export const MAX_AGE_DAYS = 90;
+
+export const MAX_TRANSCRIPT_BYTES = 50_000_000;
+
+export const MIN_GUTTERED_TOKENS = 100;
+
+/** Revisit if golden set shows missed lessons in subagents. */
+export const SKIP_SIDECHAIN = true;
+
+// ---------------------------------------------------------------------------
+// Gutter
+// ---------------------------------------------------------------------------
+
+/** Context for what the human reacted to — not content. */
+export const ASSISTANT_HEAD_CHARS = 400;
+
+/** Whichever limit hits first alongside ASSISTANT_HEAD_CHARS. */
+export const ASSISTANT_HEAD_SENTENCES = 2;
+
+/** Head budget for the turn immediately preceding a human turn. */
+export const ASSISTANT_HEAD_CHARS_ADJACENT = 600;
+
+/** Tail budget for the same turn — a plan's conclusion is what gets accepted or rejected. */
+export const ASSISTANT_TAIL_CHARS_ADJACENT = 900;
+
+/** Model reasoning with itself, and bulk noise. */
+export const DROP_BLOCK_TYPES = ["thinking", "tool_result"] as const;
+
+/** Slash-command noise arriving as user text. */
+export const STRIP_TAGS = [
+  "command-name",
+  "command-message",
+  "command-args",
+  "local-command-stdout",
+  "local-command-caveat",
+  "system-reminder",
+] as const;
+
+/** Sanity check, not enforced. Far outside this range → parser bug. */
+export const TARGET_REDUCTION = { min: 10, max: 20 } as const;
+
+// ---------------------------------------------------------------------------
+// Redaction
+// ---------------------------------------------------------------------------
+
+export const ENTROPY_MIN_LEN = 32;
+
+export const SECRET_KEY_NAME_RE = /(SECRET|TOKEN|PASSWORD|PASSWD|KEY|CREDENTIAL|API[_-]?KEY)/i;
+
+export const TOKEN_PREFIXES = [
+  "sk-",
+  "sk-ant-",
+  "ghp_",
+  "github_pat_",
+  "gho_",
+  "AKIA",
+  "ASIA",
+  "xox[baprs]-",
+  "AIza",
+  "glpat-",
+  "dop_v1_",
+] as const;
+
+export const PLACEHOLDER_FORMAT = "[REDACTED:<kind>]";
+
+/** Redactor throws → skip transcript. Never fall through to raw text. */
+export const FAIL_MODE = "closed";
+
+// ---------------------------------------------------------------------------
+// Retrieval
+// ---------------------------------------------------------------------------
+
+/** Judgement; doc-noted range 5–8. */
+export const NEIGHBOUR_K = 6;
+
+/** Standard constant for reciprocal rank fusion. */
+export const RRF_K = 60;
+
+/**
+ * Pinned revision. A bare repo id is mutable, and unchanged-id-changed-weights
+ * defeats the rebuild trigger.
+ *
+ * ASSUMPTION: 13-constants.md leaves the revision as `<revision>`. Pinned
+ * here to a Xenova/all-MiniLM-L6-v2 commit confirmed to exist via
+ * `GET https://huggingface.co/api/models/Xenova/all-MiniLM-L6-v2/revision/<sha>`
+ * (200) at the time this was written. Reconfirm against the Hub before
+ * relying on it in production — models and their branches can move.
+ */
+export const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2@751bff37182d3f1213fa05d7196b954e230abad9";
+
+/** Must match model. */
+export const EMBEDDING_DIM = 384;
+
+/** Set `false` with LOCAL_MODEL_PATH for networks with no route to the Hub. */
+export const ALLOW_REMOTE_MODELS = true;
+
+/**
+ * Deliberately absent. No neighbours → `classify` sees an empty list →
+ * `NOVEL`. Never pad `k` to manufacture a minimum-similarity floor.
+ */
+export const MIN_SIMILARITY = undefined;
+
+/** Conditions that trigger a reindex. */
+export const REINDEX_TRIGGER = [
+  "content-hash-mismatch",
+  "missing-index",
+  "model-change",
+] as const;
+
+// ---------------------------------------------------------------------------
+// Graph
+// ---------------------------------------------------------------------------
+
+/** Bounds the reflection loop. */
+export const MAX_EXTRACT_ATTEMPTS = 2;
+
+/** Bounds self-correction. */
+export const MAX_VALIDATE_ATTEMPTS = 2;
+
+/** Above this ratio of critic rejections → retry extraction. Judgement; tune with golden set. */
+export const CRITIC_REJECT_RATIO = 0.66;
+
+/** Phase 4.5. */
+export const MAX_RESOLVE_TOOL_ITERATIONS = 6;
+
+/** Unrecognised → discard thread, re-run from transcript. */
+export const STATE_VERSION = 1;
+
+/** Backstop against runaway extraction. */
+export const MAX_CANDIDATES_PER_SESSION = 10;
+
+// ---------------------------------------------------------------------------
+// Review gate
+// ---------------------------------------------------------------------------
+
+/** Saddle. Primary knob the golden set should calibrate. */
+export const AUTO_PUBLISH_CONFIDENCE = 0.85;
+
+/**
+ * Ceiling when the human hedged. Below AUTO_PUBLISH_CONFIDENCE by
+ * construction, so hedged claims can never auto-land. Judgement.
+ */
+export const HEDGE_CONFIDENCE_CAP = 0.6;
+
+/** Not configurable — anything altering approved knowledge. */
+export const ALWAYS_HUMAN_OPS = ["refine", "supersede", "retire"] as const;
+
+/** Older → drop with a log line. */
+export const THREAD_EXPIRY_DAYS = 30;
+
+/** Not configurable. See 06-review-and-pr.md. */
+export const AUTO_MERGE = false;
+
+// ---------------------------------------------------------------------------
+// Bootstrap (first run in a repo)
+// ---------------------------------------------------------------------------
+
+/** Replaces MAX_AGE_DAYS on the first run only. */
+export const BOOTSTRAP_AGE_DAYS = 14;
+
+/** Hard cap per run — MAX_CANDIDATES_PER_SESSION bounds a session, not a run. */
+export const BOOTSTRAP_MAX_OPS = 20;
+
+/** Every operation routes to a human, whatever its confidence. */
+export const BOOTSTRAP_GATE_ALL = true;
+
+// ---------------------------------------------------------------------------
+// Git
+// ---------------------------------------------------------------------------
+
+/** Per developer, not per repo. A shared branch produces push races between teammates' workers. */
+export const BRANCH_PATTERN = "signposts/{author_slug}";
+
+/** Local-part of `git config user.email`, kebab-cased. Real identity — the branch lives in the team's own repo. */
+export const AUTHOR_SLUG = "local-part of git config user.email, kebab-cased";
+
+/** Prompts and local DB only. Never written to `.signposts/`. */
+export const AUTHOR_PSEUDONYM = "author-<sha256(email + repoRoot)[:4]>";
+
+// ---------------------------------------------------------------------------
+// Claim validation
+// ---------------------------------------------------------------------------
+
+export const CLAIM_MAX_CHARS = 200;
+
+export const CLAIM_ALLOW_NEWLINE = false;
+
+/** Two claims smuggled into one. */
+export const CLAIM_REJECT_SUBSTRINGS = [" and also ", "; additionally"] as const;
+
+export const EVIDENCE_MAX_CHARS = 500;
+
+export const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// ---------------------------------------------------------------------------
+// Models and cost
+// ---------------------------------------------------------------------------
+
+/** Every node, v1. */
+export const MODEL_DEFAULT = "claude-opus-5";
+
+/** `true` for background runs, `false` for `--sync`. */
+export const BATCH_BY_DEFAULT = true;
+
+/** Opus 5. System prompts below this will not cache. */
+export const PROMPT_CACHE_MIN_TOKENS = 512;
+
+/** Opus 5 thinking is on by default and shares this budget. */
+export const MAX_TOKENS_EXTRACT = 8000;
+
+/** critic, classify. */
+export const MAX_TOKENS_SMALL = 2000;
+
+/** Log a warning above this. */
+export const COST_WARN_PER_RUN_USD = 1.0;
+
+// ---------------------------------------------------------------------------
+// Paths
+// ---------------------------------------------------------------------------
+
+/** Global, home-relative — where Claude Code writes session transcripts. */
+export const TRANSCRIPT_ROOT = "~/.claude/projects";
+
+/**
+ * Directory name used both for the global root under the home directory
+ * (`~/.signposts/`) and for the per-repo knowledge directory
+ * (`<repoRoot>/.signposts/`) — same literal, two different parents.
+ */
+export const SIGNPOSTS_DIRNAME = ".signposts";
+
+/** Global, NOT under STATE_DIR — see MODEL_CACHE_DIR in 13-constants.md. */
+export const MODEL_CACHE_DIRNAME = "models";
+
+export const DB_FILENAME = "signposts.db";
+
+export const CHECKPOINT_FILENAME = "checkpoints.db";
+
+export const STATUSLINE_FILENAME = "status.json";
+
+export const LOCKFILE_FILENAME = "run.lock";
+
+export const INDEX_FILENAME = "index.md";
+
+// ---------------------------------------------------------------------------
+// Triggering
+// ---------------------------------------------------------------------------
+
+/** Hard target. `SessionStart` is synchronous — exceeding this delays the user. */
+export const HOOK_BUDGET_MS = 50;
+
+/** Older lock → assume dead worker, take over. */
+export const LOCK_STALE_MINUTES = 60;
+
+/** Worker writes state at most this often. */
+export const STATUSLINE_REFRESH_MS = 1000;
