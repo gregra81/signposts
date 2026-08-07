@@ -76,6 +76,10 @@ describe("contracts/schema", () => {
       expect(otherLineSchema.safeParse(valid).success).toBe(true);
     });
 
+    it("parses a real sidecar line with no envelope at all (R7)", () => {
+      expect(otherLineSchema.safeParse({ type: "mode", mode: "normal" }).success).toBe(true);
+    });
+
     it("rejects a non-string type tag", () => {
       const result = otherLineSchema.safeParse({ ...valid, type: 123 });
       expect(result.success).toBe(false);

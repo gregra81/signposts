@@ -42,6 +42,14 @@ export const envelopeSchema = z.looseObject({
 });
 export type Envelope = z.infer<typeof envelopeSchema>;
 
+// Single source of truth for the three type tags this regime handles.
+// otherLineSchema's superRefine excludes exactly these; classify.ts's
+// parseLine routes on exactly these. Two hand-maintained copies would let a
+// tag be added to one and forgotten in the other — an invalid line of that
+// type would then fall through to otherLineSchema, pass as "parsed", and get
+// cast to a line type whose envelope fields are all actually undefined.
+export const KNOWN_LINE_TYPES = new Set(["user", "assistant", "system"]);
+
 export const userLineSchema = z.looseObject({
   ...envelopeSchema.shape,
   type: z.literal("user"),
@@ -78,17 +86,24 @@ export const systemLineSchema = z.looseObject({
 });
 export type SystemLine = z.infer<typeof systemLineSchema>;
 
-// Catch-all for any type tag ingestion doesn't recognise; unknown types are
-// skipped downstream, but the line still has to parse. Excludes the three
-// known tags — via a fatal superRefine, not a plain refine — so a malformed
-// known-type line (e.g. a "user" line with a bad message) aborts this branch
-// instead of silently falling through here. Fatal is required: a non-fatal
-// refine failure is what zod's union picks as the reported issue, which
-// buries the real per-field error from the matching branch.
+// Catch-all for any type tag ingestion doesn't recognise. Deliberately does
+// NOT require the envelope shape: real transcripts interleave sidecar
+// records (type "mode", "ai-title", "bridge-session", "file-history-snapshot",
+// ...) that carry no uuid/parentUuid/timestamp at all — they aren't envelopes,
+// they're a different kind of line that happens to share the file. Requiring
+// envelopeSchema here made every one of those fail validation and get counted
+// as malformed alongside actually-corrupt lines (~32% of a real transcript,
+// observed 0% actually corrupt). An unrecognised type is skipped because
+// ingestion doesn't handle it, not because it failed to parse (R2/R7).
+// Excludes the three known tags — via a fatal superRefine, not a plain
+// refine — so a malformed known-type line (e.g. a "user" line with a bad
+// message) aborts this branch instead of silently falling through here.
+// Fatal is required: a non-fatal refine failure is what zod's union picks as
+// the reported issue, which buries the real per-field error from the
+// matching branch.
 export const otherLineSchema = z.looseObject({
-  ...envelopeSchema.shape,
   type: z.string().superRefine((t, ctx) => {
-    if (t === "user" || t === "assistant" || t === "system") {
+    if (KNOWN_LINE_TYPES.has(t)) {
       ctx.addIssue({ code: "custom", message: "known line type", fatal: true });
     }
   }),
