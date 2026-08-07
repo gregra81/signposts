@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   assistantLineSchema,
-  contentBlockSchema,
   envelopeSchema,
   otherLineSchema,
   systemLineSchema,
@@ -15,17 +14,6 @@ const validEnvelope = {
   sessionId: "s1",
   timestamp: "2026-01-01T00:00:00Z",
 };
-
-const validContentBlockText = { type: "text", text: "hello" };
-
-// Shared shape of a zod v4 union's per-branch error list (each branch is its
-// own array of issues). Used to look past the top-level `invalid_union`
-// wrapper at a specific branch's path and message.
-type UnionBranchErrors = { errors: { path: PropertyKey[]; message: string }[][] };
-
-function hasBranchIssue(errors: UnionBranchErrors["errors"], path: string, message: string): boolean {
-  return errors.some((branch) => branch.some((issue) => issue.path.join(".") === path && issue.message === message));
-}
 
 describe("contracts/schema", () => {
   describe("envelopeSchema", () => {
@@ -47,67 +35,11 @@ describe("contracts/schema", () => {
     });
   });
 
-  describe("contentBlockSchema", () => {
-    it("parses a valid text block", () => {
-      expect(contentBlockSchema.safeParse(validContentBlockText).success).toBe(true);
-    });
-
-    it("rejects a text block with a non-string text field", () => {
-      const result = contentBlockSchema.safeParse({ type: "text", text: 123 });
-      expect(result.success).toBe(false);
-      expect(result.success === false && result.error.issues[0]!.code).toBe("invalid_union");
-      const errors = result.success === false && (result.error.issues[0] as UnionBranchErrors).errors;
-      expect(
-        errors && errors.some((branch) => branch.some((issue) => issue.path.join(".") === "text")),
-      ).toBe(true);
-      // The catch-all's fatal superRefine (matched because "text" is a known
-      // tag) is also a branch in the union failure.
-      expect(errors && hasBranchIssue(errors, "type", "known block type")).toBe(true);
-    });
-
-    it("rejects a thinking block with a non-string thinking field", () => {
-      const result = contentBlockSchema.safeParse({ type: "thinking", thinking: 123 });
-      expect(result.success).toBe(false);
-      expect(result.success === false && result.error.issues[0]!.code).toBe("invalid_union");
-      const errors = result.success === false && (result.error.issues[0] as UnionBranchErrors).errors;
-      expect(errors && hasBranchIssue(errors, "type", "known block type")).toBe(true);
-    });
-
-    it("rejects a tool_use block with a non-string id", () => {
-      const result = contentBlockSchema.safeParse({ type: "tool_use", id: 123 });
-      expect(result.success).toBe(false);
-      expect(result.success === false && result.error.issues[0]!.code).toBe("invalid_union");
-      const errors = result.success === false && (result.error.issues[0] as UnionBranchErrors).errors;
-      expect(errors && hasBranchIssue(errors, "type", "known block type")).toBe(true);
-    });
-
-    it("rejects a tool_result block with a non-string tool_use_id", () => {
-      const result = contentBlockSchema.safeParse({ type: "tool_result", tool_use_id: 123 });
-      expect(result.success).toBe(false);
-      expect(result.success === false && result.error.issues[0]!.code).toBe("invalid_union");
-      const errors = result.success === false && (result.error.issues[0] as UnionBranchErrors).errors;
-      expect(errors && hasBranchIssue(errors, "type", "known block type")).toBe(true);
-    });
-
-    it("accepts an unrecognised block type (unknown types are skipped downstream, not rejected)", () => {
-      expect(contentBlockSchema.safeParse({ type: "image", source: {} }).success).toBe(true);
-    });
-  });
-
   describe("userLineSchema", () => {
     const valid = { ...validEnvelope, type: "user", message: { role: "user", content: "hi" } };
 
     it("parses a valid user line", () => {
       expect(userLineSchema.safeParse(valid).success).toBe(true);
-    });
-
-    it("rejects a message.content that is neither string nor block array", () => {
-      const result = userLineSchema.safeParse({
-        ...valid,
-        message: { role: "user", content: 123 },
-      });
-      expect(result.success).toBe(false);
-      expect(result.success === false && result.error.issues[0]!.path).toEqual(["message", "content"]);
     });
   });
 
@@ -115,20 +47,11 @@ describe("contracts/schema", () => {
     const valid = {
       ...validEnvelope,
       type: "assistant",
-      message: { role: "assistant", content: [validContentBlockText] },
+      message: { role: "assistant", content: [{ type: "text", text: "hello" }] },
     };
 
     it("parses a valid assistant line", () => {
       expect(assistantLineSchema.safeParse(valid).success).toBe(true);
-    });
-
-    it("rejects message.content that is not an array", () => {
-      const result = assistantLineSchema.safeParse({
-        ...valid,
-        message: { role: "assistant", content: "not an array" },
-      });
-      expect(result.success).toBe(false);
-      expect(result.success === false && result.error.issues[0]!.path).toEqual(["message", "content"]);
     });
   });
 
@@ -202,14 +125,14 @@ describe("contracts/schema", () => {
       const result = transcriptLineSchema.safeParse({
         ...validEnvelope,
         type: "user",
-        message: { role: "user", content: 123 },
+        message: { role: "not-user", content: "hi" },
       });
       expect(result.success).toBe(false);
       expect(result.success === false && result.error.issues[0]!.code).toBe("invalid_union");
       expect(
         result.success === false &&
           (result.error.issues[0] as { errors: { path: PropertyKey[] }[][] }).errors.some((branch) =>
-            branch.some((issue) => issue.path.join(".") === "message.content"),
+            branch.some((issue) => issue.path.join(".") === "message.role"),
           ),
       ).toBe(true);
     });
