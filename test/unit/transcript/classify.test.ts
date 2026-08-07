@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isHumanTurn, isUserLine, parseLine, parseVersionMajor } from "../../../src/core/transcript/classify.js";
+import { isHumanTurn, isUserLine, parseLine } from "../../../src/core/transcript/classify.js";
 import type { TranscriptLine, UserLine } from "../../../src/core/contracts/schema.js";
 
 const baseEnvelope = {
@@ -235,27 +235,5 @@ describe("parseLine", () => {
   it.each(sidecarCases)("parses a real %s sidecar line as 'ignored', not 'malformed'", (_name, raw) => {
     const result = parseLine(raw);
     expect(result.status).toBe("ignored");
-  });
-});
-
-describe("parseVersionMajor", () => {
-  it("extracts the leading integer", () => {
-    expect(parseVersionMajor("2.1.223")).toBe(2);
-  });
-
-  it("returns undefined for undefined input", () => {
-    expect(parseVersionMajor(undefined)).toBeUndefined();
-  });
-
-  it("returns undefined for a version not starting with an integer", () => {
-    expect(parseVersionMajor("vNext")).toBeUndefined();
-  });
-
-  it("returns undefined when the integer is present but not at the start", () => {
-    expect(parseVersionMajor("v2.1.223")).toBeUndefined();
-  });
-
-  it("extracts a multi-digit major", () => {
-    expect(parseVersionMajor("10.0.0")).toBe(10);
   });
 });

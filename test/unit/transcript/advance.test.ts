@@ -31,15 +31,15 @@ describe("advance", () => {
     if (counter === "linesSkipped") {
       expect(state.counts.linesSkipped).toBe(1);
       expect(state.counts.linesIgnored).toBe(0);
-      expect(result.emit).toBeUndefined();
+      expect(result).toBeUndefined();
     } else if (counter === "linesIgnored") {
       expect(state.counts.linesSkipped).toBe(0);
       expect(state.counts.linesIgnored).toBe(1);
-      expect(result.emit).toBeDefined();
+      expect(result).toBeDefined();
     } else {
       expect(state.counts.linesSkipped).toBe(0);
       expect(state.counts.linesIgnored).toBe(0);
-      expect(result.emit).toBeDefined();
+      expect(result).toBeDefined();
     }
   });
 
@@ -67,35 +67,17 @@ describe("advance", () => {
     expect([...state.counts.versionsSeen]).toEqual(["3.0.1"]);
   });
 
-  it("warns once for an unseen major, even across repeated lines with that major", () => {
+  it("does not record a version when absent", () => {
     const state = createTranscriptReadState();
-    const first = advance(state, parsedLine({ version: "3.0.1" }));
-    const second = advance(state, parsedLine({ uuid: "u2", version: "3.0.2" }));
+    advance(state, parsedLine());
 
-    expect(first.warn).toBe("transcript version major 3 is unseen (known: 2)");
-    expect(second.warn).toBeUndefined();
-  });
-
-  it("never warns for a known major (2)", () => {
-    const state = createTranscriptReadState();
-    const result = advance(state, parsedLine({ version: "2.1.223" }));
-
-    expect(result.warn).toBeUndefined();
-  });
-
-  it("does not warn when version is absent", () => {
-    const state = createTranscriptReadState();
-    const result = advance(state, parsedLine());
-
-    expect(result.warn).toBeUndefined();
     expect(state.counts.versionsSeen.size).toBe(0);
   });
 
-  it("does not warn when version is present but unparseable (no leading integer)", () => {
+  it("records a version string as-is even when it has no leading integer", () => {
     const state = createTranscriptReadState();
-    const result = advance(state, parsedLine({ version: "vNext" }));
+    advance(state, parsedLine({ version: "vNext" }));
 
-    expect(result.warn).toBeUndefined();
     expect([...state.counts.versionsSeen]).toEqual(["vNext"]);
   });
 
@@ -106,7 +88,6 @@ describe("advance", () => {
     const result = advance(state, ignoredLine({ version: 3 }));
 
     expect(state.counts.versionsSeen.size).toBe(0);
-    expect(result.warn).toBeUndefined();
-    expect(result.emit).toBeDefined();
+    expect(result).toBeDefined();
   });
 });

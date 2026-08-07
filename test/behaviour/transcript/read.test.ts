@@ -39,8 +39,8 @@ describe("readTranscript", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  async function collect(filePath: string, logger?: (msg: string) => void) {
-    const { lines, counts } = readTranscript(filePath, logger ? { logger } : {});
+  async function collect(filePath: string) {
+    const { lines, counts } = readTranscript(filePath);
     const collected = [];
     for await (const l of lines) {
       collected.push(l);
@@ -97,42 +97,22 @@ describe("readTranscript", () => {
     expect(counts.linesRead).toBe(5);
   });
 
-  it("warns once for an unseen major version even across many lines with that version", async () => {
-    const file = path.join(dir, "unseen-major.jsonl");
-    writeFileSync(
-      file,
-      [
-        line({ uuid: "a", version: "3.0.1" }),
-        line({ uuid: "b", version: "3.0.1" }),
-        line({ uuid: "c", version: "3.0.1" }),
-      ].join("\n"),
-    );
-
-    const warnings: string[] = [];
-    const { collected } = await collect(file, (msg) => warnings.push(msg));
-
-    expect(collected).toHaveLength(3);
-    expect(warnings).toHaveLength(1);
-  });
-
-  it("never warns for a known (version 2) fixture", async () => {
+  it("records versions from a fixture with several version-2 lines", async () => {
     const file = path.join(dir, "known-major.jsonl");
     writeFileSync(
       file,
       [line({ uuid: "a", version: "2.1.223" }), line({ uuid: "b", version: "2.0.0" })].join("\n"),
     );
 
-    const warnings: string[] = [];
-    const { counts } = await collect(file, (msg) => warnings.push(msg));
+    const { counts } = await collect(file);
 
-    expect(warnings).toHaveLength(0);
     expect([...counts.versionsSeen].sort()).toEqual(["2.0.0", "2.1.223"]);
   });
 
-  it("records the version and warns on an unseen major from an unrecognised-type (ignored) line, with no known-type line in the file at all", async () => {
+  it("records the version from an unrecognised-type (ignored) line, with no known-type line in the file at all", async () => {
     // Real shape: "attachment" sidecar lines carry a version field. R4 is
-    // unqualified by line type — this must still record and warn even
-    // though every line in the file is "ignored", never "parsed".
+    // unqualified by line type — this must still record even though every
+    // line in the file is "ignored", never "parsed".
     const file = path.join(dir, "attachment-only.jsonl");
     writeFileSync(
       file,
@@ -142,14 +122,12 @@ describe("readTranscript", () => {
       ].join("\n"),
     );
 
-    const warnings: string[] = [];
-    const { collected, counts } = await collect(file, (msg) => warnings.push(msg));
+    const { collected, counts } = await collect(file);
 
     expect(collected).toHaveLength(2);
     expect(counts.linesIgnored).toBe(2);
     expect(counts.linesSkipped).toBe(0);
     expect([...counts.versionsSeen]).toEqual(["3.0.1"]);
-    expect(warnings).toHaveLength(1);
   });
 
   it("closes the underlying file stream when the consumer breaks out of the generator early", async () => {

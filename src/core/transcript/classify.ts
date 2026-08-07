@@ -110,23 +110,3 @@ export function isHumanTurn(line: UserLine): boolean {
   }
   return true;
 }
-
-// ---------------------------------------------------------------------------
-// Version tracking
-// ---------------------------------------------------------------------------
-
-/**
- * Extracts the leading integer of a version string (e.g. "2.1.223" -> 2).
- * Returns undefined when version is absent or doesn't start with an
- * integer — that is not a warning condition, just not a recorded major.
- */
-export function parseVersionMajor(version: string | undefined): number | undefined {
-  if (version === undefined) {
-    return undefined;
-  }
-  const match = /^(\d+)/.exec(version);
-  if (!match) {
-    return undefined;
-  }
-  return Number(match[1]);
-}
