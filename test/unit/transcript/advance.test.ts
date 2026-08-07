@@ -27,18 +27,18 @@ describe("advance", () => {
     const state = createTranscriptReadState();
     const result = advance(state, raw);
 
-    expect(result.state.counts.linesRead).toBe(1);
+    expect(state.counts.linesRead).toBe(1);
     if (counter === "linesSkipped") {
-      expect(result.state.counts.linesSkipped).toBe(1);
-      expect(result.state.counts.linesIgnored).toBe(0);
+      expect(state.counts.linesSkipped).toBe(1);
+      expect(state.counts.linesIgnored).toBe(0);
       expect(result.emit).toBeUndefined();
     } else if (counter === "linesIgnored") {
-      expect(result.state.counts.linesSkipped).toBe(0);
-      expect(result.state.counts.linesIgnored).toBe(1);
+      expect(state.counts.linesSkipped).toBe(0);
+      expect(state.counts.linesIgnored).toBe(1);
       expect(result.emit).toBeDefined();
     } else {
-      expect(result.state.counts.linesSkipped).toBe(0);
-      expect(result.state.counts.linesIgnored).toBe(0);
+      expect(state.counts.linesSkipped).toBe(0);
+      expect(state.counts.linesIgnored).toBe(0);
       expect(result.emit).toBeDefined();
     }
   });
@@ -108,12 +108,5 @@ describe("advance", () => {
     expect(state.counts.versionsSeen.size).toBe(0);
     expect(result.warn).toBeUndefined();
     expect(result.emit).toBeDefined();
-  });
-
-  it("mutates and returns the same state object passed in", () => {
-    const state = createTranscriptReadState();
-    const result = advance(state, parsedLine());
-
-    expect(result.state).toBe(state);
   });
 });

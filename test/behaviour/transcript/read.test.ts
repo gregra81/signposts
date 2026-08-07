@@ -7,8 +7,15 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fc from "fast-check";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, createReadStream: vi.fn(actual.createReadStream) };
+});
+
+import * as fs from "node:fs";
 import { readTranscript } from "../../../src/io/transcript/read.js";
 
 const line = (fields: Record<string, unknown>) =>
@@ -143,6 +150,26 @@ describe("readTranscript", () => {
     expect(counts.linesSkipped).toBe(0);
     expect([...counts.versionsSeen]).toEqual(["3.0.1"]);
     expect(warnings).toHaveLength(1);
+  });
+
+  it("closes the underlying file stream when the consumer breaks out of the generator early", async () => {
+    const good = [line({ uuid: "a" }), line({ uuid: "b" }), line({ uuid: "c" }), line({ uuid: "d" }), line({ uuid: "e" })];
+    const file = path.join(dir, "break-early.jsonl");
+    writeFileSync(file, good.join("\n"));
+
+    const createReadStreamMock = vi.mocked(fs.createReadStream);
+    createReadStreamMock.mockClear();
+    const { lines } = readTranscript(file);
+
+    let seen = 0;
+    for await (const l of lines) {
+      void l;
+      seen += 1;
+      if (seen === 2) break;
+    }
+
+    const stream = createReadStreamMock.mock.results[0]?.value as fs.ReadStream;
+    expect(stream.destroyed).toBe(true);
   });
 
   it("fuzz: arbitrary strings joined as lines never throw, and skipped+parsed counts sum to lines read", async () => {

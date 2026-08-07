@@ -4,10 +4,9 @@
 // line through advance(); this module owns every decision: counters,
 // version tracking, warn-once-per-major, and what (if anything) to yield.
 //
-// PURE: no fs, no logging. advance() mutates the state object it's given
-// and returns it — see the build task's design note: a persistent/
-// immutable state structure is out of scope, only the decisions need to be
-// pure and unit-testable.
+// NO IO: no fs, no logging. advance() mutates the state object it's given —
+// see the build task's design note: a persistent/immutable state structure
+// is out of scope, only the decisions need to be pure and unit-testable.
 
 import { parseLine, parseVersionMajor } from "./classify.js";
 import type { TranscriptLine } from "../contracts/schema.js";
@@ -48,7 +47,6 @@ export function createTranscriptReadState(): TranscriptReadState {
 }
 
 export interface AdvanceResult {
-  state: TranscriptReadState;
   /** Present when the line parsed (known type or unrecognised/ignored type) and should be yielded. */
   emit?: TranscriptLine;
   /** Present when this line's version major is newly unseen and should be logged once. */
@@ -59,7 +57,7 @@ export interface AdvanceResult {
  * Applies one raw JSONL line to `state`: routes malformed/ignored/parsed
  * lines to the right counter, tracks the version (parsed and ignored lines
  * alike — R4 is unqualified by line type), and decides warn-once-per-major
- * and whether to yield. Mutates and returns `state` (R1).
+ * and whether to yield. Mutates `state` (R1).
  */
 export function advance(state: TranscriptReadState, rawLine: string): AdvanceResult {
   state.counts.linesRead += 1;
@@ -67,7 +65,7 @@ export function advance(state: TranscriptReadState, rawLine: string): AdvanceRes
   const result = parseLine(rawLine);
   if (result.status === "malformed") {
     state.counts.linesSkipped += 1;
-    return { state };
+    return {};
   }
 
   // An ignored line's `version` is `unknown` under looseObject's catchall,
@@ -87,5 +85,5 @@ export function advance(state: TranscriptReadState, rawLine: string): AdvanceRes
     state.counts.linesIgnored += 1;
   }
 
-  return warn === undefined ? { state, emit: result.line } : { state, emit: result.line, warn };
+  return warn === undefined ? { emit: result.line } : { emit: result.line, warn };
 }
