@@ -40,7 +40,7 @@ export const envelopeSchema = z.looseObject({
   timestamp: z.string(), // ISO 8601
   cwd: z.string().optional(), // maps session -> repo
   gitBranch: z.string().optional(),
-  version: z.string().optional(), // Claude Code version; recorded in counts.versionsSeen, never gated on
+  version: z.string().optional(), // Claude Code version; nothing reads this today
   isSidechain: z.boolean().optional(), // true = subagent; skipped in v1
 });
 export type Envelope = z.infer<typeof envelopeSchema>;

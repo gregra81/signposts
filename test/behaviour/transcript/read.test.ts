@@ -99,39 +99,6 @@ describe("readTranscript", () => {
     expect(counts.linesRead).toBe(5);
   });
 
-  it("records versions from a fixture with several version-2 lines", async () => {
-    const file = path.join(dir, "known-major.jsonl");
-    writeFileSync(
-      file,
-      [line({ uuid: "a", version: "2.1.223" }), line({ uuid: "b", version: "2.0.0" })].join("\n"),
-    );
-
-    const { counts } = await collect(file);
-
-    expect([...counts.versionsSeen].sort()).toEqual(["2.0.0", "2.1.223"]);
-  });
-
-  it("records the version from an unrecognised-type (ignored) line, with no known-type line in the file at all", async () => {
-    // Real shape: "attachment" sidecar lines carry a version field. Version
-    // tracking is unqualified by line type — this must still record even
-    // though every line in the file is "ignored", never "parsed".
-    const file = path.join(dir, "attachment-only.jsonl");
-    writeFileSync(
-      file,
-      [
-        '{"type":"attachment","version":"3.0.1","sessionId":"s1"}',
-        '{"type":"attachment","version":"3.0.1","sessionId":"s1"}',
-      ].join("\n"),
-    );
-
-    const { collected, counts } = await collect(file);
-
-    expect(collected).toHaveLength(2);
-    expect(counts.linesIgnored).toBe(2);
-    expect(counts.linesSkipped).toBe(0);
-    expect([...counts.versionsSeen]).toEqual(["3.0.1"]);
-  });
-
   it("closes the underlying file stream when the consumer breaks out of the generator early", async () => {
     const good = [line({ uuid: "a" }), line({ uuid: "b" }), line({ uuid: "c" }), line({ uuid: "d" }), line({ uuid: "e" })];
     const file = path.join(dir, "break-early.jsonl");

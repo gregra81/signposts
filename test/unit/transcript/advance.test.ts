@@ -51,43 +51,4 @@ describe("advance", () => {
 
     expect(state.counts.linesRead).toBe(3);
   });
-
-  // Version recorded for both parsed and ignored lines.
-  it("records the version from a parsed line", () => {
-    const state = createTranscriptReadState();
-    advance(state, parsedLine({ version: "2.1.223" }));
-
-    expect([...state.counts.versionsSeen]).toEqual(["2.1.223"]);
-  });
-
-  it("records the version from an ignored line", () => {
-    const state = createTranscriptReadState();
-    advance(state, ignoredLine({ version: "3.0.1" }));
-
-    expect([...state.counts.versionsSeen]).toEqual(["3.0.1"]);
-  });
-
-  it("does not record a version when absent", () => {
-    const state = createTranscriptReadState();
-    advance(state, parsedLine());
-
-    expect(state.counts.versionsSeen.size).toBe(0);
-  });
-
-  it("records a version string as-is even when it has no leading integer", () => {
-    const state = createTranscriptReadState();
-    advance(state, parsedLine({ version: "vNext" }));
-
-    expect([...state.counts.versionsSeen]).toEqual(["vNext"]);
-  });
-
-  // otherLineSchema's `version` falls under its looseObject catchall, so a
-  // non-string value must not be recorded (typeof guard).
-  it("does not record a non-string version on an ignored line", () => {
-    const state = createTranscriptReadState();
-    const result = advance(state, ignoredLine({ version: 3 }));
-
-    expect(state.counts.versionsSeen.size).toBe(0);
-    expect(result).toBeDefined();
-  });
 });

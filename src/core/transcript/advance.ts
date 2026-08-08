@@ -1,8 +1,8 @@
 // Pure per-line reducer for transcript ingestion — 02-ingestion.md "Parser
 // requirements", 15-spec.md D3. The streaming reader (src/io/transcript/
 // read.ts) owns the filesystem (read stream, readline) and feeds each raw
-// line through advance(); this module owns every decision: counters,
-// version tracking, and what (if anything) to yield.
+// line through advance(); this module owns every decision: the counters
+// and what (if anything) to yield.
 //
 // NO IO: no fs, no logging. advance() mutates the state object it's given —
 // see the build task's design note: a persistent/immutable state structure
@@ -17,7 +17,6 @@ export interface TranscriptCounts {
   linesSkipped: number;
   /** Valid JSON of a type ingestion doesn't handle (transcript sidecar records) — still yielded. */
   linesIgnored: number;
-  versionsSeen: Set<string>;
 }
 
 /** State threaded through advance() across a transcript's lines. */
@@ -32,17 +31,14 @@ export function createTranscriptReadState(): TranscriptReadState {
       linesRead: 0,
       linesSkipped: 0,
       linesIgnored: 0,
-      versionsSeen: new Set(),
     },
   };
 }
 
 /**
  * Applies one raw JSONL line to `state`: routes malformed/ignored/parsed
- * lines to the right counter, tracks the version (parsed and ignored lines
- * alike — version tracking is unqualified by line type), and decides
- * whether to yield. Mutates `state`. Returns the line to yield, or
- * undefined for a malformed line.
+ * lines to the right counter, and decides whether to yield. Mutates
+ * `state`. Returns the line to yield, or undefined for a malformed line.
  */
 export function advance(state: TranscriptReadState, rawLine: string): TranscriptLine | undefined {
   state.counts.linesRead += 1;
@@ -51,13 +47,6 @@ export function advance(state: TranscriptReadState, rawLine: string): Transcript
   if (result.status === "malformed") {
     state.counts.linesSkipped += 1;
     return undefined;
-  }
-
-  // An ignored line's `version` is `unknown` under looseObject's catchall,
-  // hence the typeof guard.
-  const version = typeof result.line.version === "string" ? result.line.version : undefined;
-  if (version !== undefined) {
-    state.counts.versionsSeen.add(version);
   }
 
   if (result.status === "ignored") {
