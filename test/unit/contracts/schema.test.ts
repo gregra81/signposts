@@ -41,6 +41,12 @@ describe("contracts/schema", () => {
     it("parses a valid user line", () => {
       expect(userLineSchema.safeParse(valid).success).toBe(true);
     });
+
+    it("still parses a real line carrying the removed promptSource field (looseObject is permissive, not strict)", () => {
+      const result = userLineSchema.safeParse({ ...valid, promptSource: "typed" });
+      expect(result.success).toBe(true);
+      expect(result.success && (result.data as { promptSource?: string }).promptSource).toBe("typed");
+    });
   });
 
   describe("assistantLineSchema", () => {
@@ -52,6 +58,12 @@ describe("contracts/schema", () => {
 
     it("parses a valid assistant line", () => {
       expect(assistantLineSchema.safeParse(valid).success).toBe(true);
+    });
+
+    it("still parses a real line carrying the removed requestId field (looseObject is permissive, not strict)", () => {
+      const result = assistantLineSchema.safeParse({ ...valid, requestId: "req_123" });
+      expect(result.success).toBe(true);
+      expect(result.success && (result.data as { requestId?: string }).requestId).toBe("req_123");
     });
   });
 
@@ -74,6 +86,10 @@ describe("contracts/schema", () => {
 
     it("parses a valid other line", () => {
       expect(otherLineSchema.safeParse(valid).success).toBe(true);
+    });
+
+    it("parses a real sidecar line with no envelope at all", () => {
+      expect(otherLineSchema.safeParse({ type: "mode", mode: "normal" }).success).toBe(true);
     });
 
     it("rejects a non-string type tag", () => {
