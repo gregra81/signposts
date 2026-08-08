@@ -17,7 +17,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 import * as fs from "node:fs";
 import { readTranscript } from "../../../src/io/transcript/read.js";
-import { isHumanTurn, isUserLine } from "../../../src/core/transcript/classify.js";
+import { isHumanTurn } from "../../../src/core/transcript/classify.js";
 import type { UserLine } from "../../../src/core/contracts/schema.js";
 
 const line = (fields: Record<string, unknown>) =>
@@ -241,7 +241,7 @@ describe("readTranscript", () => {
     expect(counts.linesSkipped).toBe(0);
     expect(counts.linesIgnored).toBe(1); // the sidecar mode line
 
-    const humanTurns = collected.filter(isUserLine).filter(isHumanTurn);
+    const humanTurns = collected.filter(isHumanTurn);
 
     expect(humanTurns).toHaveLength(1);
     expect(humanTurns[0]!.uuid).toBe("88f130c9-...");

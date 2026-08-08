@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isHumanTurn, isUserLine, parseLine } from "../../../src/core/transcript/classify.js";
+import { isHumanTurn, parseLine } from "../../../src/core/transcript/classify.js";
 import type { TranscriptLine, UserLine } from "../../../src/core/contracts/schema.js";
 
 const baseEnvelope = {
@@ -78,7 +78,7 @@ const GENUINE_HUMAN_TURN: UserLine = {
 };
 
 // Table-driven cases for isHumanTurn.
-const cases: Array<[string, UserLine, boolean]> = [
+const cases: Array<[string, TranscriptLine, boolean]> = [
   ["slash-command stdout wearing a user hat (no origin)", SLASH_COMMAND_STDOUT, false],
   ["slash-command invocation tags (no origin)", SLASH_COMMAND_INVOCATION, false],
   ["skill-body expansion: content array of text blocks, no origin", SKILL_BODY_EXPANSION, false],
@@ -122,24 +122,36 @@ const cases: Array<[string, UserLine, boolean]> = [
     },
     false,
   ],
+  ["a system line — false", { ...baseEnvelope, type: "system" }, false],
+  ["an assistant line — false", { ...baseEnvelope, type: "assistant" }, false],
+  ["an unrecognised-type line — false", { ...baseEnvelope, type: "summary" }, false],
+  // These three carry origin.kind === "human" on a non-"user" line, so the
+  // origin check alone would pass them — only the type === "user" guard
+  // rejects them. Without these, deleting that guard from isHumanTurn
+  // would not fail any test above: they all lack origin, so origin?.kind
+  // !== "human" rejects them regardless of the type check. Don't fold
+  // these into the plain rows above as duplicates; they test a different
+  // branch on purpose.
+  [
+    "a system line carrying origin.kind human — false, the type check is what rejects it",
+    { ...baseEnvelope, type: "system", origin: { kind: "human" } },
+    false,
+  ],
+  [
+    "an assistant line carrying origin.kind human — false",
+    { ...baseEnvelope, type: "assistant", origin: { kind: "human" } },
+    false,
+  ],
+  [
+    "an unrecognised-type line carrying origin.kind human — false",
+    { ...baseEnvelope, type: "summary", origin: { kind: "human" } },
+    false,
+  ],
 ];
 
 describe("isHumanTurn", () => {
   it.each(cases)("%s", (_name, line, expected) => {
     expect(isHumanTurn(line)).toBe(expected);
-  });
-});
-
-describe("isUserLine", () => {
-  const userLineCases: Array<[string, TranscriptLine, boolean]> = [
-    ["a user line", GENUINE_HUMAN_TURN, true],
-    ["a system line", { ...baseEnvelope, type: "system" }, false],
-    ["an assistant line", { ...baseEnvelope, type: "assistant" }, false],
-    ["an other line", { ...baseEnvelope, type: "summary" }, false],
-  ];
-
-  it.each(userLineCases)("%s -> %s", (_name, line, expected) => {
-    expect(isUserLine(line)).toBe(expected);
   });
 });
 

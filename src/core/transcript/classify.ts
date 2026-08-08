@@ -8,7 +8,7 @@
 // and no `origin` at all) reads as human text to a naive parser.
 //
 // PURE: no fs, no logging. read.ts calls advance(), which calls parseLine
-// per line; isHumanTurn is exported for callers to run per user line.
+// per line; isHumanTurn is exported for callers to run per line.
 
 import {
   KNOWN_LINE_TYPES,
@@ -63,23 +63,19 @@ export function parseLine(raw: string): ParseLineResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Narrows a TranscriptLine to a UserLine by discriminating on `type`.
- * `TranscriptLine` is a plain union (OtherLine.type is `string`, not a
- * literal — see contracts/schema.ts), so `line.type === "user"` alone does
- * not narrow away OtherLine. Callers of readTranscript need this to reach
- * isHumanTurn, which only accepts UserLine.
+ * True iff line is a user line with origin.kind === "human". Used to be
+ * four rules (isMeta, toolUseResult presence, all-blocks-tool_result
+ * content, origin.kind) — measured across 105 transcripts / 3532 user
+ * lines, the other three never rejected a line that origin.kind didn't
+ * already reject, so they were dead weight. origin.kind alone is the
+ * load-bearing check.
  */
-export function isUserLine(line: TranscriptLine): line is UserLine {
-  return line.type === "user";
-}
-
-/**
- * True iff origin.kind is "human". Used to be four rules (isMeta,
- * toolUseResult presence, all-blocks-tool_result content, origin.kind) —
- * measured across 105 transcripts / 3532 user lines, the other three never
- * rejected a line that origin.kind didn't already reject, so they were
- * dead weight. origin.kind alone is the load-bearing check.
- */
-export function isHumanTurn(line: UserLine): boolean {
-  return line.origin?.kind === "human";
+export function isHumanTurn(line: TranscriptLine): boolean {
+  // `TranscriptLine` is a plain union (OtherLine.type is `string`, not a
+  // literal — see contracts/schema.ts), so `line.type === "user"` alone
+  // does not narrow away OtherLine. The cast is sound: otherLineSchema
+  // fatally rejects the three known type tags, so a line with
+  // type === "user" can only have come from userLineSchema — the same
+  // argument parseLine's casts rely on.
+  return line.type === "user" && (line as UserLine).origin?.kind === "human";
 }
