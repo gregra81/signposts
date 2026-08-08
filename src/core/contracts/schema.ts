@@ -59,8 +59,6 @@ export const userLineSchema = z.looseObject({
       content: z.unknown(),
     })
     .optional(),
-  isMeta: z.boolean().optional(),
-  toolUseResult: z.unknown().optional(), // presence => not a human turn
   origin: z.looseObject({ kind: z.string() }).optional(), // kind==="human" is load-bearing
   promptSource: z.string().optional(), // "typed" | "suggestion_accepted" | string
 });

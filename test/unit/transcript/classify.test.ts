@@ -85,61 +85,6 @@ const cases: Array<[string, UserLine, boolean]> = [
   ["skill-body expansion: content array of text blocks, no origin", SKILL_BODY_EXPANSION, false],
   ["genuine typed human turn", GENUINE_HUMAN_TURN, true],
   [
-    "all-tool_result content array WITH origin.kind === human — still false: the all-tool_result rule is independent",
-    {
-      ...baseEnvelope,
-      type: "user",
-      message: { role: "user", content: [{ type: "tool_result" }] },
-      origin: { kind: "human" },
-    },
-    false,
-  ],
-  [
-    "content array mixing one tool_result and one text block, origin human — true (every, not some)",
-    {
-      ...baseEnvelope,
-      type: "user",
-      message: {
-        role: "user",
-        content: [{ type: "tool_result" }, { type: "text", text: "hi" }],
-      },
-      origin: { kind: "human" },
-    },
-    true,
-  ],
-  [
-    "bare toolUseResult field present, origin human, plain-string content — false",
-    {
-      ...baseEnvelope,
-      type: "user",
-      message: { role: "user", content: "some result text" },
-      toolUseResult: { some: "result" },
-      origin: { kind: "human" },
-    },
-    false,
-  ],
-  [
-    "content array containing a non-object block (null), origin human — true, and must not throw",
-    {
-      ...baseEnvelope,
-      type: "user",
-      message: { role: "user", content: [null, { type: "text", text: "hi" }] },
-      origin: { kind: "human" },
-    },
-    true,
-  ],
-  [
-    "isMeta true, origin human — false",
-    {
-      ...baseEnvelope,
-      type: "user",
-      message: { role: "user", content: "meta text" },
-      isMeta: true,
-      origin: { kind: "human" },
-    },
-    false,
-  ],
-  [
     "origin.kind === task-notification (real value seen on disk) — false",
     {
       ...baseEnvelope,
@@ -150,14 +95,41 @@ const cases: Array<[string, UserLine, boolean]> = [
     false,
   ],
   [
-    // [].every(...) is vacuously true, so an empty content array is treated
-    // as "all tool_result" and rejected even when origin.kind === "human".
-    "empty content array with origin human — false (vacuous all-tool_result)",
+    "origin.kind === coordinator (real value seen on disk) — false",
     {
       ...baseEnvelope,
       type: "user",
-      message: { role: "user", content: [] },
-      origin: { kind: "human" },
+      message: { role: "user", content: "hi" },
+      origin: { kind: "coordinator" },
+    },
+    false,
+  ],
+  [
+    "origin.kind === peer (real value seen on disk) — false",
+    {
+      ...baseEnvelope,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      origin: { kind: "peer" },
+    },
+    false,
+  ],
+  [
+    "origin key absent — false",
+    {
+      ...baseEnvelope,
+      type: "user",
+      message: { role: "user", content: "hi" },
+    },
+    false,
+  ],
+  [
+    "origin present, kind absent — false",
+    {
+      ...baseEnvelope,
+      type: "user",
+      message: { role: "user", content: "hi" },
+      origin: {} as unknown as UserLine["origin"],
     },
     false,
   ],

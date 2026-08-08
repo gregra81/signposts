@@ -1,7 +1,8 @@
 // Human-turn classification and the pure line-parsing step for transcript
 // ingestion — 02-ingestion.md "Classifying `user` lines — the critical
-// rule", 15-spec.md D3. Only ~1/3 of `user` lines are a human speaking; the
-// rest are tool results and slash-command noise wearing a user hat.
+// rule", 15-spec.md D3. Only ~6% of `user` lines are a human speaking (206
+// of 3532, measured across 105 transcripts); the rest are tool results and
+// slash-command noise wearing a user hat.
 // `origin.kind === "human"` is the load-bearing check — without it,
 // slash-command stdout (an ordinary `user` line with plain-string content
 // and no `origin` at all) reads as human text to a naive parser.
@@ -19,10 +20,6 @@ import {
   type TranscriptLine,
   type UserLine,
 } from "../contracts/schema.js";
-import { DROP_BLOCK_TYPES } from "../config/constants.js";
-
-// Same wire-format block type tag as the gutter's drop list in constants.ts.
-const TOOL_RESULT_BLOCK_TYPE: "tool_result" = DROP_BLOCK_TYPES[1];
 
 // ---------------------------------------------------------------------------
 // Line parsing
@@ -66,15 +63,6 @@ export function parseLine(raw: string): ParseLineResult {
 // Human-turn classification
 // ---------------------------------------------------------------------------
 
-function isToolResultBlock(block: unknown): boolean {
-  return (
-    typeof block === "object" &&
-    block !== null &&
-    "type" in block &&
-    (block as { type: unknown }).type === TOOL_RESULT_BLOCK_TYPE
-  );
-}
-
 /**
  * Narrows a TranscriptLine to a UserLine by discriminating on `type`.
  * `TranscriptLine` is a plain union (OtherLine.type is `string`, not a
@@ -87,26 +75,12 @@ export function isUserLine(line: TranscriptLine): line is UserLine {
 }
 
 /**
- * Returns false when: isMeta is true; toolUseResult is present;
- * message.content is an array whose blocks are all tool_result; or
- * origin.kind !== "human". Otherwise true. An empty content array is
- * vacuously "every block is tool_result" (Array.prototype.every on []
- * is true) and origin.kind !== "human" would also reject it — either way
- * an empty content array is never a human turn.
+ * True iff origin.kind is "human". Used to be four rules (isMeta,
+ * toolUseResult presence, all-blocks-tool_result content, origin.kind) —
+ * measured across 105 transcripts / 3532 user lines, the other three never
+ * rejected a line that origin.kind didn't already reject, so they were
+ * dead weight. origin.kind alone is the load-bearing check.
  */
 export function isHumanTurn(line: UserLine): boolean {
-  if (line.isMeta) {
-    return false;
-  }
-  if (line.toolUseResult !== undefined) {
-    return false;
-  }
-  const content = line.message?.content;
-  if (Array.isArray(content) && content.every(isToolResultBlock)) {
-    return false;
-  }
-  if (line.origin?.kind !== "human") {
-    return false;
-  }
-  return true;
+  return line.origin?.kind === "human";
 }
