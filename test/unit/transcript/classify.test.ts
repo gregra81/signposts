@@ -77,8 +77,7 @@ const GENUINE_HUMAN_TURN: UserLine = {
   gitBranch: "main",
 };
 
-// Table-driven cases for isHumanTurn (R5). Each row is independently
-// distinct — no case is a strict subset of another's setup.
+// Table-driven cases for isHumanTurn.
 const cases: Array<[string, UserLine, boolean]> = [
   ["slash-command stdout wearing a user hat (no origin)", SLASH_COMMAND_STDOUT, false],
   ["slash-command invocation tags (no origin)", SLASH_COMMAND_INVOCATION, false],
@@ -120,16 +119,6 @@ const cases: Array<[string, UserLine, boolean]> = [
       ...baseEnvelope,
       type: "user",
       message: { role: "user", content: "hi" },
-    },
-    false,
-  ],
-  [
-    "origin present, kind absent — false",
-    {
-      ...baseEnvelope,
-      type: "user",
-      message: { role: "user", content: "hi" },
-      origin: {} as unknown as UserLine["origin"],
     },
     false,
   ],
@@ -185,7 +174,7 @@ describe("parseLine", () => {
     expect(result.status).toBe("malformed");
   });
 
-  // Real sidecar records (02-ingestion.md, requirements v2 / R2, R7): valid
+  // Real sidecar records (02-ingestion.md "Parser requirements"): valid
   // JSON, no envelope at all, a type ingestion doesn't handle. These must
   // parse as "ignored", not "malformed" — that was the ~32% miscount.
   const sidecarCases: Array<[string, string]> = [

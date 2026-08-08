@@ -28,7 +28,7 @@ export interface TranscriptRead {
   counts: TranscriptCounts;
 }
 
-/** Streams `filePath` line by line, never reading the whole file into memory (R1). */
+/** Streams `filePath` line by line, never reading the whole file into memory. */
 export function readTranscript(filePath: string): TranscriptRead {
   const state = createTranscriptReadState();
 

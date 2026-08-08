@@ -7,9 +7,8 @@
 // slash-command stdout (an ordinary `user` line with plain-string content
 // and no `origin` at all) reads as human text to a naive parser.
 //
-// PURE: no fs, no logging. The streaming reader (src/io/transcript/read.ts)
-// calls parseLine per line; isHumanTurn is exported for callers to run per
-// user line.
+// PURE: no fs, no logging. read.ts calls advance(), which calls parseLine
+// per line; isHumanTurn is exported for callers to run per user line.
 
 import {
   KNOWN_LINE_TYPES,
@@ -32,14 +31,14 @@ export type ParseLineResult =
 
 /**
  * Parses one JSONL line: JSON.parse then validate against
- * transcriptLineSchema. Never throws (R2/R6).
+ * transcriptLineSchema. Never throws.
  *
  * Three outcomes, not two — "malformed" and "unrecognised type" are
- * different things (R2/R7): invalid JSON, or a known-type (user/assistant/
- * system) line that fails its schema, is "malformed". A valid-JSON line
- * with a type ingestion doesn't handle (transcript sidecar records like
- * "mode", "ai-title") is "ignored" — it parsed fine, we just don't do
- * anything with it.
+ * different things (02-ingestion.md "Parser requirements"): invalid JSON,
+ * or a known-type (user/assistant/system) line that fails its schema, is
+ * "malformed". A valid-JSON line with a type ingestion doesn't handle
+ * (transcript sidecar records like "mode", "ai-title") is "ignored" — it
+ * parsed fine, we just don't do anything with it.
  */
 export function parseLine(raw: string): ParseLineResult {
   let json: unknown;

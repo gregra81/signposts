@@ -14,7 +14,7 @@ const parsedLine = (fields: Record<string, unknown> = {}) =>
 const ignoredLine = (fields: Record<string, unknown> = {}) =>
   JSON.stringify({ type: "mode", mode: "normal", sessionId: "s1", ...fields });
 
-// Table-driven: each parse status routes to its own counter (R7).
+// Table-driven: each parse status routes to its own counter.
 describe("advance", () => {
   const statusCases: Array<[string, string, "linesSkipped" | "linesIgnored" | undefined]> = [
     ["malformed (bad JSON) -> linesSkipped, no emit", "{not json", "linesSkipped"],
@@ -52,7 +52,7 @@ describe("advance", () => {
     expect(state.counts.linesRead).toBe(3);
   });
 
-  // Version recorded for both parsed and ignored lines (R4/R7).
+  // Version recorded for both parsed and ignored lines.
   it("records the version from a parsed line", () => {
     const state = createTranscriptReadState();
     advance(state, parsedLine({ version: "2.1.223" }));
@@ -82,7 +82,7 @@ describe("advance", () => {
   });
 
   // otherLineSchema's `version` falls under its looseObject catchall, so a
-  // non-string value must not be recorded (typeof guard, R7).
+  // non-string value must not be recorded (typeof guard).
   it("does not record a non-string version on an ignored line", () => {
     const state = createTranscriptReadState();
     const result = advance(state, ignoredLine({ version: 3 }));

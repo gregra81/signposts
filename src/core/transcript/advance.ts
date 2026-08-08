@@ -13,14 +13,14 @@ import type { TranscriptLine } from "../contracts/schema.js";
 
 export interface TranscriptCounts {
   linesRead: number;
-  /** Invalid JSON, or a known-type (user/assistant/system) line that failed its schema (R2). */
+  /** Invalid JSON, or a known-type (user/assistant/system) line that failed its schema. */
   linesSkipped: number;
-  /** Valid JSON of a type ingestion doesn't handle (transcript sidecar records) — still yielded (R7/R8). */
+  /** Valid JSON of a type ingestion doesn't handle (transcript sidecar records) — still yielded. */
   linesIgnored: number;
   versionsSeen: Set<string>;
 }
 
-/** State threaded through advance() across a transcript's lines (R1/R2). */
+/** State threaded through advance() across a transcript's lines. */
 export interface TranscriptReadState {
   counts: TranscriptCounts;
 }
@@ -40,9 +40,9 @@ export function createTranscriptReadState(): TranscriptReadState {
 /**
  * Applies one raw JSONL line to `state`: routes malformed/ignored/parsed
  * lines to the right counter, tracks the version (parsed and ignored lines
- * alike — R4 is unqualified by line type), and decides whether to yield.
- * Mutates `state` (R1). Returns the line to yield, or undefined for a
- * malformed line.
+ * alike — version tracking is unqualified by line type), and decides
+ * whether to yield. Mutates `state`. Returns the line to yield, or
+ * undefined for a malformed line.
  */
 export function advance(state: TranscriptReadState, rawLine: string): TranscriptLine | undefined {
   state.counts.linesRead += 1;

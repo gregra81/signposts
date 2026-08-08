@@ -17,6 +17,8 @@ vi.mock("node:fs", async (importOriginal) => {
 
 import * as fs from "node:fs";
 import { readTranscript } from "../../../src/io/transcript/read.js";
+import { isHumanTurn, isUserLine } from "../../../src/core/transcript/classify.js";
+import type { UserLine } from "../../../src/core/contracts/schema.js";
 
 const line = (fields: Record<string, unknown>) =>
   JSON.stringify({
@@ -110,9 +112,9 @@ describe("readTranscript", () => {
   });
 
   it("records the version from an unrecognised-type (ignored) line, with no known-type line in the file at all", async () => {
-    // Real shape: "attachment" sidecar lines carry a version field. R4 is
-    // unqualified by line type — this must still record even though every
-    // line in the file is "ignored", never "parsed".
+    // Real shape: "attachment" sidecar lines carry a version field. Version
+    // tracking is unqualified by line type — this must still record even
+    // though every line in the file is "ignored", never "parsed".
     const file = path.join(dir, "attachment-only.jsonl");
     writeFileSync(
       file,
@@ -150,6 +152,103 @@ describe("readTranscript", () => {
     expect(stream.destroyed).toBe(true);
   });
 
+  it("end-to-end: streams a real mixed transcript, filters to the one genuine human turn", async () => {
+    // Real transcript samples, verbatim (see 02-ingestion.md and
+    // test/unit/transcript/classify.test.ts's fixtures of the same shapes).
+    const GENUINE_HUMAN_TURN: UserLine = {
+      parentUuid: "52b3dc93-...",
+      isSidechain: false,
+      sessionId: "538d7b04-...",
+      uuid: "88f130c9-...",
+      timestamp: "2026-08-06T09:32:56.680Z",
+      type: "user",
+      message: { role: "user", content: "go on" },
+      origin: { kind: "human" },
+      cwd: "/Users/greg/Projects/signposts",
+      version: "2.1.223",
+      gitBranch: "main",
+    };
+
+    const SLASH_COMMAND_STDOUT: UserLine = {
+      parentUuid: "0d75d20f-0806-4ddd-8141-8cda54ae91bd",
+      isSidechain: false,
+      sessionId: "554309cd-84e8-4b4c-b572-1b085f037ff8",
+      uuid: "8ee0474f-30c6-472b-8722-5062591b9ac3",
+      timestamp: "2026-08-02T13:12:59.967Z",
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "<local-command-stdout>Set model to [1mSonnet 5[22m and saved as your default for new sessions</local-command-stdout>",
+      },
+      cwd: "/Users/greg/Projects/signposts",
+      version: "2.1.220",
+      gitBranch: "HEAD",
+    };
+
+    const SKILL_BODY_EXPANSION: UserLine = {
+      parentUuid: "9f0506fc-...",
+      isSidechain: false,
+      sessionId: "s1",
+      uuid: "skill-1",
+      timestamp: "2026-08-06T08:20:00.000Z",
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Base directory for this skill: /Users/greg/.claude/skills/dev-team\n\n# Dev Team\n...",
+          },
+        ],
+      },
+      version: "2.1.223",
+    };
+
+    const TOOL_RESULT: UserLine = {
+      parentUuid: "8ee0474f-30c6-472b-8722-5062591b9ac3",
+      isSidechain: false,
+      sessionId: "554309cd-84e8-4b4c-b572-1b085f037ff8",
+      uuid: "tool-result-1",
+      timestamp: "2026-08-02T13:13:00.000Z",
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_01abc", content: "file written" }],
+      },
+      cwd: "/Users/greg/Projects/signposts",
+      version: "2.1.220",
+      gitBranch: "HEAD",
+    };
+
+    const SIDECAR_MODE = '{"type":"mode","mode":"normal","sessionId":"1e55648c-e427-4226-b7ea-38d38ec829f3"}';
+
+    const file = path.join(dir, "mixed.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify(SLASH_COMMAND_STDOUT),
+        JSON.stringify(SKILL_BODY_EXPANSION),
+        JSON.stringify(TOOL_RESULT),
+        SIDECAR_MODE,
+        JSON.stringify(GENUINE_HUMAN_TURN),
+      ].join("\n"),
+    );
+
+    const { collected, counts } = await collect(file);
+
+    expect(collected).toHaveLength(5);
+    expect(counts.linesSkipped).toBe(0);
+    expect(counts.linesIgnored).toBe(1); // the sidecar mode line
+
+    const humanTurns = collected.filter(isUserLine).filter(isHumanTurn);
+
+    expect(humanTurns).toHaveLength(1);
+    expect(humanTurns[0]!.uuid).toBe("88f130c9-...");
+    expect(humanTurns[0]!.origin).toEqual({ kind: "human" });
+    expect(humanTurns[0]!.message).toEqual({ role: "user", content: "go on" });
+  });
+
   it("fuzz: arbitrary strings joined as lines never throw, and skipped+parsed counts sum to lines read", async () => {
     await fc.assert(
       fc.asyncProperty(fc.array(fc.string(), { maxLength: 20 }), async (rawLines) => {
@@ -163,10 +262,10 @@ describe("readTranscript", () => {
         // scalars, since fc.string() draws plain text, never object syntax
         // with a "type" key. A scalar fails otherLineSchema's looseObject
         // (which requires an object), so it lands in linesSkipped either way.
-        // Sharpens R2's new boundary: "invalid JSON" and "valid JSON, wrong
-        // shape" both land in linesSkipped, and only a real object with an
-        // unrecognised `type` string reaches linesIgnored — which is exactly
-        // what would catch a moved boundary.
+        // Sharpens the malformed/ignored boundary: "invalid JSON" and "valid
+        // JSON, wrong shape" both land in linesSkipped, and only a real
+        // object with an unrecognised `type` string reaches linesIgnored —
+        // which is exactly what would catch a moved boundary.
         expect(counts.linesIgnored).toBe(0);
       }),
     );

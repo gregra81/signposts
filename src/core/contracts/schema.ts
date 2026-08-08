@@ -31,13 +31,16 @@ import { z } from "zod";
 // ---------------------------------------------------------------------------
 
 export const envelopeSchema = z.looseObject({
+  // Required so a corrupt/truncated line fails validation into
+  // linesSkipped (the drift tripwire) — not because either value is
+  // consumed downstream.
   uuid: z.string(),
   parentUuid: z.string().nullable(),
   sessionId: z.string(),
   timestamp: z.string(), // ISO 8601
   cwd: z.string().optional(), // maps session -> repo
   gitBranch: z.string().optional(),
-  version: z.string().optional(), // Claude Code version; log unseen majors
+  version: z.string().optional(), // Claude Code version; recorded in counts.versionsSeen, never gated on
   isSidechain: z.boolean().optional(), // true = subagent; skipped in v1
 });
 export type Envelope = z.infer<typeof envelopeSchema>;
@@ -60,7 +63,6 @@ export const userLineSchema = z.looseObject({
     })
     .optional(),
   origin: z.looseObject({ kind: z.string() }).optional(), // kind==="human" is load-bearing
-  promptSource: z.string().optional(), // "typed" | "suggestion_accepted" | string
 });
 export type UserLine = z.infer<typeof userLineSchema>;
 
@@ -73,7 +75,6 @@ export const assistantLineSchema = z.looseObject({
       content: z.unknown(),
     })
     .optional(),
-  requestId: z.string().optional(),
 });
 export type AssistantLine = z.infer<typeof assistantLineSchema>;
 
@@ -92,7 +93,7 @@ export type SystemLine = z.infer<typeof systemLineSchema>;
 // envelopeSchema here made every one of those fail validation and get counted
 // as malformed alongside actually-corrupt lines (~32% of a real transcript,
 // observed 0% actually corrupt). An unrecognised type is skipped because
-// ingestion doesn't handle it, not because it failed to parse (R2/R7).
+// ingestion doesn't handle it, not because it failed to parse.
 // Excludes the three known tags — via a fatal superRefine, not a plain
 // refine — so a malformed known-type line (e.g. a "user" line with a bad
 // message) aborts this branch instead of silently falling through here.
