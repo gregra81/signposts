@@ -42,6 +42,21 @@ describe("gutterTurns — STRIP_TAGS noise removal (B2)", () => {
     expect(out?.text).toBe("plain text");
   });
 
+  it("strips every occurrence of the same tag, not just the first (g flag)", () => {
+    const text = "<system-reminder>first</system-reminder>keep<system-reminder>second</system-reminder>";
+    const [out] = gutterTurns([human(text)]);
+    expect(out?.text).toBe("keep");
+    expect(out?.text).not.toContain("first");
+    expect(out?.text).not.toContain("second");
+  });
+
+  it("strips a tagged block whose body spans multiple lines (s flag)", () => {
+    const text = "before <system-reminder>line one\nline two</system-reminder> after";
+    const [out] = gutterTurns([human(text)]);
+    expect(out?.text).toBe("before  after");
+    expect(out?.text).not.toContain("line one");
+  });
+
   it("only removes matched tags, leaving surrounding plain text untouched", () => {
     const text = "keep this <system-reminder>drop this</system-reminder> and keep this too";
     const [out] = gutterTurns([human(text)]);

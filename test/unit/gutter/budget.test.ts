@@ -35,6 +35,16 @@ describe("head", () => {
     expect(head(text, 2, 8)).toBe("1234567.");
   });
 
+  it("includes the whole final sentence, untrimmed, when it lands exactly at maxChars (not just the first sentence)", () => {
+    // "Hi. " (4 chars) + "AB\uD800" (3 chars, ending in a lone high
+    // surrogate) = 7 chars, exactly maxChars. `>` (not `>=`) must not treat
+    // this as over budget, so the loop finishes naturally and returns the
+    // bare, untrimmed result — including the lone surrogate the >= mutant
+    // would strip via an unwarranted trim call.
+    const text = "Hi. AB\uD800";
+    expect(head(text, 2, text.length)).toBe(text);
+  });
+
   it("returns the whole (short) text when there is no terminal punctuation", () => {
     expect(head("no punctuation here", 2, 400)).toBe("no punctuation here");
   });
@@ -114,6 +124,18 @@ describe("headAndTail", () => {
 
     expect(result).toBe(prefix + suffix);
     expect(result.isWellFormed()).toBe(true);
+  });
+
+  it("keeps a surrogate pair straddling the exact head/tail split point intact, not shaved (<=  boundary)", () => {
+    // text.length === headChars + tailChars exactly, and the emoji's UTF-16
+    // pair straddles index headChars: the `<=` branch returns text
+    // untouched (pair intact). The `<` mutant instead falls into the
+    // slice-and-trim branch, which cuts through the pair and shaves both
+    // halves away — a real, observable difference, not equivalent.
+    const headChars = 6;
+    const tailChars = 4;
+    const text = "a".repeat(headChars - 1) + "😀" + "b".repeat(tailChars - 1);
+    expect(headAndTail(text, headChars, tailChars)).toBe(text);
   });
 
   it("yields exactly the head, not head+full text, when tailChars is 0 (N4)", () => {
