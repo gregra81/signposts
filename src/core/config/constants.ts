@@ -39,9 +39,6 @@ export const MAX_TRANSCRIPT_BYTES = 50_000_000;
 
 export const MIN_GUTTERED_TOKENS = 100;
 
-/** Revisit if golden set shows missed lessons in subagents. */
-export const SKIP_SIDECHAIN = true;
-
 // ---------------------------------------------------------------------------
 // Gutter
 // ---------------------------------------------------------------------------
