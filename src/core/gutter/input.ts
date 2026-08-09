@@ -10,7 +10,7 @@
 // doesn't exist yet in this codebase, per gutter.ts's own header comment.
 
 import { isHumanTurn } from "../transcript/classify.js";
-import { TOOL_RESULT_BLOCK_TYPE } from "../config/constants.js";
+import { TEXT_BLOCK_TYPE, TOOL_RESULT_BLOCK_TYPE, TOOL_USE_BLOCK_TYPE } from "../config/constants.js";
 import type { AssistantLine, TranscriptLine, UserLine } from "../contracts/schema.js";
 import type { AssistantGutterInputTurn, ContentBlock, GutterInputTurn, HumanGutterInputTurn } from "./types.js";
 
@@ -30,7 +30,7 @@ function flattenContent(content: unknown): string {
   }
   let text = "";
   for (const block of content) {
-    if (typeof block === "object" && block !== null && (block as { type?: unknown }).type === "text") {
+    if (typeof block === "object" && block !== null && (block as { type?: unknown }).type === TEXT_BLOCK_TYPE) {
       const blockText = (block as { text?: unknown }).text;
       if (typeof blockText === "string") {
         text += blockText;
@@ -60,10 +60,10 @@ function toContentBlock(block: unknown): ContentBlock | undefined {
     return undefined;
   }
   const typed = block as { type: string; text?: unknown; id?: unknown; name?: unknown; tool_use_id?: unknown };
-  if (typed.type === "text") {
-    return typeof typed.text === "string" ? { type: "text", text: typed.text } : undefined;
+  if (typed.type === TEXT_BLOCK_TYPE) {
+    return typeof typed.text === "string" ? { type: TEXT_BLOCK_TYPE, text: typed.text } : undefined;
   }
-  if (typed.type === "tool_use") {
+  if (typed.type === TOOL_USE_BLOCK_TYPE) {
     return typeof typed.id === "string" && typeof typed.name === "string" ? (block as ContentBlock) : undefined;
   }
   if (typed.type === TOOL_RESULT_BLOCK_TYPE) {
@@ -79,7 +79,7 @@ function toContentBlock(block: unknown): ContentBlock | undefined {
  */
 function toContentBlocks(content: unknown): ContentBlock[] {
   if (typeof content === "string") {
-    return [{ type: "text", text: content }];
+    return [{ type: TEXT_BLOCK_TYPE, text: content }];
   }
   if (Array.isArray(content)) {
     return content.map(toContentBlock).filter((block): block is ContentBlock => block !== undefined);

@@ -13,6 +13,8 @@ import {
   ASSISTANT_HEAD_SENTENCES,
   ASSISTANT_TAIL_CHARS_ADJACENT,
   STRIP_TAGS,
+  TEXT_BLOCK_TYPE,
+  TOOL_USE_BLOCK_TYPE,
 } from "../config/constants.js";
 import { head, headAndTail } from "./budget.js";
 import type { AssistantGutterInputTurn, ContentBlock, GutterInputTurn, GutteredTurn } from "./types.js";
@@ -64,7 +66,7 @@ export function stripTaggedNoise(text: string): string {
 function assistantText(blocks: ContentBlock[]): string {
   let text = "";
   for (const block of blocks) {
-    if (block.type === "text") {
+    if (block.type === TEXT_BLOCK_TYPE) {
       text += block.text;
     }
   }
@@ -75,7 +77,7 @@ function gutterAssistantTurn(turn: AssistantGutterInputTurn, adjacentToHuman: bo
   const toolNames: string[] = [];
   const filePaths = new Set<string>();
   for (const block of turn.blocks) {
-    if (block.type !== "tool_use") {
+    if (block.type !== TOOL_USE_BLOCK_TYPE) {
       continue;
     }
     toolNames.push(block.name); // name only — no arguments, no results (R4)

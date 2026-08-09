@@ -58,7 +58,9 @@ export const ASSISTANT_HEAD_CHARS_ADJACENT = 600;
 /** Tail budget for the same turn — a plan's conclusion is what gets accepted or rejected. */
 export const ASSISTANT_TAIL_CHARS_ADJACENT = 900;
 
-/** Wire-format tag for a tool_result block — not a tunable, just named to avoid a magic literal. */
+/** Wire-format tags for content block types — not tunables, just named to avoid magic literals. */
+export const TEXT_BLOCK_TYPE = "text";
+export const TOOL_USE_BLOCK_TYPE = "tool_use";
 export const TOOL_RESULT_BLOCK_TYPE = "tool_result";
 
 /** Slash-command noise arriving as user text. */
