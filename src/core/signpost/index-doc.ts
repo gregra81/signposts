@@ -13,13 +13,13 @@ const ACTIVE_STATUS = statusSchema.enum.active;
 // not a second hand-maintained list.
 const CATEGORY_ORDER = categorySchema.options;
 
-function escapePipe(value: string): string {
-  return value.replaceAll("|", "\\|");
+function escapeCell(value: string): string {
+  return value.replaceAll("|", "\\|").replaceAll("\n", " ");
 }
 
 function renderSection(category: string, signposts: readonly Signpost[]): string {
   const rows = signposts
-    .map((s) => `| \`${s.id}\` | ${escapePipe(s.claim)} | ${escapePipe(s.scope.repo)} |`)
+    .map((s) => `| \`${s.id}\` | ${escapeCell(s.claim)} | ${escapeCell(s.scope.repo)} |`)
     .join("\n");
   return `## ${category}\n\n| id | claim | repo |\n| --- | --- | --- |\n${rows}\n`;
 }

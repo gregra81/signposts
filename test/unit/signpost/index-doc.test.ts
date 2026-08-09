@@ -108,4 +108,10 @@ describe("generateIndexDoc", () => {
     const doc = generateIndexDoc([makeSignpost({ id: "id", claim: "Use `a | b` not `a && b`." })]);
     expect(doc).toContain("Use `a \\| b` not `a && b`.");
   });
+
+  it("strips newlines from scope.repo so they can't break the table row", () => {
+    const doc = generateIndexDoc([makeSignpost({ id: "id", scope: { repo: "acme/platform\n| injected | row |" } })]);
+    expect(doc).toContain("acme/platform \\| injected \\| row \\|");
+    expect(doc.split("\n").filter((line) => line.startsWith("| `id`"))).toHaveLength(1);
+  });
 });
