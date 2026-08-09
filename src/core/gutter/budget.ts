@@ -10,7 +10,7 @@
 function sentences(text: string): string[] {
   // Every alternative requires at least one character, so this can never
   // produce an empty match — no need to filter empties out afterwards.
-  const matches = text.match(/[^.!?]*[.!?]+\s*|[^.!?]+$/g);
+  const matches = text.match(/[^.!?]*[.!?]+\s*|[^.!?]+/g);
   return matches ?? [];
 }
 
