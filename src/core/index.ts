@@ -5,3 +5,7 @@ export { isHumanTurn } from "./transcript/classify.js";
 export { gutterTurns } from "./gutter/gutter.js";
 export { toGutterInputTurn } from "./gutter/input.js";
 export { estimateGutteredSessionTokens } from "./gutter/tokens.js";
+export * as signpost from "./signpost/schema.js";
+export { parseSignpost, serialiseSignpost } from "./signpost/codec.js";
+export { generateSlug } from "./signpost/slug.js";
+export { generateIndexDoc } from "./signpost/index-doc.js";
