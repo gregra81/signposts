@@ -45,7 +45,8 @@ export function parseLine(raw: string): ParseLineResult {
   try {
     json = JSON.parse(raw);
   } catch {
-    return { status: "malformed" };
+    // json stays undefined; safeParse below rejects it same as any other
+    // malformed input, so there is nothing distinct to do here.
   }
 
   const result = transcriptLineSchema.safeParse(json);

@@ -23,15 +23,15 @@ const REPORT_PATH = "reports/mutation/mutation.json";
 const THRESHOLDS = [
   { module: "src/core/redact", break: 95 },
   { module: "src/core/paths", break: 95 },
-  { module: "src/core/gate", break: 90 },
-  { module: "src/core/eligibility", break: 90 },
-  { module: "src/core/transcript", break: 85 },
-  { module: "src/core/signpost", break: 85 },
-  { module: "src/core/gutter", break: 80 },
-  { module: "src/core/retrieval", break: 80 },
-  { module: "src/core/pr", break: 80 },
-  { module: "src/core/config", break: 80 },
-  { module: "src/core/contracts", break: 80 },
+  { module: "src/core/gate", break: 95 },
+  { module: "src/core/eligibility", break: 95 },
+  { module: "src/core/transcript", break: 95 },
+  { module: "src/core/signpost", break: 95 },
+  { module: "src/core/gutter", break: 95 },
+  { module: "src/core/retrieval", break: 95 },
+  { module: "src/core/pr", break: 95 },
+  { module: "src/core/config", break: 95 },
+  { module: "src/core/contracts", break: 95 },
 ];
 
 /** Mutant states that count as "the suite caught it". */
