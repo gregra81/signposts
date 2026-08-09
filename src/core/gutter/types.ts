@@ -2,10 +2,11 @@
 // 15-spec.md D3). Deliberately a plain TypeScript regime, not zod:
 // gutter.ts consumes turns already shaped by an upstream assembly step
 // (out of scope here, per this build task's R8 — no GutteredSession
-// assembly), not raw `unknown` JSON off disk. Runtime validation of
-// message.content belongs to whichever step first turns that `unknown`
-// (contracts/schema.ts's userLineSchema/assistantLineSchema) into blocks;
-// gutter.ts's job starts one step after that, on already-typed input.
+// assembly), not raw `unknown` JSON off disk. Runtime narrowing of
+// message.content (contracts/schema.ts leaves it z.unknown()) lives in
+// gutter/input.ts — that's the "will parse blocks itself where it reads
+// them" step schema.ts's comment refers to; gutter.ts's job starts one
+// step after that, on already-typed input.
 //
 // ContentBlock mirrors 12-wire-contracts.md's block union exactly —
 // contracts/schema.ts leaves message.content as z.unknown() and notes the

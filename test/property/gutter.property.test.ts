@@ -2,7 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { gutterTurns } from "../../src/core/gutter/gutter.js";
+import { gutterTurns, stripTaggedNoise } from "../../src/core/gutter/gutter.js";
+import { STRIP_TAGS } from "../../src/core/config/constants.js";
 import type { ContentBlock, GutterInputTurn } from "../../src/core/gutter/types.js";
 
 // Includes long strings so head/headAndTail actually truncate in some runs —
@@ -27,15 +28,28 @@ const contentBlockArb: fc.Arbitrary<ContentBlock> = fc.oneof(
     name: fc.string({ minLength: 1 }),
     input: fc.oneof(
       fc.constant(undefined),
-      fc.record({ file_path: fc.string() }, { requiredKeys: [] }),
+      fc.record(
+        { file_path: fc.string(), notebook_path: fc.string(), path: fc.string() },
+        { requiredKeys: [] },
+      ),
     ),
   }),
   fc.record({ type: fc.constant("tool_result" as const), tool_use_id: fc.string(), content: fc.string() }),
 );
 
+// Sometimes wraps a segment in a STRIP_TAGS tag (e.g. <system-reminder>...
+// </system-reminder>) so P1 actually exercises stripTaggedNoise, not just
+// the identity case.
+const humanTextArb = fc.oneof(
+  textArb,
+  fc
+    .tuple(textArb, fc.constantFrom(...STRIP_TAGS), textArb, textArb)
+    .map(([before, tag, inner, after]) => `${before}<${tag}>${inner}</${tag}>${after}`),
+);
+
 const humanTurnArb: fc.Arbitrary<GutterInputTurn> = fc.record({
   role: fc.constant("human" as const),
-  text: fc.string(),
+  text: humanTextArb,
   at: fc.string(),
 });
 
@@ -57,11 +71,13 @@ function inputTurnLength(turn: GutterInputTurn): number {
     if (block.type === "text") return sum + block.text.length;
     if (block.type === "thinking") return sum + (block.thinking?.length ?? 0);
     if (block.type === "tool_use") {
-      const filePath =
-        typeof block.input === "object" && block.input !== null
-          ? (block.input as Record<string, unknown>).file_path
-          : undefined;
-      return sum + block.name.length + (typeof filePath === "string" ? filePath.length : 0);
+      const record =
+        typeof block.input === "object" && block.input !== null ? (block.input as Record<string, unknown>) : {};
+      const pathKeysLength = ["file_path", "notebook_path", "path"].reduce((keySum, key) => {
+        const value = record[key];
+        return keySum + (typeof value === "string" ? value.length : 0);
+      }, 0);
+      return sum + block.name.length + pathKeysLength;
     }
     return sum + (typeof block.content === "string" ? block.content.length : 0);
   }, 0);
@@ -74,14 +90,16 @@ function outputTurnLength(turn: ReturnType<typeof gutterTurns>[number]): number 
 }
 
 describe("gutterTurns property tests", () => {
-  it("P1: never drops a human turn — every human turn's output text equals its input text exactly", () => {
+  it("P1: every human turn is present, and its output text equals its input text with STRIP_TAGS blocks stripped", () => {
     fc.assert(
       fc.property(turnsArb, (turns) => {
         const output = gutterTurns(turns);
+        expect(output).toHaveLength(turns.length);
         for (let i = 0; i < turns.length; i++) {
           const turn = turns[i];
           if (turn?.role === "human") {
-            expect(output[i]?.text).toBe(turn.text);
+            expect(output[i]?.role).toBe("human");
+            expect(output[i]?.text).toBe(stripTaggedNoise(turn.text));
           }
         }
       }),

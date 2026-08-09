@@ -116,6 +116,12 @@ describe("headAndTail", () => {
     expect(result.isWellFormed()).toBe(true);
   });
 
+  it("yields exactly the head, not head+full text, when tailChars is 0 (N4)", () => {
+    const text = "H".repeat(600) + "x".repeat(1000);
+    const result = headAndTail(text, 600, 0);
+    expect(result).toBe("H".repeat(600));
+  });
+
   it("does not shave a valid leading tail char just because a fully-paired emoji appears later in the tail", () => {
     // Same anchoring requirement as head(): the check must look only at the
     // very start of the tail cut, not anywhere in it.

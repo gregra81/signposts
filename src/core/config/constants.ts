@@ -58,8 +58,8 @@ export const ASSISTANT_HEAD_CHARS_ADJACENT = 600;
 /** Tail budget for the same turn — a plan's conclusion is what gets accepted or rejected. */
 export const ASSISTANT_TAIL_CHARS_ADJACENT = 900;
 
-/** Model reasoning with itself, and bulk noise. */
-export const DROP_BLOCK_TYPES = ["thinking", "tool_result"] as const;
+/** Wire-format tag for a tool_result block — not a tunable, just named to avoid a magic literal. */
+export const TOOL_RESULT_BLOCK_TYPE = "tool_result";
 
 /** Slash-command noise arriving as user text. */
 export const STRIP_TAGS = [

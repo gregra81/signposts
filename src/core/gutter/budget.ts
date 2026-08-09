@@ -57,8 +57,9 @@ export function headAndTail(text: string, headChars: number, tailChars: number):
   if (text.length <= headChars + tailChars) {
     return text;
   }
-  return (
-    trimTrailingHighSurrogate(text.slice(0, headChars)) +
-    trimLeadingLowSurrogate(text.slice(-tailChars))
-  );
+  // `text.slice(-0)` is `text.slice(0)` (whole string) — JS's `-0 === 0`
+  // swallows the negative-offset meaning slice relies on. Guard tailChars
+  // <= 0 to an explicit empty tail instead.
+  const tail = tailChars <= 0 ? "" : trimLeadingLowSurrogate(text.slice(-tailChars));
+  return trimTrailingHighSurrogate(text.slice(0, headChars)) + tail;
 }

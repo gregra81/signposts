@@ -27,6 +27,30 @@ describe("gutterTurns — human turns (R1)", () => {
   });
 });
 
+describe("gutterTurns — STRIP_TAGS noise removal (B2)", () => {
+  it("strips a <system-reminder> block from human text", () => {
+    const text = "before <system-reminder>injected noise</system-reminder> after";
+    const [out] = gutterTurns([human(text)]);
+    expect(out?.text).toBe("before  after");
+    expect(out?.text).not.toContain("injected noise");
+  });
+
+  it("strips multiple different tag types in one turn", () => {
+    const text =
+      "<command-name>/dev-team</command-name><command-message>msg</command-message>plain text<local-command-stdout>output</local-command-stdout>";
+    const [out] = gutterTurns([human(text)]);
+    expect(out?.text).toBe("plain text");
+  });
+
+  it("only removes matched tags, leaving surrounding plain text untouched", () => {
+    const text = "keep this <system-reminder>drop this</system-reminder> and keep this too";
+    const [out] = gutterTurns([human(text)]);
+    expect(out?.text).toBe("keep this  and keep this too");
+    expect(out?.text).toContain("keep this");
+    expect(out?.text).toContain("keep this too");
+  });
+});
+
 describe("gutterTurns — assistant reduction (R2, non-adjacent)", () => {
   it("passes a short, non-adjacent assistant turn through unmodified", () => {
     const short = "Done.";
@@ -119,6 +143,28 @@ describe("gutterTurns — tool_use (R4) and file paths (R5)", () => {
     const [out] = run();
     expect(out?.toolNames).toEqual(["Bash"]);
     expect(out?.filesTouched).toBeUndefined();
+  });
+
+  it("extracts a file path from notebook_path (NotebookEdit) (N2)", () => {
+    const [out] = gutterTurns([
+      assistant([{ type: "tool_use", id: "1", name: "NotebookEdit", input: { notebook_path: "/repo/nb.ipynb" } }]),
+    ]);
+    expect(out?.filesTouched).toEqual(["/repo/nb.ipynb"]);
+  });
+
+  it("extracts a file path from path (Glob/Grep) (N2)", () => {
+    const [out] = gutterTurns([assistant([{ type: "tool_use", id: "1", name: "Grep", input: { path: "/repo/src" } }])]);
+    expect(out?.filesTouched).toEqual(["/repo/src"]);
+  });
+
+  it("dedupes filesTouched when the same file is touched by multiple tool_use blocks (N3)", () => {
+    const [out] = gutterTurns([
+      assistant([
+        { type: "tool_use", id: "1", name: "Read", input: { file_path: "/repo/src/a.ts" } },
+        { type: "tool_use", id: "2", name: "Edit", input: { file_path: "/repo/src/a.ts" } },
+      ]),
+    ]);
+    expect(out?.filesTouched).toEqual(["/repo/src/a.ts"]);
   });
 });
 

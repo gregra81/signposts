@@ -12,19 +12,44 @@ import {
   ASSISTANT_HEAD_CHARS_ADJACENT,
   ASSISTANT_HEAD_SENTENCES,
   ASSISTANT_TAIL_CHARS_ADJACENT,
+  STRIP_TAGS,
 } from "../config/constants.js";
 import { head, headAndTail } from "./budget.js";
 import type { AssistantGutterInputTurn, ContentBlock, GutterInputTurn, GutteredTurn } from "./types.js";
 
-/** The only tool_use input shape observed carrying a file path (Read/Write/Edit/...). */
-const FILE_PATH_INPUT_KEY = "file_path";
+/**
+ * Keys observed carrying a file path across tool_use inputs (Read/Write/
+ * Edit use file_path; NotebookEdit uses notebook_path; Glob/Grep use path).
+ * Checked in this order — first string value wins.
+ */
+const FILE_PATH_INPUT_KEYS = ["file_path", "notebook_path", "path"] as const;
 
 function extractFilePath(input: unknown): string | undefined {
   if (typeof input !== "object" || input === null) {
     return undefined;
   }
-  const value = (input as Record<string, unknown>)[FILE_PATH_INPUT_KEY];
-  return typeof value === "string" ? value : undefined;
+  const record = input as Record<string, unknown>;
+  for (const key of FILE_PATH_INPUT_KEYS) {
+    const value = record[key];
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Strips STRIP_TAGS-listed tagged blocks (`<tag>...</tag>`, non-greedy, all
+ * occurrences) out of human text — slash-command noise and system-reminder
+ * injections arriving as user text (02-ingestion.md), not part of what the
+ * human actually said.
+ */
+export function stripTaggedNoise(text: string): string {
+  let result = text;
+  for (const tag of STRIP_TAGS) {
+    result = result.replace(new RegExp(`<${tag}>.*?</${tag}>`, "gs"), "");
+  }
+  return result;
 }
 
 /**
@@ -48,7 +73,7 @@ function assistantText(blocks: ContentBlock[]): string {
 
 function gutterAssistantTurn(turn: AssistantGutterInputTurn, adjacentToHuman: boolean): GutteredTurn {
   const toolNames: string[] = [];
-  const filesTouched: string[] = [];
+  const filePaths = new Set<string>();
   for (const block of turn.blocks) {
     if (block.type !== "tool_use") {
       continue;
@@ -56,9 +81,10 @@ function gutterAssistantTurn(turn: AssistantGutterInputTurn, adjacentToHuman: bo
     toolNames.push(block.name); // name only — no arguments, no results (R4)
     const path = extractFilePath(block.input);
     if (path !== undefined) {
-      filesTouched.push(path);
+      filePaths.add(path);
     }
   }
+  const filesTouched = [...filePaths];
 
   const source = assistantText(turn.blocks);
   const text = adjacentToHuman
@@ -75,15 +101,17 @@ function gutterAssistantTurn(turn: AssistantGutterInputTurn, adjacentToHuman: bo
 }
 
 /**
- * Reduces one ordered sequence of turns. Human turns pass through verbatim
- * (R1). Assistant turns get a trimmed head, or — for the turn immediately
- * preceding a human turn — a larger head-plus-tail budget (R3), because the
- * human's reply usually answers the end of that turn, not just its opening.
+ * Reduces one ordered sequence of turns. Human turns pass through as-is
+ * apart from STRIP_TAGS noise removal (R1, B2 fix) — slash-command
+ * stdout/caveat/system-reminder tags a human never typed. Assistant turns
+ * get a trimmed head, or — for the turn immediately preceding a human
+ * turn — a larger head-plus-tail budget (R3), because the human's reply
+ * usually answers the end of that turn, not just its opening.
  */
 export function gutterTurns(turns: GutterInputTurn[]): GutteredTurn[] {
   return turns.map((turn, index) => {
     if (turn.role === "human") {
-      return { role: "human", text: turn.text, at: turn.at };
+      return { role: "human", text: stripTaggedNoise(turn.text), at: turn.at };
     }
     const adjacentToHuman = turns[index + 1]?.role === "human";
     return gutterAssistantTurn(turn, adjacentToHuman);
