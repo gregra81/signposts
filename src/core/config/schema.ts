@@ -13,7 +13,6 @@ import {
   BOOTSTRAP_GATE_ALL,
   BOOTSTRAP_MAX_OPS,
   BRANCH_PATTERN,
-  EMBEDDING_MODEL,
   HEDGE_CONFIDENCE_CAP,
   IDLE_HOURS,
   MAX_AGE_DAYS,
@@ -43,7 +42,6 @@ const bootstrapSchema = z.object({
 
 const retrievalSchema = z.object({
   k: z.number().default(NEIGHBOUR_K),
-  embedding_model: z.string().default(EMBEDDING_MODEL),
   allow_remote_models: z.boolean().default(ALLOW_REMOTE_MODELS),
   local_model_path: z.string().nullable().default(null),
 });

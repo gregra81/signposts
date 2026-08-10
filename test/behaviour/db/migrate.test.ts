@@ -38,10 +38,15 @@ describe("openDb", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("creates the full schema fresh: both tables, expected columns, user_version at latest", () => {
+  it("creates the full schema fresh: every table, expected columns, user_version at latest", () => {
     const db = openDb(dbPath);
 
-    expect(tableNames(db)).toEqual(["sessions", "signposts"]);
+    // signpost_vec (vec0) and signpost_fts (fts5) also register their own
+    // shadow tables in sqlite_master — asserting a superset rather than an
+    // exact list keeps this from being brittle to sqlite-vec/fts5 internals.
+    expect(tableNames(db)).toEqual(
+      expect.arrayContaining(["sessions", "signposts", "signpost_vec", "signpost_fts", "index_meta"]),
+    );
     expect(columnNames(db, "sessions")).toEqual([
       "session_id",
       "content_hash",
@@ -68,9 +73,12 @@ describe("openDb", () => {
       "embedding_model",
       "embedding_dim",
     ]);
+    expect(columnNames(db, "signpost_vec")).toEqual(["signpost_id", "claim_embedding"]);
+    expect(columnNames(db, "signpost_fts")).toEqual(["signpost_id", "claim", "evidence"]);
+    expect(columnNames(db, "index_meta")).toEqual(["id", "corpus_hash", "embedding_model", "updated_at"]);
 
     const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(2);
+    expect(user_version).toBe(3);
 
     db.close();
   });
@@ -105,9 +113,11 @@ describe("openDb", () => {
 
     const db = openDb(dbPath);
 
-    expect(tableNames(db)).toEqual(["sessions", "signposts"]);
+    expect(tableNames(db)).toEqual(
+      expect.arrayContaining(["sessions", "signposts", "signpost_vec", "signpost_fts", "index_meta"]),
+    );
     const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(2);
+    expect(user_version).toBe(3);
 
     const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("s1");
     expect(row).toEqual({
@@ -153,11 +163,27 @@ describe("openDb", () => {
     const second = openDb(dbPath);
 
     const { user_version } = second.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(2);
-    expect(tableNames(second)).toEqual(["sessions", "signposts"]);
+    expect(user_version).toBe(3);
+    expect(tableNames(second)).toEqual(
+      expect.arrayContaining(["sessions", "signposts", "signpost_vec", "signpost_fts", "index_meta"]),
+    );
 
     const row = second.prepare("SELECT * FROM signposts WHERE id = ?").get("staging-db-read-only");
     expect(row).toMatchObject({ id: "staging-db-read-only", claim: "The staging database is read-only." });
+
+    second.close();
+  });
+
+  it("sqlite-vec is loaded on a reopen that runs no migrations, not just on the migrating path", () => {
+    const first = openDb(dbPath);
+    first.close();
+
+    // dbPath is already at the latest version, so this second open takes the
+    // fast path (no migrations run). signpost_vec is a vec0 virtual table —
+    // querying it without the sqlite-vec extension loaded throws. This must
+    // fail if `sqliteVec.load(db)` is moved to after the fast-path `return db`.
+    const second = openDb(dbPath);
+    expect(() => second.prepare("SELECT COUNT(*) FROM signpost_vec").get()).not.toThrow();
 
     second.close();
   });

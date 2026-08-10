@@ -8,7 +8,6 @@ import {
   BOOTSTRAP_GATE_ALL,
   BOOTSTRAP_MAX_OPS,
   BRANCH_PATTERN,
-  EMBEDDING_MODEL,
   HEDGE_CONFIDENCE_CAP,
   IDLE_HOURS,
   MAX_AGE_DAYS,
@@ -39,7 +38,6 @@ describe("configSchema", () => {
       },
       retrieval: {
         k: NEIGHBOUR_K,
-        embedding_model: EMBEDDING_MODEL,
         allow_remote_models: ALLOW_REMOTE_MODELS,
         local_model_path: null,
       },
@@ -54,7 +52,6 @@ describe("configSchema", () => {
     const parsed = configSchema.parse({ retrieval: { k: 10 } });
     expect(parsed.retrieval).toEqual({
       k: 10,
-      embedding_model: EMBEDDING_MODEL,
       allow_remote_models: ALLOW_REMOTE_MODELS,
       local_model_path: null,
     });

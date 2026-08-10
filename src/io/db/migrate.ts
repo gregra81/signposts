@@ -10,6 +10,8 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import * as sqliteVec from "sqlite-vec";
+import { EMBEDDING_DIM } from "../../core/config/constants.js";
 
 type MigrationStep = (db: Database.Database) => void;
 
@@ -52,6 +54,27 @@ const migrations: MigrationStep[] = [
       )
     `);
   },
+  (db) => {
+    db.exec(`
+      CREATE VIRTUAL TABLE signpost_vec USING vec0(
+        signpost_id TEXT PRIMARY KEY,
+        claim_embedding FLOAT[${EMBEDDING_DIM}]
+      )
+    `);
+    db.exec(`
+      CREATE VIRTUAL TABLE signpost_fts USING fts5(
+        signpost_id UNINDEXED, claim, evidence
+      )
+    `);
+    db.exec(`
+      CREATE TABLE index_meta (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        corpus_hash TEXT NOT NULL,
+        embedding_model TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+  },
 ];
 
 function readUserVersion(db: Database.Database): number {
@@ -76,10 +99,16 @@ function readUserVersion(db: Database.Database): number {
  * version and this call's loop applies nothing. Without the re-read, two
  * processes that both saw version 0 before either committed would both try
  * to CREATE TABLE the same table and the second would crash.
+ *
+ * `sqlite-vec` is a runtime extension, not just a one-time schema step: the
+ * vec0 module has to be loaded into *this* connection before `signpost_vec`
+ * can be created or queried, so `sqliteVec.load(db)` runs on every call,
+ * fresh file or existing, before the version check below.
  */
 export function openDb(dbPath: string): Database.Database {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
+  sqliteVec.load(db);
 
   if (readUserVersion(db) >= migrations.length) {
     return db;
