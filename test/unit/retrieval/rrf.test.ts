@@ -39,6 +39,17 @@ describe("fuseRrf", () => {
     expect(fuseRrf([], [])).toEqual([]);
   });
 
+  it("dedupes a repeated id within one ranking to its first occurrence, not inflating its score", () => {
+    // "a" appears at rank 1 and rank 3 in the first list — only rank 1
+    // (its first occurrence) should count, so its score must equal the
+    // same list fused against a single, non-duplicated occurrence.
+    const withDuplicate = fuseRrf(["a", "b", "a"], []);
+    const withoutDuplicate = fuseRrf(["a", "b"], []);
+    const a = withDuplicate.find((entry) => entry.id === "a");
+    expect(a?.score).toBeCloseTo(1 / (RRF_K + 1), 10);
+    expect(a?.score).toBeCloseTo(withoutDuplicate.find((entry) => entry.id === "a")!.score, 10);
+  });
+
   it("pins the exact closed-form score for a hand-computed case", () => {
     // "z" is rank 2 in a and rank 4 in b.
     const fused = fuseRrf(["w", "z"], ["p", "q", "r", "z"]);

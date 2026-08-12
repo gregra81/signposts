@@ -3,11 +3,7 @@
 // CLAUDE.md points at."). Superseded signposts are excluded — the index is
 // current knowledge, not history.
 
-import { categorySchema, statusSchema, type Signpost } from "./schema.js";
-
-// Single source of truth for the "active" literal: the schema's own enum,
-// not a second hand-maintained string.
-const ACTIVE_STATUS = statusSchema.enum.active;
+import { ACTIVE_STATUS, categorySchema, type Signpost } from "./schema.js";
 
 // Single source of truth for category order: the schema's own enum values,
 // not a second hand-maintained list.

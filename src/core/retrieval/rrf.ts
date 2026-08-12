@@ -16,7 +16,15 @@ export function fuseRrf(a: readonly string[], b: readonly string[]): FusedResult
   const scores = new Map<string, number>();
 
   for (const ranking of [a, b]) {
+    // Dedupe to each id's first (best) occurrence before scoring — a
+    // ranking that repeats an id must not inflate its score past what one
+    // legitimate occurrence would contribute.
+    const seen = new Set<string>();
     ranking.forEach((id, index) => {
+      if (seen.has(id)) {
+        return;
+      }
+      seen.add(id);
       const rank = index + 1;
       scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + rank));
     });

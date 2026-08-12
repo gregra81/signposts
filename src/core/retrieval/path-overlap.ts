@@ -4,14 +4,14 @@
 // combineScore adds to the fused RRF score, never a tie-break-only signal
 // and never a filter.
 
-/** Count of paths shared between a candidate's and a neighbour's scope. Boost only, not a filter. */
+/** Whether any path is shared between a candidate's and a neighbour's scope. Boost only, not a filter. */
 export function pathOverlapBoost(
   candidatePaths: readonly string[] | undefined,
   neighbourPaths: readonly string[] | undefined,
-): number {
+): boolean {
   if (!candidatePaths || !neighbourPaths) {
-    return 0;
+    return false;
   }
   const neighbourSet = new Set(neighbourPaths);
-  return candidatePaths.filter((path) => neighbourSet.has(path)).length;
+  return candidatePaths.some((path) => neighbourSet.has(path));
 }

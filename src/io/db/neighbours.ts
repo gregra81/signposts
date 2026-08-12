@@ -15,11 +15,12 @@ import { ftsQuery } from "../../core/retrieval/fts-query.js";
 import { pathOverlapBoost } from "../../core/retrieval/path-overlap.js";
 import { fuseRrf } from "../../core/retrieval/rrf.js";
 import { vectorToBlob } from "../../core/retrieval/vector-codec.js";
-import { scopeSchema, statusSchema, type Scope } from "../../core/signpost/schema.js";
+import { ACTIVE_STATUS, scopeSchema, type Scope } from "../../core/signpost/schema.js";
 
-// Single source of truth for the "active" literal: the schema's own enum,
-// not a second hand-maintained string.
-const ACTIVE_STATUS = statusSchema.enum.active;
+// Shared by both queries below — the "hard filter" half of the "Hard
+// filters (repo, status='active')" contract, kept in one place so the two
+// prepared statements can't drift apart.
+const ACTIVE_IN_REPO_FILTER = "signpost_id IN (SELECT id FROM signposts WHERE repo = ? AND status = ?)";
 
 export interface NeighbourCandidate {
   /** Already-normalised, already-embedded claim text — see normalize.ts / the embedder. */
@@ -60,12 +61,16 @@ export function findNeighbours(
   candidate: NeighbourCandidate,
   k: number,
 ): Neighbour[] {
+  if (k <= 0) {
+    return [];
+  }
+
   const vectorRows = db
     .prepare(
       `SELECT signpost_id
        FROM signpost_vec
        WHERE repo = ? AND claim_embedding MATCH ? AND k = ?
-         AND signpost_id IN (SELECT id FROM signposts WHERE repo = ? AND status = ?)
+         AND ${ACTIVE_IN_REPO_FILTER}
        ORDER BY distance`,
     )
     .all(repo, vectorToBlob(candidate.embedding), k, repo, ACTIVE_STATUS) as SignpostIdRow[];
@@ -79,7 +84,7 @@ export function findNeighbours(
             `SELECT signpost_id
              FROM signpost_fts
              WHERE repo = ? AND signpost_fts MATCH ?
-               AND signpost_id IN (SELECT id FROM signposts WHERE repo = ? AND status = ?)
+               AND ${ACTIVE_IN_REPO_FILTER}
              ORDER BY bm25(signpost_fts)
              LIMIT ?`,
           )
