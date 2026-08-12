@@ -3,7 +3,6 @@ import { resolveConfig, type ResolveConfigInput } from "../../../src/core/config
 import {
   AUTO_PUBLISH_CONFIDENCE,
   BRANCH_PATTERN,
-  EMBEDDING_MODEL,
   NEIGHBOUR_K,
 } from "../../../src/core/config/constants.js";
 
@@ -59,7 +58,6 @@ describe("resolveConfig — precedence", () => {
       baseInput({ repoFileContents: "retrieval:\n  k: 9\n" }),
     );
     expect(config.git.branch_pattern).toBe(BRANCH_PATTERN);
-    expect(config.retrieval.embedding_model).toBe(EMBEDDING_MODEL);
     expect(config.thresholds.auto_publish_confidence).toBe(AUTO_PUBLISH_CONFIDENCE);
   });
 
@@ -97,7 +95,6 @@ describe("resolveConfig — missing and malformed files", () => {
       baseInput({ repoFileContents: "retrieval:\n  # k: 6\n" }),
     );
     expect(config.retrieval.k).toBe(NEIGHBOUR_K);
-    expect(config.retrieval.embedding_model).toBe(EMBEDDING_MODEL);
   });
 
   it("rejects a non-numeric version via the env route as an env-coercion error, not a schema error", () => {

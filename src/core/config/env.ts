@@ -49,11 +49,6 @@ const SECTION_MAPPINGS: Readonly<Record<string, readonly LeafMapping[]>> = {
   retrieval: [
     { envVar: "SIGNPOSTS_RETRIEVAL_K", leaf: "k", type: "number" },
     {
-      envVar: "SIGNPOSTS_RETRIEVAL_EMBEDDING_MODEL",
-      leaf: "embedding_model",
-      type: "string",
-    },
-    {
       envVar: "SIGNPOSTS_RETRIEVAL_ALLOW_REMOTE_MODELS",
       leaf: "allow_remote_models",
       type: "boolean",
