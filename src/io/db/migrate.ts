@@ -120,6 +120,11 @@ const migrations: MigrationStep[] = [
       )
     `);
   },
+  // Speeds up findNeighbours' repo+status filter (both prepared statements
+  // in src/io/db/neighbours.ts scan `signposts WHERE repo = ? AND status = ?`).
+  (db) => {
+    db.exec(`CREATE INDEX idx_signposts_repo_status ON signposts(repo, status)`);
+  },
 ];
 
 function readUserVersion(db: Database.Database): number {

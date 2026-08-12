@@ -111,6 +111,16 @@ export const NEIGHBOUR_K = 6;
 export const RRF_K = 60;
 
 /**
+ * Weight applied to pathOverlapBoost's boolean signal before adding it to
+ * the fused RRF score (RRF_K=60 → per-list scores ~0.008-0.016, ~0.033 max for
+ * rank 1 in both lists). Sized to close a realistic few-rank gap (e.g. rank
+ * 1 vs rank 2 in both lists is ~0.0005) but not a large one (rank 1 vs rank
+ * 6 in both lists is ~0.0025) — one shared path can promote a near-peer,
+ * not overturn a much stronger match.
+ */
+export const PATH_OVERLAP_BOOST_WEIGHT = 0.001;
+
+/**
  * Pinned revision. A bare repo id is mutable, and unchanged-id-changed-weights
  * defeats the rebuild trigger.
  *

@@ -78,7 +78,7 @@ describe("openDb", () => {
     expect(columnNames(db, "index_meta")).toEqual(["repo", "corpus_hash", "embedding_model", "updated_at"]);
 
     const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(5);
+    expect(user_version).toBe(6);
 
     db.close();
   });
@@ -117,7 +117,7 @@ describe("openDb", () => {
       expect.arrayContaining(["sessions", "signposts", "signpost_vec", "signpost_fts", "index_meta"]),
     );
     const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(5);
+    expect(user_version).toBe(6);
 
     const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("s1");
     expect(row).toEqual({
@@ -163,7 +163,7 @@ describe("openDb", () => {
     const second = openDb(dbPath);
 
     const { user_version } = second.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(5);
+    expect(user_version).toBe(6);
     expect(tableNames(second)).toEqual(
       expect.arrayContaining(["sessions", "signposts", "signpost_vec", "signpost_fts", "index_meta"]),
     );

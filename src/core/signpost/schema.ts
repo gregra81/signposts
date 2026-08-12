@@ -55,6 +55,10 @@ export const claimSchema = z.string().superRefine((claim, ctx) => {
 export const statusSchema = z.enum(["active", "superseded"]);
 export type Status = z.infer<typeof statusSchema>;
 
+// Single source of truth for the "active" literal: the schema's own enum,
+// not a second hand-maintained string.
+export const ACTIVE_STATUS = statusSchema.enum.active;
+
 export const signpostSchema = z.object({
   id: z.string().regex(ID_PATTERN, "id must be a kebab-case slug"),
   claim: claimSchema,
