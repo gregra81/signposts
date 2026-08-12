@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/claude-stop-verify.sh",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
