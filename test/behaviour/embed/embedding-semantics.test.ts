@@ -40,11 +40,8 @@ describe("embedder semantics", () => {
       const claimB = "Do not run migrations on staging, it is a read-only environment.";
       const claimC = "The Prisma schema lives at prisma/schema.prisma, not schema/prisma.";
 
-      const [vecA, vecB, vecC] = await Promise.all([
-        embedder.embed(claimA),
-        embedder.embed(claimB),
-        embedder.embed(claimC),
-      ]);
+      const vectors = await embedder.embed([claimA, claimB, claimC]);
+      const [vecA, vecB, vecC] = [vectors[0]!, vectors[1]!, vectors[2]!];
 
       const relatedSim = cosineSimilarity(vecA, vecB);
       const unrelatedSim = cosineSimilarity(vecA, vecC);

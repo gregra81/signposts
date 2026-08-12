@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideReindex, type ReindexDecisionInput } from "../../../src/core/retrieval/reindex-decision.js";
+import { shouldReindex, type ReindexDecisionInput } from "../../../src/core/retrieval/reindex-decision.js";
 
 const base: ReindexDecisionInput = {
   indexExists: true,
@@ -9,45 +9,45 @@ const base: ReindexDecisionInput = {
   currentEmbeddingModel: "model-a",
 };
 
-describe("decideReindex", () => {
+describe("shouldReindex", () => {
   // Full truth table over the 4 boolean-ish conditions: indexExists,
   // hash match, model match, and (both mismatch) combined.
-  const cases: Array<{ name: string; input: ReindexDecisionInput; expected: "rebuild" | "skip" }> = [
-    { name: "index missing -> rebuild", input: { ...base, indexExists: false }, expected: "rebuild" },
-    { name: "hash match + model match -> skip", input: base, expected: "skip" },
+  const cases: Array<{ name: string; input: ReindexDecisionInput; expected: boolean }> = [
+    { name: "index missing -> rebuild", input: { ...base, indexExists: false }, expected: true },
+    { name: "hash match + model match -> skip", input: base, expected: false },
     {
       name: "hash mismatch, model match -> rebuild",
       input: { ...base, currentCorpusHash: "hash-2" },
-      expected: "rebuild",
+      expected: true,
     },
     {
       name: "hash match, model mismatch -> rebuild",
       input: { ...base, currentEmbeddingModel: "model-b" },
-      expected: "rebuild",
+      expected: true,
     },
     {
       name: "hash mismatch and model mismatch -> rebuild",
       input: { ...base, currentCorpusHash: "hash-2", currentEmbeddingModel: "model-b" },
-      expected: "rebuild",
+      expected: true,
     },
     {
       name: "index missing, hash and model would otherwise match -> rebuild",
       input: { ...base, indexExists: false, storedCorpusHash: null, storedEmbeddingModel: null },
-      expected: "rebuild",
+      expected: true,
     },
     {
       name: "stored hash null (never indexed) but indexExists true -> rebuild",
       input: { ...base, storedCorpusHash: null },
-      expected: "rebuild",
+      expected: true,
     },
     {
       name: "stored model null (never indexed) but indexExists true -> rebuild",
       input: { ...base, storedEmbeddingModel: null },
-      expected: "rebuild",
+      expected: true,
     },
   ];
 
   it.each(cases)("$name", ({ input, expected }) => {
-    expect(decideReindex(input)).toBe(expected);
+    expect(shouldReindex(input)).toBe(expected);
   });
 });

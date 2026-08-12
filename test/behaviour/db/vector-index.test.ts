@@ -23,21 +23,18 @@ const retrieval = { allow_remote_models: true, local_model_path: null };
 const signposts: ActiveSignpost[] = [
   {
     id: "staging-db-read-only",
-    repo: "acme/platform",
     content_hash: "hash-1",
     claim: "The staging database is read-only; run migrations against dev instead.",
     evidence: "A migration run against staging failed with a permissions error.",
   },
   {
     id: "prisma-schema-path",
-    repo: "acme/platform",
     content_hash: "hash-2",
     claim: "The Prisma schema lives at prisma/schema.prisma, not schema/prisma.",
     evidence: "A generate step failed after looking in the wrong directory.",
   },
   {
     id: "make-build-required",
-    repo: "acme/platform",
     content_hash: "hash-3",
     claim: "Run make build before make test; the test target does not build first.",
     evidence: "Tests failed against stale binaries twice in one session.",
@@ -92,7 +89,7 @@ describe("rebuildIndex", () => {
   it(
     "A1/A2: rebuilding after clearing the tables reproduces identical vectors and FTS rows",
     async () => {
-      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, signposts });
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts });
 
       const firstVecs = vecRows(db);
       const firstFts = ftsRows(db);
@@ -100,7 +97,9 @@ describe("rebuildIndex", () => {
       expect(firstVecs[0]?.vector).toHaveLength(EMBEDDING_DIM);
       expect(firstFts).toHaveLength(signposts.length);
 
-      const meta = db.prepare("SELECT corpus_hash, embedding_model FROM index_meta WHERE id = 1").get() as {
+      const meta = db.prepare("SELECT corpus_hash, embedding_model FROM index_meta WHERE repo = ?").get(
+        "acme/platform",
+      ) as {
         corpus_hash: string;
         embedding_model: string;
       };
@@ -120,7 +119,7 @@ describe("rebuildIndex", () => {
       db.prepare("DELETE FROM signpost_fts").run();
       db.prepare("DELETE FROM index_meta").run();
 
-      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, signposts });
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts });
 
       expect(vecRows(db)).toEqual(firstVecs);
       expect(ftsRows(db)).toEqual(firstFts);
@@ -133,7 +132,7 @@ describe("rebuildIndex", () => {
     async () => {
       // First, a real rebuild, so index_meta/signpost_vec reflect an
       // actually-populated index (not the "index missing" case).
-      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, signposts });
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts });
 
       // Now stale only the model string in index_meta, leaving the corpus
       // hash matching the current signposts — so the *only* thing that
@@ -141,13 +140,14 @@ describe("rebuildIndex", () => {
       // to a sentinel. A "skip" decision would leave that sentinel
       // untouched; only a real rebuild sets it to EMBEDDING_MODEL.
       const currentCorpusHash = computeCorpusHash(signposts);
-      db.prepare("UPDATE index_meta SET corpus_hash = ?, embedding_model = 'stale-model@old-revision' WHERE id = 1")
-        .run(currentCorpusHash);
+      db.prepare(
+        "UPDATE index_meta SET corpus_hash = ?, embedding_model = 'stale-model@old-revision' WHERE repo = ?",
+      ).run(currentCorpusHash, "acme/platform");
       for (const s of signposts) {
         db.prepare("UPDATE signposts SET embedding_model = 'sentinel-untouched' WHERE id = ?").run(s.id);
       }
 
-      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, signposts });
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts });
 
       for (const s of signposts) {
         const mirrored = db.prepare("SELECT embedding_model FROM signposts WHERE id = ?").get(s.id) as {
@@ -156,7 +156,7 @@ describe("rebuildIndex", () => {
         expect(mirrored.embedding_model).toBe(EMBEDDING_MODEL);
       }
 
-      const after = db.prepare("SELECT embedding_model FROM index_meta WHERE id = 1").get() as {
+      const after = db.prepare("SELECT embedding_model FROM index_meta WHERE repo = ?").get("acme/platform") as {
         embedding_model: string;
       };
       expect(after.embedding_model).toBe(EMBEDDING_MODEL);
@@ -167,11 +167,15 @@ describe("rebuildIndex", () => {
   it(
     "unchanged content and model on a second call is a no-op (skip), not a rebuild",
     async () => {
-      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, signposts });
-      const before = db.prepare("SELECT updated_at FROM index_meta WHERE id = 1").get() as { updated_at: string };
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts });
+      const before = db.prepare("SELECT updated_at FROM index_meta WHERE repo = ?").get("acme/platform") as {
+        updated_at: string;
+      };
 
-      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, signposts });
-      const after = db.prepare("SELECT updated_at FROM index_meta WHERE id = 1").get() as { updated_at: string };
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts });
+      const after = db.prepare("SELECT updated_at FROM index_meta WHERE repo = ?").get("acme/platform") as {
+        updated_at: string;
+      };
 
       expect(after.updated_at).toBe(before.updated_at);
     },
@@ -180,7 +184,7 @@ describe("rebuildIndex", () => {
 
   it("embeds the normalised claim, not the raw claim", async () => {
     const raw: ActiveSignpost[] = [
-      { id: "trailing-punct", repo: "acme/platform", content_hash: "h", claim: "  Some Claim!!!  ", evidence: "e" },
+      { id: "trailing-punct", content_hash: "h", claim: "  Some Claim!!!  ", evidence: "e" },
     ];
     db.prepare(
       `INSERT INTO signposts
@@ -188,7 +192,7 @@ describe("rebuildIndex", () => {
        VALUES ('trailing-punct', 'acme/platform', ?, 'gotcha', 'e', '{}', 0.9, 'active', '{}', 0, 'h', '', 0)`,
     ).run(raw[0]!.claim);
 
-    await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, signposts: raw });
+    await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts: raw });
 
     const embedder = await createEmbedder({
       modelCacheDir: modelCacheRoot,
@@ -196,8 +200,68 @@ describe("rebuildIndex", () => {
       localModelPath: retrieval.local_model_path,
       embeddingModel: EMBEDDING_MODEL,
     });
-    const expected = await embedder.embed(normalize(raw[0]!.claim));
+    const [expected] = await embedder.embed([normalize(raw[0]!.claim)]);
     const actual = vecRows(db)[0]!.vector;
     expect(actual).toEqual(expected);
   }, 120_000);
+
+  it(
+    "R2: rebuilding one repo's index leaves another repo's signpost_vec/signpost_fts rows untouched",
+    async () => {
+      const otherRepo = "acme/other";
+      const otherVector = Buffer.from(new Float32Array(EMBEDDING_DIM).fill(0.5).buffer);
+      db.prepare("INSERT INTO signpost_vec (repo, id, signpost_id, claim_embedding) VALUES (?, ?, ?, ?)").run(
+        otherRepo,
+        `${otherRepo}:other-signpost`,
+        "other-signpost",
+        otherVector,
+      );
+      db.prepare("INSERT INTO signpost_fts (repo, signpost_id, claim, evidence) VALUES (?, ?, ?, ?)").run(
+        otherRepo,
+        "other-signpost",
+        "other claim",
+        "other evidence",
+      );
+
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts });
+
+      expect(db.prepare("SELECT signpost_id FROM signpost_vec WHERE repo = ?").all(otherRepo)).toEqual([
+        { signpost_id: "other-signpost" },
+      ]);
+      expect(db.prepare("SELECT signpost_id FROM signpost_fts WHERE repo = ?").all(otherRepo)).toEqual([
+        { signpost_id: "other-signpost" },
+      ]);
+      expect(
+        db.prepare("SELECT signpost_id FROM signpost_vec WHERE repo = ?").all("acme/platform"),
+      ).toHaveLength(signposts.length);
+    },
+    120_000,
+  );
+
+  it(
+    "R4: index_meta is scoped per repo — a second repo with a matching corpus_hash still gets indexed, not skipped",
+    async () => {
+      const otherRepo = "acme/other";
+
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts });
+
+      // Same ids/content_hashes as the first repo's signposts, so
+      // computeCorpusHash (which hashes only id + content_hash, not repo)
+      // produces the identical corpus_hash for this second, unrelated repo.
+      // If index_meta were still keyed globally, the row that repo A's
+      // rebuild just wrote would make this rebuild look like a no-op skip.
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: otherRepo, signposts });
+
+      expect(db.prepare("SELECT signpost_id FROM signpost_vec WHERE repo = ?").all(otherRepo)).toHaveLength(
+        signposts.length,
+      );
+      expect(db.prepare("SELECT signpost_id FROM signpost_fts WHERE repo = ?").all(otherRepo)).toHaveLength(
+        signposts.length,
+      );
+      expect(
+        db.prepare("SELECT signpost_id FROM signpost_vec WHERE repo = ?").all("acme/platform"),
+      ).toHaveLength(signposts.length);
+    },
+    120_000,
+  );
 });

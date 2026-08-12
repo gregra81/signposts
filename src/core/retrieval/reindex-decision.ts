@@ -11,12 +11,10 @@ export interface ReindexDecisionInput {
   currentEmbeddingModel: string;
 }
 
-export type ReindexDecision = "rebuild" | "skip";
-
-export function decideReindex(input: ReindexDecisionInput): ReindexDecision {
-  const rebuild =
+export function shouldReindex(input: ReindexDecisionInput): boolean {
+  return (
     !input.indexExists ||
     input.storedCorpusHash !== input.currentCorpusHash ||
-    input.storedEmbeddingModel !== input.currentEmbeddingModel;
-  return rebuild ? "rebuild" : "skip";
+    input.storedEmbeddingModel !== input.currentEmbeddingModel
+  );
 }

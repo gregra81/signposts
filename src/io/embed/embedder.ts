@@ -10,9 +10,18 @@
 
 import { env, pipeline } from "@huggingface/transformers";
 import { EMBEDDING_DIM } from "../../core/config/constants.js";
+import { splitPinnedModel } from "../../core/retrieval/pinned-model.js";
+
+// transformers.js always joins env.localModelPath into its file-resolution
+// paths, even when allowRemoteModels is true and no local override is in
+// play — a literal null there crashes every model load. Captured once at
+// import time, before configureEmbedEnv ever runs, so a null
+// `localModelPath` option resets to transformers.js's own default instead
+// of leaving a previous call's vendored path stuck (the bug this fixes).
+const DEFAULT_LOCAL_MODEL_PATH = env.localModelPath;
 
 export interface Embedder {
-  embed(text: string): Promise<number[]>;
+  embed(texts: string[]): Promise<number[][]>;
 }
 
 export interface CreateEmbedderOptions {
@@ -34,16 +43,7 @@ export interface CreateEmbedderOptions {
 export function configureEmbedEnv(options: Pick<CreateEmbedderOptions, "modelCacheDir" | "allowRemoteModels" | "localModelPath">): void {
   env.cacheDir = options.modelCacheDir;
   env.allowRemoteModels = options.allowRemoteModels;
-  env.localModelPath = options.localModelPath ?? env.localModelPath;
-}
-
-/** Splits a pinned "<repo-id>@<revision>" string on its last "@". */
-function splitPinnedModel(pinned: string): { repoId: string; revision: string } {
-  const at = pinned.lastIndexOf("@");
-  if (at <= 0) {
-    throw new Error(`embeddingModel is not a pinned "<repo-id>@<revision>" string: ${JSON.stringify(pinned)}`);
-  }
-  return { repoId: pinned.slice(0, at), revision: pinned.slice(at + 1) };
+  env.localModelPath = options.localModelPath ?? DEFAULT_LOCAL_MODEL_PATH;
 }
 
 export async function createEmbedder(options: CreateEmbedderOptions): Promise<Embedder> {
@@ -55,13 +55,15 @@ export async function createEmbedder(options: CreateEmbedderOptions): Promise<Em
   const extractor = await pipeline("feature-extraction", repoId, { revision, dtype: "q8" });
 
   return {
-    async embed(text: string): Promise<number[]> {
-      const output = await extractor(text, { pooling: "mean", normalize: true });
-      const vector = Array.from(output.data as ArrayLike<number>);
-      if (vector.length !== EMBEDDING_DIM) {
-        throw new Error(`embedder produced a ${vector.length}-dim vector, expected EMBEDDING_DIM=${EMBEDDING_DIM}`);
+    async embed(texts: string[]): Promise<number[][]> {
+      const output = await extractor(texts, { pooling: "mean", normalize: true });
+      const flat = Array.from(output.data as ArrayLike<number>);
+      if (flat.length !== texts.length * EMBEDDING_DIM) {
+        throw new Error(
+          `embedder produced ${flat.length} numbers for ${texts.length} texts, expected ${texts.length} * EMBEDDING_DIM=${EMBEDDING_DIM}`,
+        );
       }
-      return vector;
+      return texts.map((_, i) => flat.slice(i * EMBEDDING_DIM, (i + 1) * EMBEDDING_DIM));
     },
   };
 }

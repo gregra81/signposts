@@ -6,6 +6,9 @@ import { env } from "@huggingface/transformers";
 import { describe, expect, it } from "vitest";
 import { configureEmbedEnv } from "../../../src/io/embed/embedder.js";
 
+// transformers.js's own default, captured before any test mutates it.
+const defaultLocalModelPath = env.localModelPath;
+
 describe("configureEmbedEnv", () => {
   it("sets env.cacheDir to the caller-supplied modelCacheDir, not any other path", () => {
     configureEmbedEnv({
@@ -29,9 +32,10 @@ describe("configureEmbedEnv", () => {
     expect(env.localModelPath).toBe("/vendored/model");
   });
 
-  it("leaves env.localModelPath untouched when null", () => {
+  it("resets env.localModelPath to the default when called with null, not left at the previous value", () => {
     configureEmbedEnv({ modelCacheDir: "/x", allowRemoteModels: true, localModelPath: "/vendored/model" });
     configureEmbedEnv({ modelCacheDir: "/y", allowRemoteModels: true, localModelPath: null });
-    expect(env.localModelPath).toBe("/vendored/model");
+    expect(env.localModelPath).toBe(defaultLocalModelPath);
+    expect(env.localModelPath).not.toBe("/vendored/model");
   });
 });

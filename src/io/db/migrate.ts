@@ -75,6 +75,51 @@ const migrations: MigrationStep[] = [
       )
     `);
   },
+  // signpost_vec/signpost_fts are recreated (not ALTERed — vec0/fts5 virtual
+  // tables don't support ALTER TABLE ADD COLUMN) with a `repo` column so
+  // rebuildIndex can scope its DELETE/INSERT per repo instead of wiping
+  // every repo's rows. vec0 only enforces a single global-unique PRIMARY
+  // KEY, so uniqueness on (repo, signpost_id) is a composite `id` column
+  // (`repo || ':' || signpost_id`); `repo` is also declared PARTITION KEY
+  // so per-repo lookups don't scan the whole index. index_meta is cleared
+  // so the next rebuildIndex call repopulates the now-empty tables instead
+  // of seeing a matching corpus_hash and skipping.
+  (db) => {
+    db.exec(`DROP TABLE signpost_vec`);
+    db.exec(`DROP TABLE signpost_fts`);
+    db.exec(`
+      CREATE VIRTUAL TABLE signpost_vec USING vec0(
+        repo TEXT PARTITION KEY,
+        id TEXT PRIMARY KEY,
+        signpost_id TEXT,
+        claim_embedding FLOAT[${EMBEDDING_DIM}]
+      )
+    `);
+    db.exec(`
+      CREATE VIRTUAL TABLE signpost_fts USING fts5(
+        repo UNINDEXED, signpost_id UNINDEXED, claim, evidence
+      )
+    `);
+    db.exec(`DELETE FROM index_meta`);
+  },
+  // index_meta's PK moves from a single global row (id = 1) to one row per
+  // repo, matching signpost_vec/signpost_fts's repo scoping from the prior
+  // migration — otherwise two repos sharing a DB could have one repo's
+  // corpus_hash mask a stale index for another repo. Recreated rather than
+  // ALTERed: SQLite can't change a column's PRIMARY KEY in place, and
+  // existing rows don't need preserving since rebuildIndex repopulates
+  // index_meta on its next call.
+  (db) => {
+    db.exec(`DROP TABLE index_meta`);
+    db.exec(`
+      CREATE TABLE index_meta (
+        repo TEXT PRIMARY KEY,
+        corpus_hash TEXT NOT NULL,
+        embedding_model TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+  },
 ];
 
 function readUserVersion(db: Database.Database): number {
