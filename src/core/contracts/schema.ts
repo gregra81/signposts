@@ -15,6 +15,12 @@
 // and 14 land; 12-wire-contracts.md remains the record of its shape until
 // then.
 //
+// Step 13 landed: `Operation` did NOT come back as a zod schema here.
+// src/core/gate/gate.ts only switches on the `op` tag, never reads a
+// payload field, so it declares its own minimal tag-only `Operation` type
+// instead. Don't add a second, fuller `Operation` here unless a real
+// consumer needs the payload shape — one type, in gate.ts, until then.
+//
 // This regime is modelled as "undocumented internal format": required
 // fields are the ones marked required (no `?`) in the doc's ts block, all
 // unknown line types are skipped. Modelled with `z.looseObject` (extra keys
