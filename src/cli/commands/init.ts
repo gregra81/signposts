@@ -45,16 +45,22 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
   // Don't create/migrate the db just to check consent — a decline must leave
   // no trace, and openDb() creates the file. Absent file ⇒ not consented.
   const dbFileExists = existsSync(config.paths.dbPath);
-  const rowConsented =
-    dbFileExists &&
-    (() => {
-      const db = openDb(config.paths.dbPath);
-      try {
-        return hasConsented(db, repo);
-      } finally {
-        db.close();
-      }
-    })();
+  let rowConsented: boolean;
+  try {
+    rowConsented =
+      dbFileExists &&
+      (() => {
+        const db = openDb(config.paths.dbPath);
+        try {
+          return hasConsented(db, repo);
+        } finally {
+          db.close();
+        }
+      })();
+  } catch {
+    stdio.error.write(`signposts: database at ${config.paths.dbPath} is corrupt or unreadable.\n`);
+    return 1;
+  }
   const alreadyConsented = isConsented(dbFileExists, rowConsented);
 
   if (!needsConsentPrompt(alreadyConsented)) {
@@ -73,11 +79,16 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
       writeClaudeMd(repoRoot, content);
     }
 
-    const db = openDb(config.paths.dbPath);
     try {
-      markConsented(db, repo);
-    } finally {
-      db.close();
+      const db = openDb(config.paths.dbPath);
+      try {
+        markConsented(db, repo);
+      } finally {
+        db.close();
+      }
+    } catch {
+      stdio.error.write(`signposts: database at ${config.paths.dbPath} is corrupt or unreadable.\n`);
+      return 1;
     }
     stdio.output.write("signposts: initialised.\n");
   } else {

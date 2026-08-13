@@ -194,24 +194,33 @@ function readUserVersion(db: Database.Database): number {
 export function openDb(dbPath: string): Database.Database {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
-  sqliteVec.load(db);
 
-  if (readUserVersion(db) >= migrations.length) {
+  try {
+    sqliteVec.load(db);
+
+    if (readUserVersion(db) >= migrations.length) {
+      return db;
+    }
+
+    // `.immediate` is a distinct callable variant of the transaction wrapper
+    // (it issues `BEGIN IMMEDIATE` instead of plain `BEGIN`) — call it
+    // directly, don't invoke `.immediate()` and call the result.
+    db.transaction(() => {
+      const currentVersion = readUserVersion(db);
+      for (const migrate of migrations.slice(currentVersion)) {
+        migrate(db);
+      }
+      if (currentVersion < migrations.length) {
+        db.exec(`PRAGMA user_version = ${migrations.length}`);
+      }
+    }).immediate();
+
     return db;
+  } catch (error) {
+    // A corrupt/non-SQLite file throws here (e.g. reading PRAGMA
+    // user_version) — close the handle we just opened before propagating,
+    // otherwise every caller of openDb() leaks it on this path.
+    db.close();
+    throw error;
   }
-
-  // `.immediate` is a distinct callable variant of the transaction wrapper
-  // (it issues `BEGIN IMMEDIATE` instead of plain `BEGIN`) — call it
-  // directly, don't invoke `.immediate()` and call the result.
-  db.transaction(() => {
-    const currentVersion = readUserVersion(db);
-    for (const migrate of migrations.slice(currentVersion)) {
-      migrate(db);
-    }
-    if (currentVersion < migrations.length) {
-      db.exec(`PRAGMA user_version = ${migrations.length}`);
-    }
-  }).immediate();
-
-  return db;
 }

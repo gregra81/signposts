@@ -61,7 +61,13 @@ export async function runIndex({ config, repoRoot, stderr }: RunIndexInput): Pro
   const active = parsed.filter((signpost) => signpost.status === ACTIVE_STATUS);
   const activeWithHash = active.map((signpost) => ({ signpost, contentHash: contentHashFor(signpost) }));
 
-  const db = openDb(config.paths.dbPath);
+  let db;
+  try {
+    db = openDb(config.paths.dbPath);
+  } catch {
+    stderr.write(`signposts: database at ${config.paths.dbPath} is corrupt or unreadable.\n`);
+    return 1;
+  }
   try {
     mirrorSignposts(db, repo, activeWithHash);
 
