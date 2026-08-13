@@ -125,6 +125,18 @@ const migrations: MigrationStep[] = [
   (db) => {
     db.exec(`CREATE INDEX idx_signposts_repo_status ON signposts(repo, status)`);
   },
+  // Per-repo bootstrap state for the confidence gate (06-review-and-pr.md,
+  // step 13): whether a repo has completed its first ("bootstrap") run.
+  // One row per repo, same shape as index_meta — never written into the
+  // repo itself, only this local DB.
+  (db) => {
+    db.exec(`
+      CREATE TABLE repo_state (
+        repo TEXT PRIMARY KEY,
+        bootstrap_completed_at TEXT NOT NULL
+      )
+    `);
+  },
 ];
 
 function readUserVersion(db: Database.Database): number {
