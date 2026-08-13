@@ -9,11 +9,11 @@
 // malformed YAML or a schema violation is.
 
 import { parse as parseYaml } from "yaml";
-import type { ZodError } from "zod";
-import { configSchema, type SignpostsConfig } from "./schema.js";
-import { mergeLeaves } from "./merge.js";
-import { parseEnvLayer } from "./env.js";
-import { derivePaths, type DerivedPaths } from "./paths.js";
+import { configSchema, type SignpostsConfig } from "./schema.ts";
+import { mergeLeaves } from "./merge.ts";
+import { parseEnvLayer } from "./env.ts";
+import { derivePaths, type DerivedPaths } from "./paths.ts";
+import { formatZodError } from "../errors/format-zod-error.ts";
 
 export interface ResolveConfigInput {
   /** Absolute path to the repository root whose state is being resolved. */
@@ -79,11 +79,6 @@ const OBJECT_SECTION_KEYS: Readonly<Record<string, true>> = {
   git: true,
 };
 
-function formatZodError(error: ZodError): string {
-  const lines = error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`);
-  return `Invalid signposts config:\n${lines.join("\n")}`;
-}
-
 export function resolveConfig(input: ResolveConfigInput): ResolvedConfig {
   const repoLayer = parseYamlLayer(input.repoFileContents, "repo config (.signposts/config.yaml)");
   const userLayer = parseYamlLayer(input.userFileContents, "user config (~/.signposts/config.yaml)");
@@ -96,7 +91,7 @@ export function resolveConfig(input: ResolveConfigInput): ResolvedConfig {
 
   const result = configSchema.safeParse(merged);
   if (!result.success) {
-    throw new Error(formatZodError(result.error));
+    throw new Error(`Invalid signposts config:\n${formatZodError(result.error)}`);
   }
 
   const config = result.data;

@@ -9,7 +9,7 @@
 // s (16-build-plan.md P6).
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { signpostSchema, type Signpost } from "./schema.js";
+import { signpostSchema, type Signpost } from "./schema.ts";
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n\n([\s\S]*)$/;
 

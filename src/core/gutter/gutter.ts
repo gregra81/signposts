@@ -15,9 +15,9 @@ import {
   STRIP_TAGS,
   TEXT_BLOCK_TYPE,
   TOOL_USE_BLOCK_TYPE,
-} from "../config/constants.js";
-import { head, headAndTail } from "./budget.js";
-import type { AssistantGutterInputTurn, ContentBlock, GutterInputTurn, GutteredTurn } from "./types.js";
+} from "../config/constants.ts";
+import { head, headAndTail } from "./budget.ts";
+import type { AssistantGutterInputTurn, ContentBlock, GutterInputTurn, GutteredTurn } from "./types.ts";
 
 /**
  * Keys observed carrying a file path across tool_use inputs (Read/Write/

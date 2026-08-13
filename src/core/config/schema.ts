@@ -18,7 +18,7 @@ import {
   MAX_AGE_DAYS,
   MODEL_DEFAULT,
   NEIGHBOUR_K,
-} from "./constants.js";
+} from "./constants.ts";
 
 const modelsSchema = z.object({
   extract: z.string().default(MODEL_DEFAULT),

@@ -32,6 +32,11 @@ const THRESHOLDS = [
   { module: "src/core/pr", break: 95 },
   { module: "src/core/config", break: 95 },
   { module: "src/core/contracts", break: 95 },
+  { module: "src/core/git", break: 95 },
+  { module: "src/core/cli", break: 80 },
+  { module: "src/core/init", break: 80 },
+  { module: "src/core/doctor", break: 80 },
+  { module: "src/core/errors", break: 80 },
 ];
 
 /** Mutant states that count as "the suite caught it". */

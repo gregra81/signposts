@@ -1,0 +1,210 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildDoctorReport,
+  classifyDbIntegrity,
+  detectCredentialSource,
+  detectSignpostSessionStartHook,
+  isNodeVersionSupported,
+  type DoctorFacts,
+} from "../../../src/core/doctor/report.js";
+
+const BASE_FACTS: DoctorFacts = {
+  nodeMajorVersion: 24,
+  nodeMinVersion: 24,
+  credential: "none",
+  gh: { installed: false, authenticated: false },
+  modelCachePresent: false,
+  dbIntegrity: "no-database",
+  hookInstalled: false,
+};
+
+describe("detectCredentialSource", () => {
+  it.each([
+    [{ hasApiKey: true, hasAuthToken: true }, "ANTHROPIC_API_KEY"],
+    [{ hasApiKey: true, hasAuthToken: false }, "ANTHROPIC_API_KEY"],
+    [{ hasApiKey: false, hasAuthToken: true }, "ANTHROPIC_AUTH_TOKEN"],
+    [{ hasApiKey: false, hasAuthToken: false }, "none"],
+  ] as const)("%j -> %s", (env, expected) => {
+    expect(detectCredentialSource(env)).toBe(expected);
+  });
+});
+
+describe("isNodeVersionSupported", () => {
+  it("at floor is supported", () => {
+    expect(isNodeVersionSupported(24, 24)).toBe(true);
+  });
+  it("above floor is supported", () => {
+    expect(isNodeVersionSupported(25, 24)).toBe(true);
+  });
+  it("below floor is not supported", () => {
+    expect(isNodeVersionSupported(23, 24)).toBe(false);
+  });
+});
+
+describe("classifyDbIntegrity", () => {
+  it("no db file -> no-database", () => {
+    expect(classifyDbIntegrity(false, undefined)).toBe("no-database");
+  });
+  it("db exists, pragma says ok -> ok", () => {
+    expect(classifyDbIntegrity(true, "ok")).toBe("ok");
+  });
+  it("db exists, pragma says anything else -> corrupt", () => {
+    expect(classifyDbIntegrity(true, "malformed database schema")).toBe("corrupt");
+  });
+});
+
+describe("detectSignpostSessionStartHook", () => {
+  it("undefined/missing settings -> false", () => {
+    expect(detectSignpostSessionStartHook(undefined)).toBe(false);
+    expect(detectSignpostSessionStartHook(null)).toBe(false);
+    expect(detectSignpostSessionStartHook({})).toBe(false);
+  });
+
+  it("no SessionStart hooks -> false", () => {
+    expect(detectSignpostSessionStartHook({ hooks: {} })).toBe(false);
+  });
+
+  it("SessionStart hooks present but unrelated -> false", () => {
+    expect(
+      detectSignpostSessionStartHook({
+        hooks: { SessionStart: [{ hooks: [{ type: "command", command: "echo hi" }] }] },
+      }),
+    ).toBe(false);
+  });
+
+  it("SessionStart hook mentioning signpost -> true", () => {
+    expect(
+      detectSignpostSessionStartHook({
+        hooks: {
+          SessionStart: [{ hooks: [{ type: "command", command: "node ./signpost-session-start.js" }] }],
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("malformed shapes never throw", () => {
+    expect(detectSignpostSessionStartHook("not an object")).toBe(false);
+    expect(detectSignpostSessionStartHook({ hooks: null })).toBe(false);
+    expect(detectSignpostSessionStartHook({ hooks: { SessionStart: "not an array" } })).toBe(false);
+    expect(detectSignpostSessionStartHook({ hooks: { SessionStart: [{ hooks: "nope" }] } })).toBe(false);
+    expect(detectSignpostSessionStartHook({ hooks: { SessionStart: [null] } })).toBe(false);
+    expect(detectSignpostSessionStartHook({ hooks: { SessionStart: ["not an object"] } })).toBe(false);
+    expect(
+      detectSignpostSessionStartHook({ hooks: { SessionStart: [{ hooks: [null] }] } }),
+    ).toBe(false);
+    expect(
+      detectSignpostSessionStartHook({ hooks: { SessionStart: [{ hooks: ["not an object"] }] } }),
+    ).toBe(false);
+    expect(
+      detectSignpostSessionStartHook({ hooks: { SessionStart: [{ hooks: [{}] }] } }),
+    ).toBe(false);
+    expect(
+      detectSignpostSessionStartHook({
+        hooks: { SessionStart: [{ hooks: [{ type: "command", command: 42 }] }] },
+      }),
+    ).toBe(false);
+  });
+
+  it("only one of several groups/entries matching is still a hit (.some, not .every)", () => {
+    expect(
+      detectSignpostSessionStartHook({
+        hooks: {
+          SessionStart: [
+            { hooks: [{ type: "command", command: "echo unrelated" }] },
+            { hooks: [{ type: "command", command: "node signpost-session-start.js" }] },
+          ],
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      detectSignpostSessionStartHook({
+        hooks: {
+          SessionStart: [
+            {
+              hooks: [
+                { type: "command", command: "echo unrelated" },
+                { type: "command", command: "node signpost-session-start.js" },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("no group/entry matching is a miss even when every group/entry is otherwise well-formed", () => {
+    expect(
+      detectSignpostSessionStartHook({
+        hooks: {
+          SessionStart: [
+            { hooks: [{ type: "command", command: "echo one" }] },
+            { hooks: [{ type: "command", command: "echo two" }] },
+          ],
+        },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("buildDoctorReport", () => {
+  it("reports every fact as one line, in order", () => {
+    const lines = buildDoctorReport(BASE_FACTS);
+    expect(lines).toHaveLength(6);
+    expect(lines[0]).toContain("node:");
+    expect(lines[1]).toBe("credentials: none found (set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)");
+    expect(lines[2]).toContain("gh:");
+    expect(lines[3]).toContain("embedding model cache:");
+    expect(lines[4]).toContain("database:");
+    expect(lines[5]).toContain("session-start hook:");
+  });
+
+  it("node below floor is called out", () => {
+    const lines = buildDoctorReport({ ...BASE_FACTS, nodeMajorVersion: 20, nodeMinVersion: 24 });
+    expect(lines[0]).toContain("below floor");
+  });
+
+  it("credential none prompts to set an env var", () => {
+    const lines = buildDoctorReport(BASE_FACTS);
+    expect(lines[1]).toContain("ANTHROPIC_API_KEY");
+  });
+
+  it("credential found is named", () => {
+    const lines = buildDoctorReport({ ...BASE_FACTS, credential: "ANTHROPIC_AUTH_TOKEN" });
+    expect(lines[1]).toBe("credentials: ANTHROPIC_AUTH_TOKEN");
+  });
+
+  it("gh not installed", () => {
+    const lines = buildDoctorReport(BASE_FACTS);
+    expect(lines[2]).toContain("not found");
+  });
+
+  it("gh installed, not authenticated", () => {
+    const lines = buildDoctorReport({ ...BASE_FACTS, gh: { installed: true, authenticated: false } });
+    expect(lines[2]).toContain("not authenticated");
+  });
+
+  it("gh installed and authenticated", () => {
+    const lines = buildDoctorReport({ ...BASE_FACTS, gh: { installed: true, authenticated: true } });
+    expect(lines[2]).toBe("gh: authenticated");
+  });
+
+  it("model cache present vs absent", () => {
+    expect(buildDoctorReport({ ...BASE_FACTS, modelCachePresent: true })[3]).toContain("present");
+    expect(buildDoctorReport({ ...BASE_FACTS, modelCachePresent: false })[3]).toContain("absent");
+  });
+
+  it.each([
+    ["no-database", "database: no database yet"],
+    ["ok", "database: ok"],
+    ["corrupt", "database: integrity check failed"],
+  ] as const)("db integrity %s", (status, expected) => {
+    const line = buildDoctorReport({ ...BASE_FACTS, dbIntegrity: status })[4];
+    expect(line).toBe(expected);
+  });
+
+  it("hook installed vs not", () => {
+    expect(buildDoctorReport({ ...BASE_FACTS, hookInstalled: true })[5]).toBe("session-start hook: installed");
+    expect(buildDoctorReport({ ...BASE_FACTS, hookInstalled: false })[5]).toBe("session-start hook: not installed");
+  });
+});

@@ -5,7 +5,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { SIGNPOSTS_DIRNAME } from "../core/config/constants.js";
+import { SIGNPOSTS_DIRNAME } from "../core/config/constants.ts";
 
 function readIfExists(filePath: string): string | undefined {
   try {

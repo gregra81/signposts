@@ -9,8 +9,8 @@ import type {
   NodeName,
   ToolDef,
   Usage,
-} from "../../core/model/types.js";
-import type { FixtureEntry } from "./fixture-provider.js";
+} from "../../core/model/types.ts";
+import type { FixtureEntry } from "./fixture-provider.ts";
 
 export class RecordingModelProvider implements ModelProvider {
   private readonly client: unknown;

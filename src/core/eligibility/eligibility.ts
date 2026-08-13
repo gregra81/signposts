@@ -2,8 +2,8 @@
 // metadata in, decision out. Size and content gates live elsewhere (they
 // need transcript/gutter output, not session metadata).
 
-import { IDLE_HOURS, MAX_AGE_DAYS } from "../config/constants.js";
-import type { Session } from "./types.js";
+import { IDLE_HOURS, MAX_AGE_DAYS } from "../config/constants.ts";
+import type { Session } from "./types.ts";
 
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 86_400_000;

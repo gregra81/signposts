@@ -7,7 +7,7 @@
 // ASSUMPTION: no exact token-estimate formula is documented in the spec
 // docs. Using the standard chars/4 rule-of-thumb, per-string.
 
-import type { GutteredTurn } from "./types.js";
+import type { GutteredTurn } from "./types.ts";
 
 /** chars/4 rule-of-thumb estimate for one string. */
 export function estimateTokens(text: string): number {

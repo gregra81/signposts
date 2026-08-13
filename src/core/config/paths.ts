@@ -16,9 +16,11 @@ import {
   MODEL_CACHE_DIRNAME,
   SIGNPOSTS_DIRNAME,
   STATUSLINE_FILENAME,
-} from "./constants.js";
+} from "./constants.ts";
 
 export interface DerivedPaths {
+  /** The repoRoot derivePaths was called with, unnormalised. */
+  repoRoot: string;
   /** First 12 hex chars of sha256(repoRoot). */
   repoHash: string;
   stateDir: string;
@@ -44,6 +46,7 @@ export function derivePaths(repoRoot: string, homeDir: string): DerivedPaths {
   const knowledgeDir = path.join(repoRoot, SIGNPOSTS_DIRNAME);
 
   return {
+    repoRoot,
     repoHash,
     stateDir,
     dbPath: path.join(stateDir, DB_FILENAME),

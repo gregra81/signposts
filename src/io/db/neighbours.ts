@@ -10,12 +10,12 @@
 // empty or short of k, that is returned as-is; nothing pads it out.
 
 import type Database from "better-sqlite3";
-import { combineScore } from "../../core/retrieval/combine-score.js";
-import { ftsQuery } from "../../core/retrieval/fts-query.js";
-import { pathOverlapBoost } from "../../core/retrieval/path-overlap.js";
-import { fuseRrf } from "../../core/retrieval/rrf.js";
-import { vectorToBlob } from "../../core/retrieval/vector-codec.js";
-import { ACTIVE_STATUS, scopeSchema, type Scope } from "../../core/signpost/schema.js";
+import { combineScore } from "../../core/retrieval/combine-score.ts";
+import { ftsQuery } from "../../core/retrieval/fts-query.ts";
+import { pathOverlapBoost } from "../../core/retrieval/path-overlap.ts";
+import { fuseRrf } from "../../core/retrieval/rrf.ts";
+import { vectorToBlob } from "../../core/retrieval/vector-codec.ts";
+import { ACTIVE_STATUS, scopeSchema, type Scope } from "../../core/signpost/schema.ts";
 
 // Shared by both queries below — the "hard filter" half of the "Hard
 // filters (repo, status='active')" contract, kept in one place so the two

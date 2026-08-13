@@ -8,7 +8,7 @@ import type {
   NodeName,
   ToolDef,
   Usage,
-} from "../../core/model/types.js";
+} from "../../core/model/types.ts";
 
 export interface FixtureEntry {
   value: unknown;

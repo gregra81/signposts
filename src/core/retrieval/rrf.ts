@@ -4,7 +4,7 @@
 // omitted term, not a zero rank. Fuses by rank position only — never reads
 // or touches the underlying cosine-similarity/distance/BM25 value.
 
-import { RRF_K } from "../config/constants.js";
+import { RRF_K } from "../config/constants.ts";
 
 export interface FusedResult {
   id: string;

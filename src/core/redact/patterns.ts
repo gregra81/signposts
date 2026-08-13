@@ -11,9 +11,9 @@
 // mostly security regexes". Building each regex per call keeps every
 // pattern mutation-testable.
 
-import { ENTROPY_MIN_LEN, SECRET_KEY_NAME_RE, TOKEN_PREFIXES } from "../config/constants.js";
-import { placeholderFor } from "./types.js";
-import type { Redactor } from "./types.js";
+import { ENTROPY_MIN_LEN, SECRET_KEY_NAME_RE, TOKEN_PREFIXES } from "../config/constants.ts";
+import { placeholderFor } from "./types.ts";
+import type { Redactor } from "./types.ts";
 
 /** `-----BEGIN * PRIVATE KEY-----` ... `-----END * PRIVATE KEY-----`, whole block. */
 export const redactPrivateKeys: Redactor = (text) => {

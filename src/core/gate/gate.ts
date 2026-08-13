@@ -3,7 +3,7 @@
 // Bootstrap state itself lives in the DB (src/io/db/repo-state.ts); this
 // function just takes the already-read flag as a plain boolean.
 
-import { ALWAYS_HUMAN_OPS, AUTO_PUBLISH_CONFIDENCE, BOOTSTRAP_GATE_ALL } from "../config/constants.js";
+import { ALWAYS_HUMAN_OPS, AUTO_PUBLISH_CONFIDENCE, BOOTSTRAP_GATE_ALL } from "../config/constants.ts";
 
 // Minimal Operation type, scoped to what gate() actually reads: the `op`
 // tag. 12-wire-contracts.md's Operation union carries richer per-variant

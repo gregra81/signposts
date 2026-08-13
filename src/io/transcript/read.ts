@@ -10,8 +10,8 @@
 
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
-import { advance, createTranscriptReadState, type TranscriptCounts } from "../../core/transcript/advance.js";
-import type { TranscriptLine } from "../../core/contracts/schema.js";
+import { advance, createTranscriptReadState, type TranscriptCounts } from "../../core/transcript/advance.ts";
+import type { TranscriptLine } from "../../core/contracts/schema.ts";
 
 export type { TranscriptCounts };
 

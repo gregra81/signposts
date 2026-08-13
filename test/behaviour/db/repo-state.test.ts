@@ -7,7 +7,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDb } from "../../../src/io/db/migrate.js";
-import { hasCompletedBootstrap, markBootstrapComplete } from "../../../src/io/db/repo-state.js";
+import {
+  hasCompletedBootstrap,
+  hasConsented,
+  markBootstrapComplete,
+  markConsented,
+} from "../../../src/io/db/repo-state.js";
 
 describe("repo-state", () => {
   let dir: string;
@@ -45,5 +50,17 @@ describe("repo-state", () => {
     };
     expect(row.repo).toBe("acme/platform");
     expect(typeof row.bootstrap_completed_at).toBe("string");
+  });
+
+  it("markConsented alone does not flip hasCompletedBootstrap", () => {
+    markConsented(db, "acme/platform");
+
+    expect(hasCompletedBootstrap(db, "acme/platform")).toBe(false);
+  });
+
+  it("markBootstrapComplete alone does not flip hasConsented", () => {
+    markBootstrapComplete(db, "acme/platform");
+
+    expect(hasConsented(db, "acme/platform")).toBe(false);
   });
 });
