@@ -8,7 +8,7 @@
 
 export function ftsQuery(text: string): string | null {
   const tokens = text.match(/[\p{L}\p{N}_]+/gu);
-  if (!tokens || tokens.length === 0) {
+  if (!tokens) {
     return null;
   }
   return tokens.map((token) => `"${token}"`).join(" OR ");
