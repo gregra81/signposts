@@ -30,6 +30,7 @@ const THRESHOLDS = [
   { module: "src/core/credentials", break: 95 },
   { module: "src/core/paths", break: 95 },
   { module: "src/core/gate", break: 95 },
+  { module: "src/core/graph", break: 95 },
   { module: "src/core/eligibility", break: 95 },
   { module: "src/core/transcript", break: 95 },
   { module: "src/core/signpost", break: 95 },
