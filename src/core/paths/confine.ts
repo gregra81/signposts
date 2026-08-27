@@ -9,59 +9,74 @@ import path from "node:path";
 
 export type ConfineResult = { ok: true; path: string } | { ok: false; reason: string };
 
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && "code" in err;
-}
-
 /**
  * `path.relative`-based containment check — a segment-boundary check,
  * not a string prefix check, so `/repo-evil` is correctly rejected
  * against parent `/repo` (a naive `startsWith("/repo")` would accept it).
+ * An empty `rel` means the two paths are the same, which counts as inside.
  */
 function isInside(parent: string, child: string): boolean {
-  if (child === parent) return true;
   const rel = path.relative(parent, child);
-  return rel !== "" && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+  return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 }
 
 /**
- * Resolves symlinks via the real fs. When `p` (or some suffix of it)
- * doesn't exist yet, walks up to the longest existing ancestor, resolves
- * that ancestor for real, and rejoins the non-existent tail — so a
- * not-yet-created file still gets its existing symlinked parent
- * directories resolved, while a missing leaf doesn't make realpath throw.
- *
- * `fs.realpathSync` also throws ENOENT when `p` itself exists but is a
- * *dangling* symlink (its target doesn't exist) — that case must not be
- * treated as "doesn't exist yet" and rejoined as a literal path segment,
- * or the dangling link's in-root path would be returned as confined even
- * though writing through it lands wherever the link points. So on ENOENT,
- * lstat `p` first: if it's a symlink, resolve its target (against the
- * already-resolved parent, for relative targets) and recurse on that —
- * the target's own resolution/containment is what matters, not `p`'s.
+ * `fs.lstatSync`, with "doesn't exist" reported as `undefined` instead of
+ * a throw. Every other error (ENOTDIR on a path that runs through a file,
+ * ELOOP, EACCES, an invalid argument) still throws, so it surfaces as a
+ * `confine failed` reason rather than being mistaken for a path that has
+ * simply not been created yet.
  */
-function realpathOrWalkUp(p: string): string {
+function lstatOrUndefined(p: string): fs.Stats | undefined {
   try {
-    return fs.realpathSync(p);
+    return fs.lstatSync(p);
   } catch (err) {
-    if (!isNodeError(err) || err.code !== "ENOENT") throw err;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
+}
+
+/** Linux's MAXSYMLINKS, the point at which `realpath` gives up with ELOOP. */
+const MAX_SYMLINK_HOPS = 40;
+
+/**
+ * Resolves symlinks via the real fs. When `p` doesn't exist yet, walks up
+ * to the longest existing ancestor, resolves that ancestor for real, and
+ * rejoins the non-existent tail — so a not-yet-created file still gets its
+ * existing symlinked parent directories resolved, while a missing leaf
+ * doesn't make realpath throw. The walk terminates because the filesystem
+ * root always exists.
+ *
+ * A symlink is resolved through `readlink` rather than `realpath` so a
+ * *dangling* link (its target doesn't exist) is not mistaken for a path
+ * that doesn't exist: writing through such a link lands wherever the link
+ * points, so the target's own resolution and containment is what matters,
+ * not `p`'s.
+ *
+ * Termination: the two walk-up recursions shorten the path by one segment
+ * each time and stop at the filesystem root, which exists. Following a
+ * symlink target has no such bound — `a -> b -> a` would recurse until the
+ * stack ran out — so `hops` caps it the way MAXSYMLINKS caps
+ * `realpath`, and a cycle comes back as a `confine failed` reason.
+ */
+function realpathOrWalkUp(p: string, hops = 0): string {
+  const stat = lstatOrUndefined(p);
+
+  if (stat === undefined) {
+    return path.join(realpathOrWalkUp(path.dirname(p), hops), path.basename(p));
   }
 
-  try {
-    const stat = fs.lstatSync(p);
-    if (stat.isSymbolicLink()) {
-      const parentReal = realpathOrWalkUp(path.dirname(p));
-      const target = fs.readlinkSync(p);
-      const resolvedTarget = path.isAbsolute(target) ? target : path.resolve(parentReal, target);
-      return realpathOrWalkUp(resolvedTarget);
+  if (stat.isSymbolicLink()) {
+    if (hops >= MAX_SYMLINK_HOPS) {
+      throw new Error(`too many symbolic links: ${p}`);
     }
-  } catch (err) {
-    if (!isNodeError(err) || err.code !== "ENOENT") throw err;
+    const parentReal = realpathOrWalkUp(path.dirname(p), hops);
+    const target = fs.readlinkSync(p);
+    const resolvedTarget = path.isAbsolute(target) ? target : path.resolve(parentReal, target);
+    return realpathOrWalkUp(resolvedTarget, hops + 1);
   }
 
-  const parent = path.dirname(p);
-  if (parent === p) return p;
-  return path.join(realpathOrWalkUp(parent), path.basename(p));
+  return fs.realpathSync(p);
 }
 
 /**
