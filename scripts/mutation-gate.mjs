@@ -102,8 +102,17 @@ async function main() {
   const report = JSON.parse(raw);
   const files = Object.entries(report.files ?? {});
 
+  // A report with no files means the gate verified nothing. Stryker is
+  // configured to mutate src/core, so an empty report is a broken run —
+  // a truncated write, a crash between reporting and exit — not a project
+  // with nothing to check. Passing here would report success for work that
+  // never happened.
   if (files.length === 0) {
-    console.log("mutation-gate: no mutated files in the report, nothing to gate.");
+    console.error(
+      `mutation-gate: ${REPORT_PATH} lists no files. Expected mutants under ` +
+        "src/core. Treating an empty report as a failed run rather than a pass.",
+    );
+    process.exitCode = 1;
     return;
   }
 
@@ -140,18 +149,28 @@ async function main() {
     return;
   }
 
+  // Same hole as the empty-report check above: the report had files, none of
+  // them carried a mutant any threshold claims, so no module got scored. That
+  // is a broken run, not a clean one.
   if (byModule.size === 0) {
-    console.log(
-      "mutation-gate: no mutants in any module with a per-module threshold.",
+    console.error(
+      "mutation-gate: no mutants landed in any module with a per-module " +
+        "threshold, so nothing was gated.",
     );
+    process.exitCode = 1;
     return;
   }
 
   let failed = false;
   for (const [module, bucket] of [...byModule].sort()) {
     const value = score(bucket.mutants);
+    // A module listed here that produces nothing scoreable — every mutant
+    // ignored, or a compile error swallowing the lot — is not a module that
+    // passed. It is a module nobody checked, and it reads as `ok` in the log
+    // if we let it through.
     if (value === undefined) {
-      console.log(`  ${module}  no scoreable mutants  (break ${bucket.break})`);
+      failed = true;
+      console.log(`  FAIL ${module}  no scoreable mutants  (break ${bucket.break})`);
       continue;
     }
     const ok = value >= bucket.break;
@@ -162,7 +181,7 @@ async function main() {
   }
 
   if (failed) {
-    console.error("mutation-gate: a module is below its break threshold.");
+    console.error("mutation-gate: a module is below its break threshold, or was not scored at all.");
     process.exitCode = 1;
   }
 }
