@@ -36,6 +36,9 @@ function lstatOrUndefined(p: string): fs.Stats | undefined {
   }
 }
 
+/** Linux's MAXSYMLINKS, the point at which `realpath` gives up with ELOOP. */
+const MAX_SYMLINK_HOPS = 40;
+
 /**
  * Resolves symlinks via the real fs. When `p` doesn't exist yet, walks up
  * to the longest existing ancestor, resolves that ancestor for real, and
@@ -49,19 +52,28 @@ function lstatOrUndefined(p: string): fs.Stats | undefined {
  * that doesn't exist: writing through such a link lands wherever the link
  * points, so the target's own resolution and containment is what matters,
  * not `p`'s.
+ *
+ * Termination: the two walk-up recursions shorten the path by one segment
+ * each time and stop at the filesystem root, which exists. Following a
+ * symlink target has no such bound — `a -> b -> a` would recurse until the
+ * stack ran out — so `hops` caps it the way MAXSYMLINKS caps
+ * `realpath`, and a cycle comes back as a `confine failed` reason.
  */
-function realpathOrWalkUp(p: string): string {
+function realpathOrWalkUp(p: string, hops = 0): string {
   const stat = lstatOrUndefined(p);
 
   if (stat === undefined) {
-    return path.join(realpathOrWalkUp(path.dirname(p)), path.basename(p));
+    return path.join(realpathOrWalkUp(path.dirname(p), hops), path.basename(p));
   }
 
   if (stat.isSymbolicLink()) {
-    const parentReal = realpathOrWalkUp(path.dirname(p));
+    if (hops >= MAX_SYMLINK_HOPS) {
+      throw new Error(`too many symbolic links: ${p}`);
+    }
+    const parentReal = realpathOrWalkUp(path.dirname(p), hops);
     const target = fs.readlinkSync(p);
     const resolvedTarget = path.isAbsolute(target) ? target : path.resolve(parentReal, target);
-    return realpathOrWalkUp(resolvedTarget);
+    return realpathOrWalkUp(resolvedTarget, hops + 1);
   }
 
   return fs.realpathSync(p);

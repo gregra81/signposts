@@ -193,4 +193,55 @@ describe("confine", () => {
     if (result.ok) return;
     expect(result.reason).toMatch(/^confine failed: /);
   });
+  it("rejects a symlink cycle instead of recursing until the stack runs out", () => {
+    symlinkSync(path.join(repoRoot, "b"), path.join(repoRoot, "a"));
+    symlinkSync(path.join(repoRoot, "a"), path.join(repoRoot, "b"));
+
+    const result = confine(repoRoot, "a");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/^confine failed: too many symbolic links: /);
+  });
+
+  it("rejects a symlink pointing at itself", () => {
+    symlinkSync(path.join(repoRoot, "self"), path.join(repoRoot, "self"));
+
+    const result = confine(repoRoot, "self");
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/^confine failed: too many symbolic links: /);
+  });
+
+  // The hop limit is Linux's MAXSYMLINKS (40). A chain right at the
+  // limit must still resolve, or the bound that stops a cycle would also
+  // reject legitimately deep symlink chains.
+  const chainOf = (repoRoot: string, links: number): string => {
+    writeFileSync(path.join(repoRoot, "chain-target.txt"), "end of the chain");
+    let previous = "chain-target.txt";
+    for (let i = links - 1; i >= 0; i -= 1) {
+      symlinkSync(path.join(repoRoot, previous), path.join(repoRoot, `link-${i}`));
+      previous = `link-${i}`;
+    }
+    return previous;
+  };
+
+  it("resolves a symlink chain exactly at the hop limit", () => {
+    const head = chainOf(repoRoot, 40);
+
+    const result = confine(repoRoot, head);
+
+    expect(result).toEqual({ ok: true, path: path.join(repoRoot, "chain-target.txt") });
+  });
+
+  it("rejects a symlink chain one hop past the limit", () => {
+    const head = chainOf(repoRoot, 41);
+
+    const result = confine(repoRoot, head);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/^confine failed: too many symbolic links: /);
+  });
 });
