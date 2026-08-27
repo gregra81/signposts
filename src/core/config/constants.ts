@@ -348,12 +348,6 @@ export const ANTHROPIC_DEFAULT_PROFILE = "default";
 export const TOKEN_EXPIRY_SKEW_MS = 60_000;
 
 /**
- * Beta header required alongside `Authorization: Bearer` when the credential
- * is an OAuth access token rather than an API key.
- */
-export const OAUTH_BETA_HEADER = "oauth-2025-04-20";
-
-/**
  * Subscription rate-limit tier that shares quota with interactive Claude Code
  * use. Seeing this means a background signposts run competes with the
  * developer's own session — 08-models-and-credentials.md's first objection.

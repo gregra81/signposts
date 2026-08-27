@@ -97,8 +97,8 @@ export interface ModelCredential {
   /**
    * Bearer token, set only for the Claude subscription — the SDK cannot read
    * Claude Code's credential store, so signposts has to hand it over. Send it
-   * as `Authorization: Bearer` with the OAUTH_BETA_HEADER beta flag, never as
-   * `x-api-key`. Undefined for every other method, where a bare client
+   * as `Authorization: Bearer` with the `oauth-2025-04-20` beta header, never
+   * as `x-api-key`. Undefined for every other method, where a bare client
    * resolves the credential itself.
    */
   accessToken?: string;
