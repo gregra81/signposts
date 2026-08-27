@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # 03:00 UTC. Scheduled runs only fire on the default branch, which is the
+    # point: this is the cold, uncached mutation run that backstops the cached
+    # ones on pull requests.
+    - cron: "0 3 * * *"
 
 # `verify` is split into parallel jobs rather than run as one script: mutation
 # testing dominates the wall clock, and there is no reason typecheck, lint, and
@@ -52,9 +57,26 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Deliberately no cache for reports/stryker-incremental.json. Reusing an
-      # incremental report skips mutants it has already seen, which is what hid
-      # a Linux-only surviving mutant during local runs. CI runs cold so the
-      # gate sees every mutant on every run.
+
+      # Pull requests reuse Stryker's incremental report; push-to-main and the
+      # nightly run never restore one, so the gate of record always executes
+      # every mutant against the tree it is judging.
+      #
+      # Stryker's incremental mode does not notice changes outside the files it
+      # mutates and the tests that cover them — its docs call out dependency
+      # updates and environment changes specifically. src/core imports nothing
+      # beyond itself, node:*, yaml and zod, so the exposure here is the
+      # lockfile and the three config files that shape the run. Those are
+      # hashed into the cache key: change any of them and the key misses, no
+      # report is restored, and the run goes cold on its own.
+      - name: Restore Stryker incremental report
+        if: github.event_name == 'pull_request'
+        uses: actions/cache@v4
+        with:
+          path: reports/stryker-incremental.json
+          key: stryker-${{ hashFiles('pnpm-lock.yaml', 'stryker.config.mjs', 'vitest.unit.config.ts', 'tsconfig.json') }}-${{ github.sha }}
+          restore-keys: |
+            stryker-${{ hashFiles('pnpm-lock.yaml', 'stryker.config.mjs', 'vitest.unit.config.ts', 'tsconfig.json') }}-
+
       - run: pnpm run mutate
       - run: pnpm run mutate:gate
