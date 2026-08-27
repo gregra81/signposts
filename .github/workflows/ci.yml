@@ -5,20 +5,56 @@ on:
     branches: [main]
   pull_request:
 
+# `verify` is split into parallel jobs rather than run as one script: mutation
+# testing dominates the wall clock, and there is no reason typecheck, lint, and
+# the test suite should queue behind it. Every job repeats the same setup, which
+# the pnpm store cache makes cheap.
 jobs:
-  verify:
+  static:
+    name: typecheck + lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
           version: 11.18.0
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
-
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run verify
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test
+
+  mutate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Deliberately no cache for reports/stryker-incremental.json. Reusing an
+      # incremental report skips mutants it has already seen, which is what hid
+      # a Linux-only surviving mutant during local runs. CI runs cold so the
+      # gate sees every mutant on every run.
+      - run: pnpm run mutate
+      - run: pnpm run mutate:gate

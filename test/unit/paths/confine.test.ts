@@ -110,17 +110,26 @@ describe("confine", () => {
   });
 
   it("accepts an absolute path inside repoRoot when repoRoot itself is a non-canonical symlink hop", () => {
-    const realTmp = mkdtempSync(path.join(tmpdir(), "signposts-confine-linked-"));
-    const linkedRoot = path.join(realTmp, "link-to-self");
-    symlinkSync(realTmp, linkedRoot);
+    // The link points *sideways* to a sibling, not back at its own parent, so
+    // repoRoot's real path lands outside the tree its lexical path names. That
+    // is what makes confine's lexical-root fallback observable: a link to its
+    // own parent leaves the real root an ancestor of the lexical one, and both
+    // containment checks agree. On macOS a self-link happens to diverge anyway
+    // ($TMPDIR sits under /var -> /private/var), but on Linux /tmp is real and
+    // the fallback would go untested.
+    const base = realpathSync(mkdtempSync(path.join(tmpdir(), "signposts-confine-linked-")));
+    const realRoot = path.join(base, "real-root");
+    mkdirSync(realRoot);
+    const linkedRoot = path.join(base, "link-to-root");
+    symlinkSync(realRoot, linkedRoot);
 
     const fileResult = confine(linkedRoot, path.join(linkedRoot, "ok.txt"));
-    expect(fileResult.ok).toBe(true);
+    expect(fileResult).toEqual({ ok: true, path: path.join(realRoot, "ok.txt") });
 
     const rootResult = confine(linkedRoot, linkedRoot);
-    expect(rootResult.ok).toBe(true);
+    expect(rootResult).toEqual({ ok: true, path: realRoot });
 
-    rmSync(realTmp, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true });
   });
 
   it("rejects repoRoot's own parent directory", () => {
