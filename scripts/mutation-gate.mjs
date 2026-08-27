@@ -1,11 +1,11 @@
 // @ts-check
 // Per-module mutation break thresholds.
 //
-// Stryker's `thresholds.break` is a single global number. 16-build-plan.md
-// Tier 3 asks for different floors per module, because not all of the core
-// carries the same risk — a surviving mutant in redact/ is a secret pattern
-// the tests do not actually check, while one in gutter/ degrades quality.
-// This script reads Stryker's JSON report and applies the table.
+// Stryker's `thresholds.break` is a single global number applied to the whole
+// run, which lets a well-covered module carry a weak one. This script reads
+// Stryker's JSON report and applies the floor per module instead, so every
+// module clears the bar on its own. It also fails on a mutated module that
+// has no entry below, so a new module cannot slip in ungated.
 //
 // Runs as `pnpm mutate:gate`, after `pnpm mutate`.
 
@@ -16,12 +16,18 @@ import process from "node:process";
 const REPORT_PATH = "reports/mutation/mutation.json";
 
 /**
- * Break threshold per `src/core/` module, from 16-build-plan.md Tier 3.
- * Longest matching prefix wins, so a nested module can override its parent.
+ * Break threshold per `src/core/` module. Uniform at 95 today; the per-module
+ * shape is kept so one module can be given a different floor without
+ * reworking the script. Longest matching prefix wins, so a nested module can
+ * override its parent.
  * @type {ReadonlyArray<{ module: string, break: number }>}
  */
 const THRESHOLDS = [
   { module: "src/core/redact", break: 95 },
+  // Credentials sit at redact's floor, not doctor's: a surviving mutant here
+  // is an untested branch in code that decides which account gets billed and
+  // handles a live access token.
+  { module: "src/core/credentials", break: 95 },
   { module: "src/core/paths", break: 95 },
   { module: "src/core/gate", break: 95 },
   { module: "src/core/eligibility", break: 95 },
@@ -32,6 +38,11 @@ const THRESHOLDS = [
   { module: "src/core/pr", break: 95 },
   { module: "src/core/config", break: 95 },
   { module: "src/core/contracts", break: 95 },
+  { module: "src/core/git", break: 95 },
+  { module: "src/core/cli", break: 95 },
+  { module: "src/core/init", break: 95 },
+  { module: "src/core/doctor", break: 95 },
+  { module: "src/core/errors", break: 95 },
 ];
 
 /** Mutant states that count as "the suite caught it". */

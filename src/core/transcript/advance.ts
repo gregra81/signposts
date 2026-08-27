@@ -8,8 +8,8 @@
 // see the build task's design note: a persistent/immutable state structure
 // is out of scope, only the decisions need to be pure and unit-testable.
 
-import { parseLine } from "./classify.js";
-import type { TranscriptLine } from "../contracts/schema.js";
+import { parseLine } from "./classify.ts";
+import type { TranscriptLine } from "../contracts/schema.ts";
 
 export interface TranscriptCounts {
   linesRead: number;

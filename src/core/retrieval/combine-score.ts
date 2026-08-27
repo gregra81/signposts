@@ -3,7 +3,7 @@
 // boost is additive to the fused score, never a tie-break-only signal and
 // never a filter.
 
-import { PATH_OVERLAP_BOOST_WEIGHT } from "../config/constants.js";
+import { PATH_OVERLAP_BOOST_WEIGHT } from "../config/constants.ts";
 
 /**
  * Combines a fused RRF score with a path-overlap match into one value to

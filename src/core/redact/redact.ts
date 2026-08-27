@@ -14,8 +14,8 @@ import {
   redactHighEntropy,
   redactPrivateKeys,
   redactTokens,
-} from "./patterns.js";
-import type { Redactor } from "./types.js";
+} from "./patterns.ts";
+import type { Redactor } from "./types.ts";
 
 /**
  * Applied in this order because each earlier stage consumes text a later,

@@ -9,10 +9,10 @@
 // (repo/contentHash/session metadata) — that's a separate step that
 // doesn't exist yet in this codebase, per gutter.ts's own header comment.
 
-import { isHumanTurn } from "../transcript/classify.js";
-import { TEXT_BLOCK_TYPE, TOOL_RESULT_BLOCK_TYPE, TOOL_USE_BLOCK_TYPE } from "../config/constants.js";
-import type { AssistantLine, TranscriptLine, UserLine } from "../contracts/schema.js";
-import type { AssistantGutterInputTurn, ContentBlock, GutterInputTurn, HumanGutterInputTurn } from "./types.js";
+import { isHumanTurn } from "../transcript/classify.ts";
+import { TEXT_BLOCK_TYPE, TOOL_RESULT_BLOCK_TYPE, TOOL_USE_BLOCK_TYPE } from "../config/constants.ts";
+import type { AssistantLine, TranscriptLine, UserLine } from "../contracts/schema.ts";
+import type { AssistantGutterInputTurn, ContentBlock, GutterInputTurn, HumanGutterInputTurn } from "./types.ts";
 
 /**
  * Flattens `string | ContentBlock[]` content into one string. A plain

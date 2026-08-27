@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { configSchema } from "../../../src/core/config/schema.js";
 import {
   ALLOW_REMOTE_MODELS,
+  AUTH_METHOD_AUTO,
   AUTO_MERGE,
   AUTO_PUBLISH_CONFIDENCE,
   BOOTSTRAP_AGE_DAYS,
@@ -19,6 +20,7 @@ describe("configSchema", () => {
   it("parsing {} fills every leaf from the constants module", () => {
     expect(configSchema.parse({})).toEqual({
       version: 1,
+      auth: { method: AUTH_METHOD_AUTO },
       models: {
         extract: MODEL_DEFAULT,
         critic: MODEL_DEFAULT,

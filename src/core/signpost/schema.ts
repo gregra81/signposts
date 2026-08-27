@@ -15,7 +15,7 @@
 // rather than a separate check a caller could forget to run.
 
 import { z } from "zod";
-import { CLAIM_ALLOW_NEWLINE, CLAIM_MAX_CHARS, CLAIM_REJECT_SUBSTRINGS, EVIDENCE_MAX_CHARS, ID_PATTERN } from "../config/constants.js";
+import { CLAIM_ALLOW_NEWLINE, CLAIM_MAX_CHARS, CLAIM_REJECT_SUBSTRINGS, EVIDENCE_MAX_CHARS, ID_PATTERN } from "../config/constants.ts";
 
 export const categorySchema = z.enum(["correction", "preference", "gotcha", "decision", "environment"]);
 export type Category = z.infer<typeof categorySchema>;

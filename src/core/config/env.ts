@@ -17,6 +17,7 @@ export interface LeafMapping {
 // to share a spelling with a constants.ts value; property keys are exempt
 // from signposts/no-magic-literal, unlike a bare array element would be.
 const SECTION_MAPPINGS: Readonly<Record<string, readonly LeafMapping[]>> = {
+  auth: [{ envVar: "SIGNPOSTS_AUTH_METHOD", leaf: "method", type: "string" }],
   models: [
     { envVar: "SIGNPOSTS_MODELS_EXTRACT", leaf: "extract", type: "string" },
     { envVar: "SIGNPOSTS_MODELS_CRITIC", leaf: "critic", type: "string" },

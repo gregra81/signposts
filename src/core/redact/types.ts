@@ -1,7 +1,7 @@
 // Shapes for the redactor (13-constants.md "Redaction", 02-ingestion.md
 // "Redaction", 15-spec.md #16/#17).
 
-import { PLACEHOLDER_FORMAT } from "../config/constants.js";
+import { PLACEHOLDER_FORMAT } from "../config/constants.ts";
 
 /** One entry per pattern category the redactor covers. */
 export type RedactedKind = "private-key" | "connection-string" | "env-secret" | "token" | "high-entropy";

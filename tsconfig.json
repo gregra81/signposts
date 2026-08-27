@@ -15,7 +15,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "allowJs": true,
-    "checkJs": true
+    "checkJs": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src", "test", "eslint-rules", "hooks", "statusline", "scripts"]
+  "include": ["src", "test", "eslint-rules", "hooks", "statusline", "scripts", "bin"]
 }

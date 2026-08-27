@@ -18,7 +18,7 @@ import {
   type SystemLine,
   type TranscriptLine,
   type UserLine,
-} from "../contracts/schema.js";
+} from "../contracts/schema.ts";
 
 // ---------------------------------------------------------------------------
 // Line parsing

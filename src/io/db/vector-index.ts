@@ -5,12 +5,12 @@
 // src/core/retrieval/, this file is glue plus the actual writes.
 
 import type Database from "better-sqlite3";
-import { EMBEDDING_DIM, EMBEDDING_MODEL } from "../../core/config/constants.js";
-import { computeCorpusHash } from "../../core/retrieval/corpus-hash.js";
-import { normalize } from "../../core/retrieval/normalize.js";
-import { shouldReindex } from "../../core/retrieval/reindex-decision.js";
-import { vectorToBlob } from "../../core/retrieval/vector-codec.js";
-import { createEmbedder } from "../embed/embedder.js";
+import { EMBEDDING_DIM, EMBEDDING_MODEL } from "../../core/config/constants.ts";
+import { computeCorpusHash } from "../../core/retrieval/corpus-hash.ts";
+import { normalize } from "../../core/retrieval/normalize.ts";
+import { shouldReindex } from "../../core/retrieval/reindex-decision.ts";
+import { vectorToBlob } from "../../core/retrieval/vector-codec.ts";
+import { createEmbedder } from "../embed/embedder.ts";
 
 export interface ActiveSignpost {
   id: string;

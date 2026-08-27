@@ -11,7 +11,7 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import * as sqliteVec from "sqlite-vec";
-import { EMBEDDING_DIM } from "../../core/config/constants.js";
+import { EMBEDDING_DIM } from "../../core/config/constants.ts";
 
 type MigrationStep = (db: Database.Database) => void;
 
@@ -137,6 +137,30 @@ const migrations: MigrationStep[] = [
       )
     `);
   },
+  // First-run consent (07-triggering-and-ux.md "First-run consent", R3):
+  // whether `signpost init` has recorded the user's consent for this repo,
+  // same repo_state row as bootstrap_completed_at. That column was NOT
+  // NULL because only markBootstrapComplete ever created a row; now
+  // markConsented can create/update a row for a repo that hasn't
+  // bootstrapped yet (and vice versa), so both flags need to be
+  // independently nullable. SQLite can't drop a NOT NULL constraint via
+  // ALTER TABLE, so this recreates the table (copy, drop, rename) rather
+  // than ALTERing it, preserving any existing rows.
+  (db) => {
+    db.exec(`
+      CREATE TABLE repo_state_new (
+        repo TEXT PRIMARY KEY,
+        bootstrap_completed_at TEXT,
+        consented_at TEXT
+      )
+    `);
+    db.exec(`
+      INSERT INTO repo_state_new (repo, bootstrap_completed_at)
+      SELECT repo, bootstrap_completed_at FROM repo_state
+    `);
+    db.exec(`DROP TABLE repo_state`);
+    db.exec(`ALTER TABLE repo_state_new RENAME TO repo_state`);
+  },
 ];
 
 function readUserVersion(db: Database.Database): number {
@@ -170,24 +194,33 @@ function readUserVersion(db: Database.Database): number {
 export function openDb(dbPath: string): Database.Database {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);
-  sqliteVec.load(db);
 
-  if (readUserVersion(db) >= migrations.length) {
+  try {
+    sqliteVec.load(db);
+
+    if (readUserVersion(db) >= migrations.length) {
+      return db;
+    }
+
+    // `.immediate` is a distinct callable variant of the transaction wrapper
+    // (it issues `BEGIN IMMEDIATE` instead of plain `BEGIN`) — call it
+    // directly, don't invoke `.immediate()` and call the result.
+    db.transaction(() => {
+      const currentVersion = readUserVersion(db);
+      for (const migrate of migrations.slice(currentVersion)) {
+        migrate(db);
+      }
+      if (currentVersion < migrations.length) {
+        db.exec(`PRAGMA user_version = ${migrations.length}`);
+      }
+    }).immediate();
+
     return db;
+  } catch (error) {
+    // A corrupt/non-SQLite file throws here (e.g. reading PRAGMA
+    // user_version) — close the handle we just opened before propagating,
+    // otherwise every caller of openDb() leaks it on this path.
+    db.close();
+    throw error;
   }
-
-  // `.immediate` is a distinct callable variant of the transaction wrapper
-  // (it issues `BEGIN IMMEDIATE` instead of plain `BEGIN`) — call it
-  // directly, don't invoke `.immediate()` and call the result.
-  db.transaction(() => {
-    const currentVersion = readUserVersion(db);
-    for (const migrate of migrations.slice(currentVersion)) {
-      migrate(db);
-    }
-    if (currentVersion < migrations.length) {
-      db.exec(`PRAGMA user_version = ${migrations.length}`);
-    }
-  }).immediate();
-
-  return db;
 }
