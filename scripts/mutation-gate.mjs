@@ -43,7 +43,11 @@ const THRESHOLDS = [
   { module: "src/core/init", break: 95 },
   { module: "src/core/doctor", break: 95 },
   { module: "src/core/errors", break: 95 },
+  { module: "src/core/prompts", break: 95 },
 ];
+
+/** Ignored by configuration — `ignoreStatic` drops static-initializer mutants. */
+const IGNORED = "Ignored";
 
 /** Mutant states that count as "the suite caught it". */
 const KILLED = new Set(["Killed", "Timeout"]);
@@ -164,13 +168,22 @@ async function main() {
   let failed = false;
   for (const [module, bucket] of [...byModule].sort()) {
     const value = score(bucket.mutants);
-    // A module listed here that produces nothing scoreable — every mutant
-    // ignored, or a compile error swallowing the lot — is not a module that
-    // passed. It is a module nobody checked, and it reads as `ok` in the log
-    // if we let it through.
     if (value === undefined) {
-      failed = true;
-      console.log(`  FAIL ${module}  no scoreable mutants  (break ${bucket.break})`);
+      // Nothing scoreable. Two different situations wear the same shape.
+      //
+      // A module of top-level constants (src/core/prompts) is all static
+      // initializers, which `ignoreStatic` drops by design — there is no
+      // assertion that could kill those mutants short of a second copy of
+      // the value in a test. Skipping it is correct.
+      //
+      // Everything else scoring nothing — a compile error swallowing the
+      // whole file — is a module nobody checked, and it must not read as
+      // `ok` in the log.
+      const staticOnly = bucket.mutants.some((mutant) => mutant.status === IGNORED);
+      if (!staticOnly) failed = true;
+      console.log(
+        `  ${staticOnly ? "skip" : "FAIL"} ${module}  no scoreable mutants  (break ${bucket.break})`,
+      );
       continue;
     }
     const ok = value >= bucket.break;
