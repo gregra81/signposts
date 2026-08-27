@@ -9,59 +9,62 @@ import path from "node:path";
 
 export type ConfineResult = { ok: true; path: string } | { ok: false; reason: string };
 
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && "code" in err;
-}
-
 /**
  * `path.relative`-based containment check — a segment-boundary check,
  * not a string prefix check, so `/repo-evil` is correctly rejected
  * against parent `/repo` (a naive `startsWith("/repo")` would accept it).
+ * An empty `rel` means the two paths are the same, which counts as inside.
  */
 function isInside(parent: string, child: string): boolean {
-  if (child === parent) return true;
   const rel = path.relative(parent, child);
-  return rel !== "" && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+  return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 }
 
 /**
- * Resolves symlinks via the real fs. When `p` (or some suffix of it)
- * doesn't exist yet, walks up to the longest existing ancestor, resolves
- * that ancestor for real, and rejoins the non-existent tail — so a
- * not-yet-created file still gets its existing symlinked parent
- * directories resolved, while a missing leaf doesn't make realpath throw.
+ * `fs.lstatSync`, with "doesn't exist" reported as `undefined` instead of
+ * a throw. Every other error (ENOTDIR on a path that runs through a file,
+ * ELOOP, EACCES, an invalid argument) still throws, so it surfaces as a
+ * `confine failed` reason rather than being mistaken for a path that has
+ * simply not been created yet.
+ */
+function lstatOrUndefined(p: string): fs.Stats | undefined {
+  try {
+    return fs.lstatSync(p);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw err;
+  }
+}
+
+/**
+ * Resolves symlinks via the real fs. When `p` doesn't exist yet, walks up
+ * to the longest existing ancestor, resolves that ancestor for real, and
+ * rejoins the non-existent tail — so a not-yet-created file still gets its
+ * existing symlinked parent directories resolved, while a missing leaf
+ * doesn't make realpath throw. The walk terminates because the filesystem
+ * root always exists.
  *
- * `fs.realpathSync` also throws ENOENT when `p` itself exists but is a
- * *dangling* symlink (its target doesn't exist) — that case must not be
- * treated as "doesn't exist yet" and rejoined as a literal path segment,
- * or the dangling link's in-root path would be returned as confined even
- * though writing through it lands wherever the link points. So on ENOENT,
- * lstat `p` first: if it's a symlink, resolve its target (against the
- * already-resolved parent, for relative targets) and recurse on that —
- * the target's own resolution/containment is what matters, not `p`'s.
+ * A symlink is resolved through `readlink` rather than `realpath` so a
+ * *dangling* link (its target doesn't exist) is not mistaken for a path
+ * that doesn't exist: writing through such a link lands wherever the link
+ * points, so the target's own resolution and containment is what matters,
+ * not `p`'s.
  */
 function realpathOrWalkUp(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch (err) {
-    if (!isNodeError(err) || err.code !== "ENOENT") throw err;
+  const stat = lstatOrUndefined(p);
+
+  if (stat === undefined) {
+    return path.join(realpathOrWalkUp(path.dirname(p)), path.basename(p));
   }
 
-  try {
-    const stat = fs.lstatSync(p);
-    if (stat.isSymbolicLink()) {
-      const parentReal = realpathOrWalkUp(path.dirname(p));
-      const target = fs.readlinkSync(p);
-      const resolvedTarget = path.isAbsolute(target) ? target : path.resolve(parentReal, target);
-      return realpathOrWalkUp(resolvedTarget);
-    }
-  } catch (err) {
-    if (!isNodeError(err) || err.code !== "ENOENT") throw err;
+  if (stat.isSymbolicLink()) {
+    const parentReal = realpathOrWalkUp(path.dirname(p));
+    const target = fs.readlinkSync(p);
+    const resolvedTarget = path.isAbsolute(target) ? target : path.resolve(parentReal, target);
+    return realpathOrWalkUp(resolvedTarget);
   }
 
-  const parent = path.dirname(p);
-  if (parent === p) return p;
-  return path.join(realpathOrWalkUp(parent), path.basename(p));
+  return fs.realpathSync(p);
 }
 
 /**
