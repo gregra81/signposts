@@ -5,9 +5,10 @@
 // bin/signpost.js calls this with production ports and process.argv;
 // tests call it with fakes and a temp config.
 //
-// `credentials` (env-var presence for `doctor`) is resolved once, at the
-// composition root (src/io/production-app.ts), and passed down as a plain
-// value — nothing below this module reads `process.env` (R7). `repo` (the
+// `credentials` (which auth methods are available, for `doctor`) is resolved
+// once, at the composition root (src/io/production-app.ts), and passed down as
+// a plain value — nothing below this module reads `process.env`, the Keychain,
+// or the `ant` profile directory (R7). `repo` (the
 // "owner/name" key used across repo_state/signposts) is NOT resolved here:
 // only `init`/`index` need it, and deriving it requires a GitHub `origin`
 // remote that may not exist — `doctor` must run without one (it's the
@@ -19,6 +20,7 @@
 // doesn't have to wire it explicitly; tests substitute their own streams
 // the same way they substitute ports.
 
+import type { CredentialFact } from "./core/doctor/report.ts";
 import type { ModelProvider } from "./core/model/types.ts";
 import type { ResolvedConfig } from "./core/config/resolve.ts";
 import { parseCommand } from "./core/cli/dispatch.ts";
@@ -56,8 +58,8 @@ export interface Stdio {
 export interface CreateAppInput {
   config: ResolvedConfig;
   ports: Ports;
-  /** Env-var presence only, never the credential value — see module comment. */
-  credentials: { hasApiKey: boolean; hasAuthToken: boolean };
+  /** Which auth methods are available and which one wins — never a token value. */
+  credentials: CredentialFact;
   /** Defaults to the real process streams — see module comment. */
   stdio?: Stdio;
 }

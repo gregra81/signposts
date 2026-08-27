@@ -297,3 +297,65 @@ export const LOCK_STALE_MINUTES = 60;
 
 /** Worker writes state at most this often. */
 export const STATUSLINE_REFRESH_MS = 1000;
+
+// ---------------------------------------------------------------------------
+// Credentials
+// ---------------------------------------------------------------------------
+
+/**
+ * Every Anthropic auth method signposts accepts, highest priority first —
+ * the order `auth.method: auto` walks. The Claude subscription leads
+ * deliberately: it is the zero-configuration path, so a developer who has
+ * only ever signed in to Claude Code can run signposts without creating a
+ * console account. See 08-models-and-credentials.md.
+ */
+export const AUTH_CHAIN = [
+  "claude-subscription",
+  "api-key",
+  "auth-token",
+  "console-profile",
+] as const;
+
+/**
+ * `auth.method`'s default: walk AUTH_CHAIN. Any other value pins one method.
+ * Spelled "auto-detect" rather than "auto" so it stays distinct from the
+ * review gate's unrelated "auto" verdict (src/core/gate/gate.ts).
+ */
+export const AUTH_METHOD_AUTO = "auto-detect";
+
+/** macOS Keychain generic-password service Claude Code stores its OAuth credential under. */
+export const CLAUDE_CODE_KEYCHAIN_SERVICE = "Claude Code-credentials";
+
+/** Key wrapping the credential inside that Keychain item's JSON payload. */
+export const CLAUDE_CODE_OAUTH_KEY = "claudeAiOauth";
+
+/** Non-macOS home-relative fallback for the same credential. */
+export const CLAUDE_CODE_CREDENTIALS_FILE = ".claude/.credentials.json";
+
+/** Home-relative `ant auth login` config dir, used when ANTHROPIC_CONFIG_DIR is unset. */
+export const ANTHROPIC_CONFIG_DIRNAME = ".config/anthropic";
+
+/** Subdirectory of the config dir holding one JSON file per logged-in profile. */
+export const ANTHROPIC_CREDENTIALS_DIRNAME = "credentials";
+
+/** Profile consulted when ANTHROPIC_PROFILE is unset. */
+export const ANTHROPIC_DEFAULT_PROFILE = "default";
+
+/**
+ * Treat an access token as expired this long before its stated expiry, so a
+ * token that dies mid-run is caught before the request rather than during it.
+ */
+export const TOKEN_EXPIRY_SKEW_MS = 60_000;
+
+/**
+ * Beta header required alongside `Authorization: Bearer` when the credential
+ * is an OAuth access token rather than an API key.
+ */
+export const OAUTH_BETA_HEADER = "oauth-2025-04-20";
+
+/**
+ * Subscription rate-limit tier that shares quota with interactive Claude Code
+ * use. Seeing this means a background signposts run competes with the
+ * developer's own session — 08-models-and-credentials.md's first objection.
+ */
+export const SHARED_QUOTA_TIER = "default_claude_ai";

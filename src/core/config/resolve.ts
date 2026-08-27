@@ -72,6 +72,7 @@ function parseYamlLayer(contents: string | undefined, label: string): Record<str
 // object rather than an array — "models" would otherwise collide with
 // MODEL_CACHE_DIRNAME's value if it appeared as a plain array element.
 const OBJECT_SECTION_KEYS: Readonly<Record<string, true>> = {
+  auth: true,
   models: true,
   thresholds: true,
   bootstrap: true,

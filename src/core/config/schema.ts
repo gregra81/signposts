@@ -7,6 +7,8 @@
 import { z } from "zod";
 import {
   ALLOW_REMOTE_MODELS,
+  AUTH_CHAIN,
+  AUTH_METHOD_AUTO,
   AUTO_MERGE,
   AUTO_PUBLISH_CONFIDENCE,
   BOOTSTRAP_AGE_DAYS,
@@ -19,6 +21,13 @@ import {
   MODEL_DEFAULT,
   NEIGHBOUR_K,
 } from "./constants.ts";
+
+// `auto` walks AUTH_CHAIN (see src/core/credentials/chain.ts); naming a
+// method pins it, which is how someone holding both a Claude subscription
+// and a console API account chooses which one gets billed.
+const authSchema = z.object({
+  method: z.enum([AUTH_METHOD_AUTO, ...AUTH_CHAIN]).default(AUTH_METHOD_AUTO),
+});
 
 const modelsSchema = z.object({
   extract: z.string().default(MODEL_DEFAULT),
@@ -59,6 +68,7 @@ const gitSchema = z.object({
 // a partial literal like `{}` as its argument.
 const rawConfigSchema = z.object({
   version: z.literal(1).default(1),
+  auth: authSchema.optional(),
   models: modelsSchema.optional(),
   thresholds: thresholdsSchema.optional(),
   bootstrap: bootstrapSchema.optional(),
@@ -68,6 +78,7 @@ const rawConfigSchema = z.object({
 
 export const configSchema = rawConfigSchema.transform((raw) => ({
   version: raw.version,
+  auth: authSchema.parse(raw.auth ?? {}),
   models: modelsSchema.parse(raw.models ?? {}),
   thresholds: thresholdsSchema.parse(raw.thresholds ?? {}),
   bootstrap: bootstrapSchema.parse(raw.bootstrap ?? {}),

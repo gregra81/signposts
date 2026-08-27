@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
-import { fakePorts, NO_CREDENTIALS } from "../helpers/fake-ports.js";
+import { API_KEY, AUTH_TOKEN, credentialsFor, fakePorts, NO_CREDENTIALS } from "../helpers/fake-ports.js";
 
 describe("signpost doctor", () => {
   let homeDir: string;
@@ -89,30 +89,30 @@ describe("signpost doctor", () => {
     expect(stdio.writtenOutput()).toContain("session-start hook: installed");
   });
 
-  it("reports ANTHROPIC_API_KEY as the credential source when present", async () => {
+  it("reports the api-key method as the credential source when present", async () => {
     const stdio = createFakeStdio();
 
     await runCli(["doctor"], {
       config,
       ports: fakePorts(),
-      credentials: { hasApiKey: true, hasAuthToken: false },
+      credentials: credentialsFor(API_KEY),
       stdio,
     });
 
-    expect(stdio.writtenOutput()).toContain("credentials: ANTHROPIC_API_KEY");
+    expect(stdio.writtenOutput()).toContain(`credentials: ${API_KEY}`);
   });
 
-  it("reports ANTHROPIC_AUTH_TOKEN as the credential source when only that is present", async () => {
+  it("reports the auth-token method as the credential source when only that is present", async () => {
     const stdio = createFakeStdio();
 
     await runCli(["doctor"], {
       config,
       ports: fakePorts(),
-      credentials: { hasApiKey: false, hasAuthToken: true },
+      credentials: credentialsFor(AUTH_TOKEN),
       stdio,
     });
 
-    expect(stdio.writtenOutput()).toContain("credentials: ANTHROPIC_AUTH_TOKEN");
+    expect(stdio.writtenOutput()).toContain(`credentials: ${AUTH_TOKEN}`);
   });
 
   it("reports no credentials found when neither is present", async () => {

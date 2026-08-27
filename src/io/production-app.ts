@@ -24,9 +24,10 @@ import process from "node:process";
 import type { App } from "../app.ts";
 import { createApp } from "../app.ts";
 import { resolveConfig } from "../core/config/resolve.ts";
-import { MODEL_DEFAULT } from "../core/config/constants.ts";
+import { AUTH_METHOD_AUTO, MODEL_DEFAULT } from "../core/config/constants.ts";
 import type { NodeName } from "../core/model/types.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
+import { gatherAuthFacts } from "./credentials/index.ts";
 import { FixtureModelProvider } from "./model/fixture-provider.ts";
 import { systemClock } from "./clock/system-clock.ts";
 import { stubForge } from "./forge/stub-forge.ts";
@@ -50,11 +51,29 @@ export function buildProductionApp(): App {
     env: process.env,
   });
 
+  // Every credential source is probed once, here: env vars, Claude Code's
+  // credential store, and the `ant auth login` profile directory. Only the
+  // resulting presence flags travel downstream — no token leaves this call.
+  const auth = gatherAuthFacts(
+    {
+      homeDir,
+      env: process.env,
+      platform: process.platform,
+      account: os.userInfo().username,
+      now: Date.now(),
+    },
+    config.auth.method,
+  );
+
   return createApp({
     config,
     credentials: {
-      hasApiKey: Boolean(process.env["ANTHROPIC_API_KEY"]),
-      hasAuthToken: Boolean(process.env["ANTHROPIC_AUTH_TOKEN"]),
+      selected: auth.selected,
+      usable: auth.usable,
+      subscriptionType: auth.subscriptionType,
+      rateLimitTier: auth.rateLimitTier,
+      subscriptionExpired: auth.subscriptionExpired,
+      pinned: config.auth.method !== AUTH_METHOD_AUTO,
     },
     ports: {
       model: new FixtureModelProvider({}, MODELS),
