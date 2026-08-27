@@ -228,9 +228,13 @@ describe("detectSignpostSessionStartHook", () => {
     expect(detectSignpostSessionStartHook({ hooks: { SessionStart: "not an array" } })).toBe(false);
     expect(detectSignpostSessionStartHook({ hooks: { SessionStart: [{ hooks: "nope" }] } })).toBe(false);
     expect(detectSignpostSessionStartHook({ hooks: { SessionStart: [null] } })).toBe(false);
+    expect(detectSignpostSessionStartHook({ hooks: { SessionStart: [undefined] } })).toBe(false);
     expect(detectSignpostSessionStartHook({ hooks: { SessionStart: ["not an object"] } })).toBe(false);
     expect(
       detectSignpostSessionStartHook({ hooks: { SessionStart: [{ hooks: [null] }] } }),
+    ).toBe(false);
+    expect(
+      detectSignpostSessionStartHook({ hooks: { SessionStart: [{ hooks: [undefined] }] } }),
     ).toBe(false);
     expect(
       detectSignpostSessionStartHook({ hooks: { SessionStart: [{ hooks: ["not an object"] }] } }),
@@ -312,6 +316,11 @@ describe("buildDoctorReport", () => {
   it("node below floor is called out", () => {
     const lines = buildDoctorReport({ ...BASE_FACTS, nodeMajorVersion: 20, nodeMinVersion: 24 });
     expect(lines[0]).toContain("below floor");
+  });
+
+  it("node at or above floor is reported ok", () => {
+    const lines = buildDoctorReport(BASE_FACTS);
+    expect(lines[0]).toContain("— ok");
   });
 
   it("gh not installed", () => {
