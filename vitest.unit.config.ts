@@ -1,13 +1,23 @@
-// Vitest config scoped to test/unit — what Stryker's test runner drives
-// (see stryker.config.mjs). Deliberately narrower than the root
-// vitest.config.ts: once test/behaviour/ lands (real SQLite, real git,
-// real embeddings), Stryker re-running that suite once per mutant is
-// the runtime explosion Tier 3 excludes io/ to avoid.
+// What Stryker's test runner drives (see stryker.config.mjs): test/unit,
+// plus test/behaviour/graph.
+//
+// Narrower than the root vitest.config.ts, and the line is drawn at cost,
+// not at directory. A behaviour suite on real git and real embeddings re-run
+// once per mutant is the runtime explosion Tier 3 excludes io/ to avoid.
+// test/behaviour/graph is not that: it runs on hand-written fakes, three of
+// its four files on MemorySaver, and it is the only coverage src/graph has —
+// without it every mutant there scores NoCoverage.
+//
+// interrupt.test.ts is the exception, and deliberately so: an interrupt that
+// only survives inside one process is not the thing being tested, so it uses
+// the real SqliteSaver on a temp directory. It closes every connection it
+// opens, which is what keeps its cost a per-test file open rather than a leak
+// that grows across the run.
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["test/unit/**/*.test.ts"],
+    include: ["test/unit/**/*.test.ts", "test/behaviour/graph/**/*.test.ts"],
     // Stryker spawns a Vitest process per mutant batch, and a mutant is
     // meant to fail a test — that's the kill. Vitest's github-actions
     // reporter would otherwise post one job-summary block per spawn, each

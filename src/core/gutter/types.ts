@@ -42,3 +42,31 @@ export interface GutteredTurn {
   filesTouched?: string[];
   at: string;
 }
+
+/**
+ * 12-wire-contracts.md's GutteredSession — the gutter's whole output for one
+ * transcript, and the input `extract` works from.
+ *
+ * Held in memory for the duration of a run and discarded (02-ingestion.md).
+ * It is deliberately NOT part of the graph's checkpointed state: `turns` is
+ * redacted but still transcript-derived, and everything in state is written
+ * to the checkpoint database. State carries the transcript path and the
+ * content hash instead, and `extract` re-derives this — which is free,
+ * because guttering is deterministic and involves no LLM.
+ */
+export interface GutteredSession {
+  sessionId: string;
+  /** sha256 of the raw file; the dedup key alongside sessionId. */
+  contentHash: string;
+  /** "owner/name", from the git remote. */
+  repo: string;
+  repoRoot: string;
+  branch?: string;
+  startedAt: string;
+  lastActivityAt: string;
+  turns: GutteredTurn[];
+  /** Gate: >= MIN_GUTTERED_TOKENS. */
+  tokenEstimate: number;
+  /** >0 is normal, not a warning. */
+  redactionCount: number;
+}

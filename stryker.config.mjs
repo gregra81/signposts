@@ -9,7 +9,7 @@ export default {
   testRunner: "vitest",
   checkers: ["typescript"],
   tsconfigFile: "tsconfig.json",
-  mutate: ["src/core/**/*.ts", "!src/core/**/*.test.ts"],
+  mutate: ["src/core/**/*.ts", "src/graph/**/*.ts", "!src/**/*.test.ts"],
   // json feeds scripts/mutation-gate.mjs, which enforces the per-module break
   // thresholds that a single global `thresholds.break` cannot express.
   reporters: ["clear-text", "progress", "json"],
