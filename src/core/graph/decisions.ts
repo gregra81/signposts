@@ -48,12 +48,40 @@ export function applyDecisions(
     if (decision === undefined || decision.decision === "reject") {
       continue;
     }
-    // An "edit" without a replacement fails the schema on parse, so `edited`
-    // being absent here means "accept" — use the operation as proposed.
+    // An "edit" without a replacement fails the schema on parse, and one that
+    // retargets is rejected by `retargetedEdits` before this runs, so `edited`
+    // is either absent — meaning "accept", use the operation as proposed — or a
+    // replacement for this very operation.
     applied.push(decision.edited ?? operation);
   }
 
   return applied;
+}
+
+/**
+ * The decision keys whose `edited` replacement does not target what the key
+ * names. Empty means every edit stayed within its own operation.
+ *
+ * An edit adjusts the *content* of the operation that was proposed, never what
+ * it acts on: 06-review-and-pr.md's review prompt names the signpost in its
+ * header and offers `[e]dit` on the replacement text, so the reviewer chooses
+ * wording, not a target. Enforcing it here is what keeps `commit` from
+ * receiving an operation pointing at a signpost that does not exist — `validate`
+ * runs before the gate and never sees a human's replacement.
+ *
+ * The key is already `op:id`, so it carries the whole constraint: an edit is
+ * in-bounds exactly when its own `operationKey` is the key it arrived under.
+ */
+export function retargetedEdits(
+  humanDecisions: Readonly<Record<string, HumanDecision>>,
+): string[] {
+  const wrong: string[] = [];
+  for (const [key, decision] of Object.entries(humanDecisions)) {
+    if (decision.edited !== undefined && operationKey(decision.edited) !== key) {
+      wrong.push(key);
+    }
+  }
+  return wrong;
 }
 
 /** Whether every gated operation has been answered — the resume condition. */

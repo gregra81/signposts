@@ -4,6 +4,7 @@ import {
   isReviewComplete,
   operationKey,
   OPERATION_KEY_SEPARATOR,
+  retargetedEdits,
 } from "../../../src/core/graph/decisions.js";
 import type {
   GatedOperations,
@@ -70,6 +71,71 @@ describe("operationKey", () => {
     expect(operationKey({ op: "retire", id: "x", reason: "r" })).not.toBe(
       operationKey({ op: "refine", id: "x" }),
     );
+  });
+});
+
+describe("retargetedEdits", () => {
+  // An edit changes what an operation says, never what it acts on: the review
+  // prompt names the signpost and offers [e]dit on the replacement text.
+  it("passes an edit that only changes the operation's content", () => {
+    const edited: Operation = { op: "retire", id: "old-claim", reason: "superseded by hand" };
+
+    expect(retargetedEdits({ [operationKey(RETIRE)]: { decision: "edit", edited, decidedAt: DECIDED_AT } })).toEqual([]);
+  });
+
+  it("flags an edit that points at a different signpost", () => {
+    const edited: Operation = { op: "retire", id: "somewhere-else", reason: "obsolete" };
+
+    expect(
+      retargetedEdits({ [operationKey(RETIRE)]: { decision: "edit", edited, decidedAt: DECIDED_AT } }),
+    ).toEqual([operationKey(RETIRE)]);
+  });
+
+  it("flags an edit that changes the operation tag", () => {
+    const edited: Operation = { op: "refine", id: "old-claim" };
+
+    expect(
+      retargetedEdits({ [operationKey(RETIRE)]: { decision: "edit", edited, decidedAt: DECIDED_AT } }),
+    ).toEqual([operationKey(RETIRE)]);
+  });
+
+  it("passes an add whose replacement keeps the same generated id", () => {
+    const edited: Operation = {
+      op: "add",
+      signpost: { ...signpost("new-claim"), claim: "A reworded claim" },
+    };
+
+    expect(retargetedEdits({ [operationKey(ADD)]: { decision: "edit", edited, decidedAt: DECIDED_AT } })).toEqual([]);
+  });
+
+  it("ignores accepts and rejects, which carry no replacement", () => {
+    expect(
+      retargetedEdits({
+        [operationKey(ADD)]: accept(),
+        [operationKey(RETIRE)]: { decision: "reject", decidedAt: DECIDED_AT },
+      }),
+    ).toEqual([]);
+  });
+
+  it("names every offending key, not just the first", () => {
+    expect(
+      retargetedEdits({
+        [operationKey(ADD)]: {
+          decision: "edit",
+          edited: { op: "add", signpost: signpost("different") },
+          decidedAt: DECIDED_AT,
+        },
+        [operationKey(RETIRE)]: {
+          decision: "edit",
+          edited: { op: "retire", id: "elsewhere", reason: "r" },
+          decidedAt: DECIDED_AT,
+        },
+      }).sort(),
+    ).toEqual([operationKey(ADD), operationKey(RETIRE)].sort());
+  });
+
+  it("is empty for no decisions", () => {
+    expect(retargetedEdits({})).toEqual([]);
   });
 });
 

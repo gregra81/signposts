@@ -26,7 +26,7 @@
 
 import { interrupt } from "@langchain/langgraph";
 import { z } from "zod";
-import { isReviewComplete, operationKey } from "../../core/graph/decisions.ts";
+import { isReviewComplete, operationKey, retargetedEdits } from "../../core/graph/decisions.ts";
 import { humanDecisionSchema } from "../../core/contracts/graph.ts";
 import { summariseIssues } from "../../core/errors/format-zod-error.ts";
 import type { GatedOperations, HumanDecision } from "../../core/contracts/graph.ts";
@@ -56,6 +56,11 @@ export type ReviewResponse = Record<string, HumanDecision>;
  * parse, an `edit` whose `edited` operation went missing in transit committed
  * the *original* operation, which is the opposite of what the reviewer asked
  * for, and `applyDecisions`' comment claimed a guarantee that nothing enforced.
+ *
+ * The schema cannot express the second half of the contract — that an edit
+ * stays within the operation it replaces — because a decision on its own does
+ * not know which operation it answers. `retargetedEdits` checks that against
+ * the keys, below.
  */
 export const reviewResponseSchema = z.record(z.string(), humanDecisionSchema);
 
@@ -89,5 +94,17 @@ function parseResponse(value: unknown): ReviewResponse {
       `human_review: the resume value is not a valid set of decisions: ${summariseIssues(parsed.error.issues)}`,
     );
   }
+
+  // An edit may change what the operation says, never what it acts on
+  // (06-review-and-pr.md). A retargeted edit would reach `commit` without
+  // passing `validate`, which ran long before the gate.
+  const retargeted = retargetedEdits(parsed.data);
+  if (retargeted.length > 0) {
+    throw new Error(
+      `human_review: an edit may change an operation but not what it targets; ` +
+        `retargeted: ${retargeted.join(", ")}`,
+    );
+  }
+
   return parsed.data;
 }
