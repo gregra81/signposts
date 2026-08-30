@@ -13,12 +13,18 @@
 //     resumed at all (src/core/graph/state-version.ts). An unrecognised
 //     version is discarded and the run starts again from the transcript,
 //     rather than resuming into a shape this build no longer understands.
+//
+//   - The checkpoint's age decides whether it is still worth resuming. Three
+//     days is the case this is built for; three months is not. Past
+//     THREAD_EXPIRY_DAYS the thread is dropped with a log line, because its
+//     partition was computed against neighbours, ids and a bootstrap flag the
+//     repo has long since moved past.
 
 import { Command } from "@langchain/langgraph";
 import type { BaseCheckpointSaver, LangGraphRunnableConfig } from "@langchain/langgraph";
-import { STATE_VERSION } from "../core/config/constants.ts";
+import { STATE_VERSION, THREAD_EXPIRY_DAYS } from "../core/config/constants.ts";
 import { buildThreadId, type ThreadIdParts } from "../core/graph/thread-id.ts";
-import { decideCheckpoint } from "../core/graph/state-version.ts";
+import { decideCheckpoint, type CheckpointDecision } from "../core/graph/state-version.ts";
 import type { ExtractionGraph } from "./graph.ts";
 import type { ExtractionState } from "./state.ts";
 import type { ReviewResponse } from "./nodes/human-review.ts";
@@ -76,10 +82,17 @@ export async function startRun(
   const threadId = buildThreadId(input);
   const config = threadConfigFor(threadId);
 
-  const tuple = await checkpointer.getTuple(config);
-  const decision = decideCheckpoint(tuple?.checkpoint.channel_values);
+  const decision = await load(checkpointer, config);
 
-  if (decision.action === "discard") {
+  if (decision.action === "expired") {
+    console.warn(
+      `Checkpointed review for thread ${threadId} is ` +
+        `${decision.ageDays.toFixed(0)} days old (expiry ${String(THREAD_EXPIRY_DAYS)} days). ` +
+        "Dropping it and extracting again.",
+    );
+  }
+
+  if (decision.action === "discard" || decision.action === "expired") {
     // Thrown away rather than migrated. Re-running costs one file read and a
     // deterministic reduction, because no guttered text was ever checkpointed.
     await checkpointer.deleteThread(threadId);
@@ -98,6 +111,18 @@ export async function startRun(
   return { threadId, disposition: "fresh", state };
 }
 
+/** The checkpoint for a thread, judged on both its version and its age. */
+async function load(
+  checkpointer: BaseCheckpointSaver,
+  config: LangGraphRunnableConfig,
+): Promise<CheckpointDecision> {
+  const tuple = await checkpointer.getTuple(config);
+  return decideCheckpoint(tuple?.checkpoint.channel_values, {
+    checkpointedAt: tuple?.checkpoint.ts,
+    now: new Date(),
+  });
+}
+
 /**
  * Answers a halted `human_review` and lets the run finish.
  *
@@ -110,6 +135,11 @@ export async function startRun(
  * upgrade. `startRun` guarded it and this did not, so bumping STATE_VERSION
  * would have shipped a build that refused stale threads on the way in and
  * resumed them anyway on the way back.
+ *
+ * A thread past THREAD_EXPIRY_DAYS throws here for the same reason, rather
+ * than being silently dropped as it is in `startRun`: the caller is holding
+ * answers to a review, and starting a fresh run behind their back would
+ * pretend those answers were applied.
  *
  * A thread this build cannot resume throws rather than starting fresh. The
  * caller is holding decisions a person made against a partition from a shape
@@ -126,8 +156,14 @@ export async function resumeRun(
   const threadId = buildThreadId(parts);
   const config = threadConfigFor(threadId);
 
-  const tuple = await checkpointer.getTuple(config);
-  const decision = decideCheckpoint(tuple?.checkpoint.channel_values);
+  const decision = await load(checkpointer, config);
+  if (decision.action === "expired") {
+    throw new Error(
+      `resumeRun: thread ${threadId} expired ` +
+        `(${decision.ageDays.toFixed(0)} days old, expiry ${String(THREAD_EXPIRY_DAYS)} days). ` +
+        "Re-run the extraction and review it again.",
+    );
+  }
   if (decision.action !== "resume") {
     throw new Error(
       `resumeRun: thread ${threadId} cannot be resumed by this build ` +

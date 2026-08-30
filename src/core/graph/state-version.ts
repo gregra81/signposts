@@ -23,28 +23,51 @@
 // PURE: takes the already-loaded checkpoint value, returns a decision. Reading
 // it, and acting on a "discard" by deleting the thread, are the caller's job.
 
-import { STATE_VERSION } from "../config/constants.ts";
+import { STATE_VERSION, THREAD_EXPIRY_DAYS } from "../config/constants.ts";
+
+const MS_PER_DAY = 86_400_000;
 
 export type CheckpointDecision =
   | { action: "resume" }
   | { action: "start-fresh" }
-  | { action: "discard"; foundVersion: unknown };
+  | { action: "discard"; foundVersion: unknown }
+  | { action: "expired"; ageDays: number };
 
 /**
  * Decides what to do with whatever the checkpointer returned for a thread.
  *
  * - nothing checkpointed yet -> start fresh, with no thread to delete;
- * - `version` equals STATE_VERSION -> resume;
- * - anything else, including a missing `version` and a non-object payload ->
- *   discard the thread and re-run from the transcript.
+ * - a `version` this build does not recognise, including a missing one and a
+ *   non-object payload -> discard the thread and re-run from the transcript;
+ * - a readable checkpoint older than THREAD_EXPIRY_DAYS -> expired, which the
+ *   caller drops exactly like a discard but logs as an expiry;
+ * - otherwise resume.
+ *
+ * The version is read before the age because it decides whether the payload
+ * means anything at all. `checkpointedAt` comes from the checkpoint tuple's
+ * `ts`; omitting it skips the age check.
  */
-export function decideCheckpoint(loaded: unknown): CheckpointDecision {
+export function decideCheckpoint(
+  loaded: unknown,
+  age?: { checkpointedAt: string | undefined; now: Date },
+): CheckpointDecision {
   if (loaded === undefined || loaded === null) {
     return { action: "start-fresh" };
   }
 
   const found = readVersion(loaded);
-  return found === STATE_VERSION ? { action: "resume" } : { action: "discard", foundVersion: found };
+  if (found !== STATE_VERSION) {
+    return { action: "discard", foundVersion: found };
+  }
+
+  if (age !== undefined) {
+    const ageDays = ageInDays(age.checkpointedAt, age.now);
+    if (ageDays > THREAD_EXPIRY_DAYS) {
+      return { action: "expired", ageDays };
+    }
+  }
+
+  return { action: "resume" };
 }
 
 /**
@@ -56,4 +79,17 @@ export function decideCheckpoint(loaded: unknown): CheckpointDecision {
  */
 function readVersion(loaded: unknown): unknown {
   return (loaded as { version?: unknown }).version;
+}
+
+/**
+ * The checkpoint's age in days. Zero when it carries no timestamp at all, and
+ * NaN when the timestamp cannot be parsed — both of which compare false
+ * against the expiry, so an age nobody can compute is not treated as stale.
+ * The version field is the check that decides whether a payload is readable.
+ */
+function ageInDays(checkpointedAt: string | undefined, now: Date): number {
+  if (checkpointedAt === undefined) {
+    return 0;
+  }
+  return (now.getTime() - Date.parse(checkpointedAt)) / MS_PER_DAY;
 }

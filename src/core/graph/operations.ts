@@ -85,7 +85,7 @@ function operationsFor(input: OperationsForInput): Operation[] {
 
   switch (classification.kind) {
     case CLASSIFICATION_KINDS.NOVEL:
-      return [{ op: "add", signpost: toSignpost(input, candidate.scope) }];
+      return [{ op: OPERATION_TAGS.add, signpost: toSignpost(input, candidate.scope) }];
 
     case CLASSIFICATION_KINDS.DUPLICATE:
       // relatedId is required for every non-NOVEL kind (contracts/graph.ts
@@ -93,7 +93,7 @@ function operationsFor(input: OperationsForInput): Operation[] {
       // it defensively rather than asserting.
       return relatedId === undefined
         ? []
-        : [{ op: "reinforce", id: relatedId, sessionId: input.sessionId, author: input.author }];
+        : [{ op: OPERATION_TAGS.reinforce, id: relatedId, sessionId: input.sessionId, author: input.author }];
 
     case CLASSIFICATION_KINDS.REFINEMENT:
       return relatedId === undefined
@@ -120,7 +120,7 @@ function contradictionOperations(input: OperationsForInput, relatedId: string | 
   // An unresolved contradiction is not a reason to drop the candidate — it is
   // a reason to ask a person. Treated exactly like `undecidable`.
   if (resolution === undefined || resolution.outcome === RESOLUTION_OUTCOMES.undecidable) {
-    return [{ op: "add", signpost: toSignpost(input, candidate.scope) }];
+    return [{ op: OPERATION_TAGS.add, signpost: toSignpost(input, candidate.scope) }];
   }
 
   if (resolution.outcome === RESOLUTION_OUTCOMES.existing_wins) {
@@ -151,7 +151,7 @@ function contradictionOperations(input: OperationsForInput, relatedId: string | 
   }
   return [
     { op: OPERATION_TAGS.refine, id: relatedId, scope: existingScope },
-    { op: "add", signpost: toSignpost(input, newScope) },
+    { op: OPERATION_TAGS.add, signpost: toSignpost(input, newScope) },
   ];
 }
 

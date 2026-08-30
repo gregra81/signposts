@@ -10,7 +10,7 @@ import {
   MAX_VALIDATE_ATTEMPTS,
   MIN_GUTTERED_TOKENS,
 } from "../../../src/core/config/constants.js";
-import { graphState } from "../../behaviour/graph/harness.js";
+import { graphState } from "../../behaviour/helpers/graph-harness.js";
 import type { Operation } from "../../../src/core/contracts/graph.js";
 
 const RETIRE: Operation = { op: "retire", id: "staging-writable", reason: "Superseded." };

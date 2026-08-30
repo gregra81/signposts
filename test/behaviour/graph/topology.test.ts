@@ -12,7 +12,7 @@ import {
   RUN_INPUT,
   type HarnessOptions,
   type Script,
-} from "./harness.js";
+} from "../helpers/graph-harness.js";
 
 function run(script: Script, options: Partial<HarnessOptions> = {}) {
   return makeGraph({ script, session: gutteredSession(), ...options });

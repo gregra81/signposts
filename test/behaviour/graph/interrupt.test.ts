@@ -10,7 +10,7 @@ import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildExtractionGraph,
   resumeRun,
@@ -19,7 +19,11 @@ import {
 } from "../../../src/graph/index.js";
 import { buildThreadId } from "../../../src/core/graph/thread-id.js";
 import { operationKey } from "../../../src/core/graph/decisions.js";
-import { CHECKPOINT_FILENAME, STATE_VERSION } from "../../../src/core/config/constants.js";
+import {
+  CHECKPOINT_FILENAME,
+  STATE_VERSION,
+  THREAD_EXPIRY_DAYS,
+} from "../../../src/core/config/constants.js";
 import {
   candidate,
   existingSignpost,
@@ -27,22 +31,38 @@ import {
   makeHarness,
   RUN_INPUT,
   type HarnessOptions,
-} from "./harness.js";
+} from "../helpers/graph-harness.js";
 
 // The real SQLite checkpointer, not MemorySaver: an interrupt that only
 // survives inside one process is not the thing 04-extraction-graph.md
 // describes.
 let stateDir: string;
 let checkpointPath: string;
+// Every saver a test opens, closed in afterEach. Each one is a live
+// better-sqlite3 connection, and this file builds two or three per test — left
+// open they accumulate for the whole file, which Stryker then re-runs once per
+// mutant batch.
+let savers: SqliteSaver[];
 
 beforeEach(() => {
   stateDir = mkdtempSync(path.join(tmpdir(), "signposts-graph-"));
   checkpointPath = path.join(stateDir, CHECKPOINT_FILENAME);
+  savers = [];
 });
 
 afterEach(() => {
+  for (const saver of savers) {
+    saver.db.close();
+  }
   rmSync(stateDir, { recursive: true, force: true });
 });
+
+/** Opens a checkpointer on the test's database and registers it for cleanup. */
+function openSaver(): SqliteSaver {
+  const saver = SqliteSaver.fromConnString(checkpointPath);
+  savers.push(saver);
+  return saver;
+}
 
 const EXISTING = existingSignpost();
 
@@ -66,7 +86,7 @@ function gatedOptions(): HarnessOptions {
 /** A separate process would build all of this from scratch. So does this. */
 function freshProcess(options: HarnessOptions) {
   const ports = makeHarness(options);
-  const checkpointer = SqliteSaver.fromConnString(checkpointPath);
+  const checkpointer = openSaver();
   return { ports, checkpointer, graph: buildExtractionGraph({ ports, checkpointer }) };
 }
 
@@ -377,6 +397,81 @@ describe("thread identity", () => {
   });
 });
 
+// 15-spec.md pairs this with the version rule: "A thread older than the
+// expiry is dropped with a log line." A review nobody answered for a month was
+// partitioned against a repo that has moved on.
+describe("a thread past the expiry", () => {
+  /** Backdates the thread's checkpoint by `days`, as a month of silence would. */
+  async function backdate(days: number): Promise<void> {
+    const saver = openSaver();
+    const config = { configurable: { thread_id: buildThreadId(RUN_INPUT) } };
+    const tuple = await saver.getTuple(config);
+    expect(tuple).toBeDefined();
+    await saver.put(
+      tuple!.config,
+      {
+        ...tuple!.checkpoint,
+        ts: new Date(Date.now() - days * 86_400_000).toISOString(),
+      },
+      tuple!.metadata ?? { source: "update", step: -1, parents: {} },
+    );
+  }
+
+  it("drops the checkpoint, logs why, and extracts again", async () => {
+    const stale = freshProcess(gatedOptions());
+    await startRun(stale.graph, stale.checkpointer, RUN_INPUT);
+    await backdate(THREAD_EXPIRY_DAYS + 1);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const next = freshProcess(gatedOptions());
+    const result = await startRun(next.graph, next.checkpointer, RUN_INPUT);
+
+    expect(result.disposition).toBe("discarded");
+    expect(next.ports.model.callsTo("extract")).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith(
+      `Checkpointed review for thread ${buildThreadId(RUN_INPUT)} is ` +
+        `${String(THREAD_EXPIRY_DAYS + 1)} days old (expiry ${String(THREAD_EXPIRY_DAYS)} days). ` +
+        "Dropping it and extracting again.",
+    );
+    warn.mockRestore();
+  });
+
+  it("refuses to answer a review on an expired thread", async () => {
+    const stale = freshProcess(gatedOptions());
+    const halted = await startRun(stale.graph, stale.checkpointer, RUN_INPUT);
+    const [pending] = halted.state.gated.needsHuman;
+    await backdate(THREAD_EXPIRY_DAYS + 1);
+
+    const next = freshProcess(gatedOptions());
+    await expect(
+      resumeRun(
+        next.graph,
+        next.checkpointer,
+        { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
+        { [operationKey(pending!.operation)]: { decision: "accept", decidedAt: "2026-08-30" } },
+      ),
+    ).rejects.toThrow(
+      `resumeRun: thread ${buildThreadId(RUN_INPUT)} expired ` +
+        `(${String(THREAD_EXPIRY_DAYS + 1)} days old, expiry ${String(THREAD_EXPIRY_DAYS)} days). ` +
+        "Re-run the extraction and review it again.",
+    );
+
+    expect(next.ports.commit.applied).toEqual([]);
+  });
+
+  it("still resumes a thread inside the expiry", async () => {
+    const stale = freshProcess(gatedOptions());
+    await startRun(stale.graph, stale.checkpointer, RUN_INPUT);
+    await backdate(THREAD_EXPIRY_DAYS - 1);
+
+    const next = freshProcess(gatedOptions());
+    const result = await startRun(next.graph, next.checkpointer, RUN_INPUT);
+
+    expect(result.disposition).toBe("resumed");
+    expect(next.ports.model.callsTo("extract")).toHaveLength(0);
+  });
+});
+
 describe("an unrecognised state version", () => {
   // The rule: discard and re-run from the transcript. Never resume into a
   // shape this build no longer understands.
@@ -387,7 +482,7 @@ describe("an unrecognised state version", () => {
     // Rewrite the checkpointed version to something this build does not know,
     // exactly as a build from a later state shape would have left it.
     const threadId = buildThreadId(RUN_INPUT);
-    const saver = SqliteSaver.fromConnString(checkpointPath);
+    const saver = openSaver();
     const config = { configurable: { thread_id: threadId } };
     const tuple = await saver.getTuple(config);
     expect(tuple).toBeDefined();
@@ -418,7 +513,7 @@ describe("an unrecognised state version", () => {
     const [pending] = halted.state.gated.needsHuman;
 
     const threadId = buildThreadId(RUN_INPUT);
-    const saver = SqliteSaver.fromConnString(checkpointPath);
+    const saver = openSaver();
     const config = { configurable: { thread_id: threadId } };
     const tuple = await saver.getTuple(config);
     await saver.put(

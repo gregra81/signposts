@@ -8,7 +8,7 @@ import {
   gutteredSession,
   makeHarness,
   graphState,
-} from "../../../behaviour/graph/harness.js";
+} from "../../../behaviour/helpers/graph-harness.js";
 
 const KEPT = candidate({ tempId: "t1", claim: "Staging is read only outside the ETL window" });
 const REJECTED_A = candidate({ tempId: "t2", claim: "The API is fast" });
@@ -70,6 +70,25 @@ describe("when the critic rejected enough to retry", () => {
     expect(update.critique).not.toContain("Sound.");
     expect(update.critique).not.toContain(KEPT.claim);
     expect(update.critique).toContain("Speculative.");
+  });
+});
+
+// `rejectRatio` counts an unanswered candidate as rejected — "silence about
+// one is a missing answer". The critique has to agree, or a truncated reply
+// routes back to `extract` carrying a retry prompt that names nothing and the
+// model returns the same batch.
+describe("when the critic answered only some of the batch", () => {
+  const CANDIDATES = [KEPT, REJECTED_A, REJECTED_B, candidate({ tempId: "t4", claim: "Maybe" })];
+
+  it("names the unanswered candidates in the critique", async () => {
+    const update = await criticNodeWith([{ tempId: "t1", keep: true, reason: "Sound." }])(
+      graphState({ candidates: CANDIDATES, extractAttempts: 1 }),
+    );
+
+    expect(update.critique).toContain(REJECTED_A.claim);
+    expect(update.critique).toContain(REJECTED_B.claim);
+    expect(update.critique).toContain("no verdict returned");
+    expect(update.critique).not.toContain(KEPT.claim);
   });
 });
 

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { countHumanTurns, makeGutterNode } from "../../../../src/graph/nodes/gutter.js";
-import { gutteredSession, makeHarness, graphState } from "../../../behaviour/graph/harness.js";
+import { gutteredSession, makeHarness, graphState } from "../../../behaviour/helpers/graph-harness.js";
 
 describe("countHumanTurns", () => {
   it("counts only the human turns", () => {

@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { humanReviewNode, reviewResponseSchema } from "../../../../src/graph/nodes/human-review.js";
 import { operationKey } from "../../../../src/core/graph/decisions.js";
-import { graphState } from "../../../behaviour/graph/harness.js";
+import { graphState } from "../../../behaviour/helpers/graph-harness.js";
 import type { HumanDecision, Operation } from "../../../../src/core/contracts/graph.js";
 
 const RETIRE: Operation = { op: "retire", id: "staging-writable", reason: "Superseded." };

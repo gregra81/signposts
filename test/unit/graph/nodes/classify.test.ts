@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { makeClassifyNode } from "../../../../src/graph/nodes/classify.js";
 import { NODE_IDS } from "../../../../src/graph/node-ids.js";
-import { candidate, gutteredSession, makeHarness } from "../../../behaviour/graph/harness.js";
+import { candidate, gutteredSession, makeHarness } from "../../../behaviour/helpers/graph-harness.js";
 
 function classifyWith(reply: unknown) {
   const ports = makeHarness({ script: { classify: [reply] }, session: gutteredSession() });

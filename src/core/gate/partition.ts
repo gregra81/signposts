@@ -47,25 +47,50 @@ export function partitionOperations({
   for (const candidate of built) {
     const unresolved = unresolvedContradictions.has(candidate.tempId);
 
-    for (const operation of candidate.operations) {
-      // An unresolved contradiction bypasses the confidence test entirely: a
-      // high-confidence claim that contradicts recorded knowledge is exactly
-      // the case that must not auto-publish.
-      if (unresolved) {
-        needsHuman.push({ operation, reason: GATE_REASONS.unresolved_contradiction });
-        continue;
-      }
+    // Judged as one package, not operation by operation. `both_scoped` emits a
+    // `refine` of the old signpost plus an `add` of the new one, and the two
+    // only make sense together: letting the `add` auto-publish while a person
+    // still holds the `refine` is how the repo ends up with the unnarrowed old
+    // claim next to the new one — the corruption the resolver exists to
+    // prevent. So if any operation a candidate produced needs a human, all of
+    // them do, under that operation's reason.
+    const held = candidate.operations
+      .map((operation) => holdReason(operation, candidate.confidence, isBootstrap, unresolved))
+      .find((reason) => reason !== undefined);
 
-      if (gate(operation, candidate.confidence, isBootstrap) === "auto") {
-        auto.push(operation);
-        continue;
+    if (held !== undefined) {
+      for (const operation of candidate.operations) {
+        needsHuman.push({ operation, reason: held });
       }
-
-      needsHuman.push({ operation, reason: reasonFor(operation, isBootstrap) });
+      continue;
     }
+
+    auto.push(...candidate.operations);
   }
 
   return { auto, needsHuman };
+}
+
+/**
+ * Why this operation must wait for a person, or undefined if it may auto-publish.
+ *
+ * An unresolved contradiction bypasses the confidence test entirely: a
+ * high-confidence claim that contradicts recorded knowledge is exactly the
+ * case that must not auto-publish.
+ */
+function holdReason(
+  operation: Operation,
+  confidence: number,
+  isBootstrap: boolean,
+  unresolved: boolean,
+): GateReason | undefined {
+  if (unresolved) {
+    return GATE_REASONS.unresolved_contradiction;
+  }
+  if (gate(operation, confidence, isBootstrap) === "auto") {
+    return undefined;
+  }
+  return reasonFor(operation, isBootstrap);
 }
 
 /**

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { makeCommitNode } from "../../../../src/graph/nodes/commit.js";
-import { gutteredSession, makeHarness, graphState } from "../../../behaviour/graph/harness.js";
+import { gutteredSession, makeHarness, graphState } from "../../../behaviour/helpers/graph-harness.js";
 import type { Operation } from "../../../../src/core/contracts/graph.js";
 
 const REINFORCE: Operation = {

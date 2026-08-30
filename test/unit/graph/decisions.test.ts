@@ -172,6 +172,25 @@ describe("applyDecisions", () => {
     expect(applied).toEqual([...gated.auto, edited]);
   });
 
+  // The schema requires `edited` for an "edit" but does not forbid one on an
+  // "accept", and a review UI that keeps its edit box populated sends the
+  // whole decision object. The word the reviewer chose is what counts.
+  it("ignores a stray replacement on an accept", () => {
+    const stray: Operation = { op: "add", signpost: signpost("half-typed-claim") };
+    const applied = applyDecisions(gated, {
+      [operationKey(ADD)]: { decision: "accept", edited: stray, decidedAt: DECIDED_AT },
+    });
+    expect(applied).toEqual([...gated.auto, ADD]);
+  });
+
+  it("ignores a stray replacement on a reject", () => {
+    const stray: Operation = { op: "add", signpost: signpost("half-typed-claim") };
+    const applied = applyDecisions(gated, {
+      [operationKey(ADD)]: { decision: "reject", edited: stray, decidedAt: DECIDED_AT },
+    });
+    expect(applied).toEqual(gated.auto);
+  });
+
   // Silence is not consent. Nothing merges automatically.
   it("leaves out an operation nobody answered", () => {
     expect(applyDecisions(gated, {})).toEqual(gated.auto);

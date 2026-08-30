@@ -116,14 +116,41 @@ describe("partitionOperations", () => {
     expect(result.needsHuman).toHaveLength(1);
   });
 
-  it("partitions every operation of a multi-operation candidate", () => {
+  // A candidate's operations are one package. `both_scoped` emits a refine of
+  // the old signpost plus an add of the new one; auto-publishing the add while
+  // a person still holds the refine leaves the repo carrying the unnarrowed
+  // old claim beside the new one.
+  it("holds every operation of a multi-operation candidate when one needs a human", () => {
     const result = partitionOperations({
       built: [group([REFINE, ADD], ABOVE)],
       isBootstrap: false,
       unresolvedContradictions: NONE,
     });
-    expect(result.auto).toEqual([ADD]);
-    expect(result.needsHuman).toEqual([{ operation: REFINE, reason: "edits_existing" }]);
+    expect(result.auto).toEqual([]);
+    expect(result.needsHuman).toEqual([
+      { operation: REFINE, reason: "edits_existing" },
+      { operation: ADD, reason: "edits_existing" },
+    ]);
+  });
+
+  it("holds the package whichever operation in it needs the human", () => {
+    const result = partitionOperations({
+      built: [group([ADD, REFINE], ABOVE)],
+      isBootstrap: false,
+      unresolvedContradictions: NONE,
+    });
+    expect(result.auto).toEqual([]);
+    expect(result.needsHuman).toHaveLength(2);
+  });
+
+  it("auto-publishes every operation of a multi-operation candidate when none needs a human", () => {
+    const result = partitionOperations({
+      built: [group([ADD, REINFORCE], ABOVE)],
+      isBootstrap: false,
+      unresolvedContradictions: NONE,
+    });
+    expect(result.auto).toEqual([ADD, REINFORCE]);
+    expect(result.needsHuman).toEqual([]);
   });
 
   it("produces an empty partition for an empty batch", () => {

@@ -19,7 +19,7 @@ import {
   EXTRACT_INVALID_PREAMBLE,
   EXTRACT_RETRY_PREAMBLE,
 } from "../../../src/core/prompts/user-turns.js";
-import { candidate, gutteredSession, makeGraph, RUN_INPUT, type Script } from "./harness.js";
+import { candidate, gutteredSession, makeGraph, RUN_INPUT, type Script } from "../helpers/graph-harness.js";
 
 function run(script: Script) {
   return makeGraph({ script, session: gutteredSession() });

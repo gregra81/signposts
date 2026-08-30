@@ -10,7 +10,7 @@ import {
   gutteredSession,
   makeHarness,
   graphState,
-} from "../../../behaviour/graph/harness.js";
+} from "../../../behaviour/helpers/graph-harness.js";
 import type { Classification, Resolution } from "../../../../src/core/contracts/graph.js";
 
 const EXISTING = existingSignpost({ id: "staging-writable" });
@@ -89,6 +89,30 @@ describe("which candidates it picks up", () => {
     );
 
     expect(ports.model.callsTo("resolve")).toHaveLength(2);
+    expect(Object.keys(update.resolutions ?? {}).sort()).toEqual(["t1", "t2"]);
+  });
+});
+
+// The model echoes a tempId back; two prompts that look alike can come back
+// carrying the same one. Filing a resolution under the echoed id would let one
+// candidate's adjudication justify a `supersede` of another's signpost.
+describe("which candidate a resolution belongs to", () => {
+  it("keys on the candidate it asked about, not the tempId the model echoed", async () => {
+    const ports = makeHarness({
+      script: { resolve: [resolution("t1"), resolution("t1")] },
+      session: gutteredSession(),
+      existing: [EXISTING],
+    });
+    const node = makeResolveConflictNode(ports);
+
+    const update = await node(
+      graphState({
+        candidates: [candidate({ tempId: "t1" }), candidate({ tempId: "t2" })],
+        classifications: { t1: contradiction("t1"), t2: contradiction("t2") },
+        neighbours: { t1: [EXISTING], t2: [EXISTING] },
+      }),
+    );
+
     expect(Object.keys(update.resolutions ?? {}).sort()).toEqual(["t1", "t2"]);
   });
 });

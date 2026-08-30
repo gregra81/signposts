@@ -35,10 +35,15 @@ export function makeResolveConflictNode(ports: GraphPorts) {
       pending.map((candidate) => resolveOne(ports, state, candidate)),
     );
 
+    // Keyed on the candidate we asked about, never on the tempId the model
+    // echoed back — `classify` is defensive about the same thing. Two
+    // contradictions adjudicated concurrently can come back carrying the same
+    // echoed id, and filing one under the other's key would justify a
+    // `supersede` with evidence about a different claim.
     const resolutions: Record<string, Resolution> = {};
-    for (const resolution of settled) {
-      if (resolution !== undefined) {
-        resolutions[resolution.tempId] = resolution;
+    for (const settledOne of settled) {
+      if (settledOne !== undefined) {
+        resolutions[settledOne.tempId] = settledOne.resolution;
       }
     }
     return { resolutions };
@@ -49,7 +54,7 @@ async function resolveOne(
   ports: GraphPorts,
   state: ExtractionState,
   candidate: Candidate,
-): Promise<Resolution | undefined> {
+): Promise<{ tempId: string; resolution: Resolution } | undefined> {
   const existing = await findExisting(ports, state, candidate.tempId);
   if (existing === undefined) {
     // A contradiction we cannot look up is one we cannot adjudicate. Leaving
@@ -59,11 +64,12 @@ async function resolveOne(
     return undefined;
   }
 
-  return callStructured({
+  const resolution = await callStructured({
     model: ports.model,
     node: "resolve",
     user: resolveUserTurn(state.repo, candidate, existing),
   });
+  return { tempId: candidate.tempId, resolution };
 }
 
 /**

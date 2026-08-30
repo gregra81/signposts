@@ -48,11 +48,13 @@ export function applyDecisions(
     if (decision === undefined || decision.decision === "reject") {
       continue;
     }
-    // An "edit" without a replacement fails the schema on parse, and one that
-    // retargets is rejected by `retargetedEdits` before this runs, so `edited`
-    // is either absent — meaning "accept", use the operation as proposed — or a
-    // replacement for this very operation.
-    applied.push(decision.edited ?? operation);
+    // Gated on the decision word, not on the presence of `edited`: the schema
+    // requires a replacement for "edit" but does not forbid one on "accept",
+    // and a review UI that sends its whole decision object would otherwise
+    // commit a half-typed replacement the reviewer never chose. An "edit"
+    // without a replacement fails the schema on parse, and one that retargets
+    // is rejected by `retargetedEdits` before this runs.
+    applied.push(decision.decision === "edit" ? (decision.edited ?? operation) : operation);
   }
 
   return applied;

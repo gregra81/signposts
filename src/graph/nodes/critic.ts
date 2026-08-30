@@ -53,16 +53,27 @@ export function makeCriticNode(ports: GraphPorts) {
   };
 }
 
+/**
+ * The critique the retry carries: one line per candidate the critic did not
+ * keep, defined the same way `rejectRatio` defines rejection.
+ *
+ * Walking the candidates rather than the verdicts is what keeps the two in
+ * step. A truncated reply — one keep verdict for five candidates — is over the
+ * reject ratio and routes back to `extract`, but has no rejection verdicts at
+ * all, so a verdict-driven critique came out empty and the retry prompt named
+ * nothing. The model had no reason to answer differently, and the pass cost a
+ * full extract+critic round to land in the same place.
+ */
 function rejectionCritique(
   candidates: ExtractionState["candidates"],
   verdicts: readonly CriticVerdict[],
 ): string {
-  const claimByTempId = new Map(candidates.map((candidate) => [candidate.tempId, candidate.claim]));
-  const rejected = verdicts
-    .filter((verdict) => !verdict.keep)
-    .map((verdict) => ({
-      claim: claimByTempId.get(verdict.tempId) ?? verdict.tempId,
-      reason: verdict.reason,
+  const verdictByTempId = new Map(verdicts.map((verdict) => [verdict.tempId, verdict]));
+  const rejected = candidates
+    .filter((candidate) => verdictByTempId.get(candidate.tempId)?.keep !== true)
+    .map((candidate) => ({
+      claim: candidate.claim,
+      reason: verdictByTempId.get(candidate.tempId)?.reason ?? "no verdict returned",
     }));
   return formatCritique(rejected);
 }

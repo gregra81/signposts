@@ -6,7 +6,7 @@ import {
   makeConfidenceGateNode,
   unresolvedContradictions,
 } from "../../../../src/graph/nodes/confidence-gate.js";
-import { gutteredSession, makeHarness, graphState } from "../../../behaviour/graph/harness.js";
+import { gutteredSession, makeHarness, graphState } from "../../../behaviour/helpers/graph-harness.js";
 import type { Classification, Resolution } from "../../../../src/core/contracts/graph.js";
 
 const contradiction = (tempId: string): Classification => ({

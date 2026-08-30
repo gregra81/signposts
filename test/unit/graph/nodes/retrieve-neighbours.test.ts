@@ -14,7 +14,7 @@ import {
   gutteredSession,
   makeHarness,
   graphState,
-} from "../../../behaviour/graph/harness.js";
+} from "../../../behaviour/helpers/graph-harness.js";
 
 const T1 = candidate({ tempId: "t1" });
 const T2 = candidate({ tempId: "t2" });
