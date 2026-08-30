@@ -4,11 +4,15 @@
 // ../nodes/gutter.ts for why), renders it into 14-prompts.md's user turn, and
 // asks for `Candidate[]` against a JSON schema.
 //
-// On a retry through the reflection loop the critique is appended to the user
-// turn and `critique` is cleared, so the next pass through `critic` starts
-// from a clean slate and the loop cannot mistake a stale critique for a fresh
-// rejection. `extractAttempts` is incremented here, at the point the attempt
-// is actually spent — that counter is the reflection loop's bound.
+// Both loops send work back here, and both say why. The reflection loop's
+// critique and the self-correction loop's validation errors are appended to
+// the user turn and then cleared, so the next pass starts from a clean slate
+// and neither loop can mistake a stale reason for a fresh one. A retry that
+// did not carry its reason was the earlier bug: the regenerated prompt came
+// back byte-identical to the one that failed.
+//
+// `extractAttempts` counts the runs. It is not either loop's bound — each
+// loop counts its own retries (src/core/graph/routing.ts).
 //
 // The keyed channels are reset (`null`) because a retry produces candidates
 // under fresh tempIds: without the reset, neighbours and classifications
@@ -33,13 +37,17 @@ export function makeExtractNode(ports: GraphPorts) {
         repo: state.repo,
         guttered: renderGutteredSession(session),
         critique: state.critique,
+        validationErrors: state.validationErrors,
       }),
     });
 
     return {
       candidates: acceptCandidates(candidates),
       extractAttempts: state.extractAttempts + 1,
+      // Both retry reasons are consumed here, so a later pass cannot re-send a
+      // critique or a validation error the model has already answered.
       critique: undefined,
+      validationErrors: [],
       neighbours: null,
       classifications: null,
       resolutions: null,

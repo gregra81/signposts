@@ -16,7 +16,7 @@ import process from "node:process";
 const REPORT_PATH = "reports/mutation/mutation.json";
 
 /**
- * Break threshold per `src/core/` module. Uniform at 95 today; the per-module
+ * Break threshold per mutated module. Uniform at 95 across src/core; the
  * shape is kept so one module can be given a different floor without
  * reworking the script. Longest matching prefix wins, so a nested module can
  * override its parent.
@@ -45,6 +45,10 @@ const THRESHOLDS = [
   { module: "src/core/doctor", break: 95 },
   { module: "src/core/errors", break: 95 },
   { module: "src/core/prompts", break: 95 },
+  // The graph wiring. Held at 100 rather than 95: it is thin, every branch in
+  // it is a routing decision, and it is the half of the extraction graph that
+  // src/core's pure functions cannot cover.
+  { module: "src/graph", break: 100 },
 ];
 
 /** Ignored by configuration — `ignoreStatic` drops static-initializer mutants. */
@@ -108,14 +112,16 @@ async function main() {
   const files = Object.entries(report.files ?? {});
 
   // A report with no files means the gate verified nothing. Stryker is
-  // configured to mutate src/core, so an empty report is a broken run —
+  // configured to mutate src/core and src/graph, so an empty report is a
+  // broken run —
   // a truncated write, a crash between reporting and exit — not a project
   // with nothing to check. Passing here would report success for work that
   // never happened.
   if (files.length === 0) {
     console.error(
       `mutation-gate: ${REPORT_PATH} lists no files. Expected mutants under ` +
-        "src/core. Treating an empty report as a failed run rather than a pass.",
+        "src/core and src/graph. Treating an empty report as a failed run " +
+        "rather than a pass.",
     );
     process.exitCode = 1;
     return;

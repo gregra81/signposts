@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { formatZodError } from "../../../src/core/errors/format-zod-error.js";
+import { formatZodError, summariseIssues } from "../../../src/core/errors/format-zod-error.js";
 
 describe("formatZodError", () => {
   it("formats a single issue as one path: message line", () => {
@@ -29,5 +29,35 @@ describe("formatZodError", () => {
     if (result.success) return;
 
     expect(formatZodError(result.error)).toMatch(/^git\.branch_pattern: .+$/);
+  });
+});
+
+describe("summariseIssues", () => {
+  const issue = (path: PropertyKey[], message: string) => ({ path, message });
+
+  it("renders one issue as path and message", () => {
+    expect(summariseIssues([issue(["claim"], "too long")])).toBe("claim: too long");
+  });
+
+  it("joins a nested path with dots", () => {
+    expect(summariseIssues([issue(["candidates", 0, "claim"], "too long")])).toBe(
+      "candidates.0.claim: too long",
+    );
+  });
+
+  // A root-level issue has an empty path, which would render as a bare
+  // ": message" and say nothing about which value was wrong.
+  it("labels an empty path (root)", () => {
+    expect(summariseIssues([issue([], "expected object")])).toBe("(root): expected object");
+  });
+
+  it("separates several issues with a semicolon", () => {
+    expect(summariseIssues([issue(["a"], "bad"), issue(["b"], "worse")])).toBe(
+      "a: bad; b: worse",
+    );
+  });
+
+  it("is empty for no issues", () => {
+    expect(summariseIssues([])).toBe("");
   });
 });

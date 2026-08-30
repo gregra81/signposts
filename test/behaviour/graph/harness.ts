@@ -10,7 +10,7 @@
 // test to the exact bytes of a prompt it is not testing.
 
 import { MemorySaver } from "@langchain/langgraph";
-import { MODEL_DEFAULT } from "../../../src/core/config/constants.js";
+import { MODEL_DEFAULT, STATE_VERSION } from "../../../src/core/config/constants.js";
 import { buildExtractionGraph } from "../../../src/graph/index.js";
 import type {
   JSONSchema,
@@ -22,6 +22,7 @@ import type {
 import type { GutteredSession } from "../../../src/core/gutter/types.js";
 import type { Candidate, Operation } from "../../../src/core/contracts/graph.js";
 import type { Signpost } from "../../../src/core/signpost/schema.js";
+import type { ExtractionState } from "../../../src/graph/state.js";
 import type {
   CommitInput,
   CommitPort,
@@ -132,6 +133,8 @@ export class FakeNeighbourPort implements NeighbourPort {
 }
 
 export class FakeIndexPort implements SignpostIndexPort {
+  /** Ids `byId` was asked for, so a test can assert the mirror was not consulted. */
+  readonly byIdCalls: string[] = [];
   private readonly signposts: Signpost[];
   private readonly bootstrap: boolean;
 
@@ -149,6 +152,7 @@ export class FakeIndexPort implements SignpostIndexPort {
   }
 
   async byId(_repo: string, id: string): Promise<Signpost | undefined> {
+    this.byIdCalls.push(id);
     return this.signposts.find((signpost) => signpost.id === id);
   }
 }
@@ -269,4 +273,36 @@ export function makeGraph(options: HarnessOptions) {
   const ports = makeHarness(options);
   const checkpointer = new MemorySaver();
   return { ports, checkpointer, graph: buildExtractionGraph({ ports, checkpointer }) };
+}
+
+/**
+ * A complete ExtractionState, for calling a node directly rather than through
+ * the graph. The channel defaults are asserted in test/unit/graph/state.test.ts;
+ * this is only a starting point for overriding the two or three fields a node
+ * test is about.
+ */
+export function graphState(overrides: Partial<ExtractionState> = {}): ExtractionState {
+  return {
+    version: STATE_VERSION,
+    sessionId: RUN_INPUT.sessionId,
+    repo: RUN_INPUT.repo,
+    repoRoot: RUN_INPUT.repoRoot,
+    contentHash: RUN_INPUT.contentHash,
+    transcriptPath: RUN_INPUT.transcriptPath,
+    gutterStats: { tokenEstimate: 500, humanTurns: 1, redactionCount: 0 },
+    candidates: [],
+    critique: undefined,
+    extractAttempts: 0,
+    criticRetries: 0,
+    neighbours: {},
+    classifications: {},
+    resolutions: {},
+    validated: [],
+    operations: [],
+    gated: { auto: [], needsHuman: [] },
+    validationErrors: [],
+    validateAttempts: 0,
+    humanDecisions: {},
+    ...overrides,
+  };
 }

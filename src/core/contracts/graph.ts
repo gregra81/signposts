@@ -261,6 +261,10 @@ export const graphStateSchema = z.object({
   candidates: z.array(candidateSchema),
   critique: z.string().optional(),
   extractAttempts: z.number(),
+  // Retries the reflection loop has issued, which is not the same as the
+  // number of `extract` runs: the self-correction loop also re-runs `extract`,
+  // and a shared counter let its retry silently spend the critic's budget.
+  criticRetries: z.number(),
   neighbours: z.record(z.string(), z.array(signpostSchema)),
   classifications: z.record(z.string(), classificationSchema),
   resolutions: z.record(z.string(), resolutionSchema),

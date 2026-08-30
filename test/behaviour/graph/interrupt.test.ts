@@ -11,7 +11,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildExtractionGraph, resumeRun, startRun } from "../../../src/graph/index.js";
+import {
+  buildExtractionGraph,
+  resumeRun,
+  startRun,
+  threadConfigFor,
+} from "../../../src/graph/index.js";
 import { buildThreadId } from "../../../src/core/graph/thread-id.js";
 import { operationKey } from "../../../src/core/graph/decisions.js";
 import { CHECKPOINT_FILENAME, STATE_VERSION } from "../../../src/core/config/constants.js";
@@ -85,6 +90,7 @@ describe("the long-lived interrupt", () => {
     const second = freshProcess(gatedOptions());
     await resumeRun(
       second.graph,
+      second.checkpointer,
       { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
       { [operationKey(pending!.operation)]: { decision: "accept", decidedAt: "2026-08-30" } },
     );
@@ -101,6 +107,7 @@ describe("the long-lived interrupt", () => {
     const second = freshProcess(gatedOptions());
     await resumeRun(
       second.graph,
+      second.checkpointer,
       { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
       { [operationKey(pending!.operation)]: { decision: "accept", decidedAt: "2026-08-30" } },
     );
@@ -117,6 +124,7 @@ describe("the long-lived interrupt", () => {
     const second = freshProcess(gatedOptions());
     await resumeRun(
       second.graph,
+      second.checkpointer,
       { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
       { [operationKey(pending!.operation)]: { decision: "reject", decidedAt: "2026-08-30" } },
     );
@@ -133,11 +141,123 @@ describe("the long-lived interrupt", () => {
     const second = freshProcess(gatedOptions());
     await resumeRun(
       second.graph,
+      second.checkpointer,
       { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
       { [operationKey(pending!.operation)]: { decision: "edit", edited, decidedAt: "2026-08-30" } },
     );
 
     expect(second.ports.commit.operations).toEqual([edited]);
+  });
+});
+
+describe("a review answered in instalments", () => {
+  const OTHER = existingSignpost({ id: "etl-window", claim: "The ETL window is 01:00-02:00" });
+
+  /** Two contradictions, so the gate holds two operations for a person. */
+  function twoGatedOptions(): HarnessOptions {
+    return {
+      session: gutteredSession(),
+      existing: [EXISTING, OTHER],
+      neighbours: { t1: [EXISTING], t2: [OTHER] },
+      script: {
+        extract: [
+          {
+            candidates: [
+              candidate({ tempId: "t1", confidence: 1 }),
+              candidate({ tempId: "t2", claim: "The ETL window is 03:00-04:00", confidence: 1 }),
+            ],
+          },
+        ],
+        critic: [
+          {
+            verdicts: [
+              { tempId: "t1", keep: true, reason: "durable" },
+              { tempId: "t2", keep: true, reason: "durable" },
+            ],
+          },
+        ],
+        classify: [
+          { tempId: "t1", kind: "CONTRADICTION", relatedId: EXISTING.id, rationale: "opposite" },
+          { tempId: "t2", kind: "CONTRADICTION", relatedId: OTHER.id, rationale: "opposite" },
+        ],
+        resolve: [
+          { tempId: "t1", outcome: "new_wins", reasoning: "the config changed in March" },
+          { tempId: "t2", outcome: "new_wins", reasoning: "the schedule moved" },
+        ],
+      },
+    };
+  }
+
+  const parts = {
+    repo: RUN_INPUT.repo,
+    sessionId: RUN_INPUT.sessionId,
+    contentHash: RUN_INPUT.contentHash,
+  };
+
+  async function haltWithTwo() {
+    const first = freshProcess(twoGatedOptions());
+    const halted = await startRun(first.graph, first.checkpointer, RUN_INPUT);
+    expect(halted.state.gated.needsHuman).toHaveLength(2);
+    return halted.state.gated.needsHuman.map(({ operation }) => operation);
+  }
+
+  // The partial-review bug: answering one of two used to write that decision,
+  // fall through to `commit`, and end the thread with the other discarded.
+  it("commits nothing and stays halted when only one of two is answered", async () => {
+    const [one] = await haltWithTwo();
+
+    const second = freshProcess(twoGatedOptions());
+    const result = await resumeRun(second.graph, second.checkpointer, parts, {
+      [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+    });
+
+    expect(second.ports.commit.applied).toEqual([]);
+    expect(result.state.humanDecisions).toEqual({});
+  });
+
+  it("keeps the first answer and commits both once the second arrives", async () => {
+    const [one, two] = await haltWithTwo();
+
+    const second = freshProcess(twoGatedOptions());
+    await resumeRun(second.graph, second.checkpointer, parts, {
+      [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+    });
+
+    // A third process, another day. The first answer is not re-sent.
+    const third = freshProcess(twoGatedOptions());
+    await resumeRun(third.graph, third.checkpointer, parts, {
+      [operationKey(two!)]: { decision: "accept", decidedAt: "2026-08-31" },
+    });
+
+    expect(third.ports.commit.operations).toHaveLength(2);
+  });
+
+  it("asks only about what is still outstanding on the second halt", async () => {
+    const [one, two] = await haltWithTwo();
+
+    const second = freshProcess(twoGatedOptions());
+    await resumeRun(second.graph, second.checkpointer, parts, {
+      [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+    });
+
+    const snapshot = await second.graph.getState(threadConfigFor(buildThreadId(RUN_INPUT)));
+    const [pending] = snapshot.tasks.flatMap((task) => task.interrupts);
+    expect(pending?.value).toMatchObject({ needsHuman: [{ operation: two }] });
+  });
+
+  it("rejects a resume payload that is not a valid set of decisions", async () => {
+    const [one] = await haltWithTwo();
+
+    const second = freshProcess(twoGatedOptions());
+    await expect(
+      resumeRun(second.graph, second.checkpointer, parts, {
+        // "edit" with no replacement: applyDecisions would have committed the
+        // original operation, which is the opposite of what was asked.
+        [operationKey(one!)]: { decision: "edit", decidedAt: "2026-08-30" },
+      } as never),
+    ).rejects.toThrow(/not a valid set of decisions/);
+
+    expect(second.ports.commit.applied).toEqual([]);
   });
 });
 
@@ -222,6 +342,64 @@ describe("an unrecognised state version", () => {
     // was asked again, rather than the halted state being resumed.
     expect(next.ports.gutter.calls).toBeGreaterThan(0);
     expect(next.ports.model.callsTo("extract")).toHaveLength(1);
+  });
+
+  // The path the version check exists for: a resume days later, from another
+  // process, after an upgrade. `startRun` guarded it; this did not.
+  it("refuses to answer a review on a thread it cannot resume", async () => {
+    const stale = freshProcess(gatedOptions());
+    const halted = await startRun(stale.graph, stale.checkpointer, RUN_INPUT);
+    const [pending] = halted.state.gated.needsHuman;
+
+    const threadId = buildThreadId(RUN_INPUT);
+    const saver = SqliteSaver.fromConnString(checkpointPath);
+    const config = { configurable: { thread_id: threadId } };
+    const tuple = await saver.getTuple(config);
+    await saver.put(
+      tuple!.config,
+      {
+        ...tuple!.checkpoint,
+        channel_values: { ...tuple!.checkpoint.channel_values, version: STATE_VERSION + 1 },
+      },
+      tuple!.metadata ?? { source: "update", step: -1, parents: {} },
+    );
+
+    const next = freshProcess(gatedOptions());
+    await expect(
+      resumeRun(
+        next.graph,
+        next.checkpointer,
+        { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
+        { [operationKey(pending!.operation)]: { decision: "accept", decidedAt: "2026-08-30" } },
+      ),
+    ).rejects.toThrow(
+      `resumeRun: thread ${threadId} cannot be resumed by this build ` +
+        `(state version ${String(STATE_VERSION)}, checkpoint ${String(STATE_VERSION + 1)}). ` +
+        "Re-run the extraction and review it again.",
+    );
+
+    expect(next.ports.commit.applied).toEqual([]);
+  });
+
+  // Nothing checkpointed at all — a resume for a thread that was never
+  // started, or whose checkpoint file has been cleared out from under it.
+  it("refuses a resume when there is no checkpoint to answer", async () => {
+    const only = freshProcess(gatedOptions());
+
+    await expect(
+      resumeRun(
+        only.graph,
+        only.checkpointer,
+        { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
+        {},
+      ),
+    ).rejects.toThrow(
+      `resumeRun: thread ${buildThreadId(RUN_INPUT)} cannot be resumed by this build ` +
+        `(state version ${String(STATE_VERSION)}, checkpoint absent). ` +
+        "Re-run the extraction and review it again.",
+    );
+
+    expect(only.ports.commit.applied).toEqual([]);
   });
 
   it("resumes normally when the version is the one this build writes", async () => {

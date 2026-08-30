@@ -104,16 +104,39 @@ export async function startRun(
  * The thread id is rebuilt from the same three values that produced it, not
  * carried over from the run that halted — that is the property that makes a
  * three-day gap survivable.
+ *
+ * The same gap is why the version check runs here too. This is the path the
+ * check exists for: a resume days later, from another process, after an
+ * upgrade. `startRun` guarded it and this did not, so bumping STATE_VERSION
+ * would have shipped a build that refused stale threads on the way in and
+ * resumed them anyway on the way back.
+ *
+ * A thread this build cannot resume throws rather than starting fresh. The
+ * caller is holding decisions a person made against a partition from a shape
+ * that no longer applies; re-running silently would discard their review, and
+ * applying it to a rebuilt partition would attach their answers to operations
+ * they never saw.
  */
 export async function resumeRun(
   graph: ExtractionGraph,
+  checkpointer: BaseCheckpointSaver,
   parts: ThreadIdParts,
   decisions: ReviewResponse,
 ): Promise<RunResult> {
   const threadId = buildThreadId(parts);
-  const state = await graph.invoke(
-    new Command({ resume: decisions }),
-    threadConfigFor(threadId),
-  );
+  const config = threadConfigFor(threadId);
+
+  const tuple = await checkpointer.getTuple(config);
+  const decision = decideCheckpoint(tuple?.checkpoint.channel_values);
+  if (decision.action !== "resume") {
+    throw new Error(
+      `resumeRun: thread ${threadId} cannot be resumed by this build ` +
+        `(state version ${String(STATE_VERSION)}, checkpoint ` +
+        `${decision.action === "discard" ? String(decision.foundVersion) : "absent"}). ` +
+        "Re-run the extraction and review it again.",
+    );
+  }
+
+  const state = await graph.invoke(new Command({ resume: decisions }), config);
   return { threadId, disposition: "resumed", state };
 }

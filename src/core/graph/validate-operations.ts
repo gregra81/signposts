@@ -21,6 +21,7 @@
 // unit the run drops: a candidate that produced a bad operation is removed
 // whole, so a partially-applied candidate can never reach `commit`.
 
+import { summariseIssues } from "../errors/format-zod-error.ts";
 import {
   OPERATION_TAGS,
   operationSchema,
@@ -52,12 +53,16 @@ export function validateOperations({ built, existingIds }: ValidateInput): Valid
   const claimedTargets = new Set<string>();
 
   for (const candidate of built) {
-    const candidateErrors = checkCandidate(candidate, existingIds, claimedTargets);
+    const { errors: candidateErrors, targets } = checkCandidate(
+      candidate,
+      existingIds,
+      claimedTargets,
+    );
     if (candidateErrors.length > 0) {
       errors.push(...candidateErrors);
       continue;
     }
-    for (const target of targetsOf(candidate.operations)) {
+    for (const target of targets) {
       claimedTargets.add(target);
     }
     valid.push(candidate);
@@ -66,11 +71,21 @@ export function validateOperations({ built, existingIds }: ValidateInput): Valid
   return { valid, errors };
 }
 
+/**
+ * One candidate's errors, plus the ids it targets.
+ *
+ * The targets are returned rather than recomputed by the caller: a second walk
+ * over the same operations was not only duplicated work, it was unobservable —
+ * whether it filtered out the `add` operations or not, the result went into a
+ * Set that is only ever queried with a defined id, so getting the filter wrong
+ * changed nothing. Returning the set the checks already built removes the
+ * second definition of "what this candidate targets".
+ */
 function checkCandidate(
   candidate: CandidateOperations,
   existingIds: ReadonlySet<string>,
   claimedTargets: ReadonlySet<string>,
-): string[] {
+): { errors: string[]; targets: ReadonlySet<string> } {
   const errors: string[] = [];
   // Targets claimed by an earlier operation of this same candidate, so a
   // candidate that somehow targets one signpost twice is caught too.
@@ -84,7 +99,7 @@ function checkCandidate(
       // "undefined failed schema validation" is a worse message than none.
       // The issue path names the field anyway.
       errors.push(
-        `${candidate.tempId}: operation failed schema validation: ${issueSummary(parsed.error.issues)}`,
+        `${candidate.tempId}: operation failed schema validation: ${summariseIssues(parsed.error.issues)}`,
       );
       continue;
     }
@@ -103,16 +118,12 @@ function checkCandidate(
     errors.push(...scopeErrors(candidate.tempId, operation));
   }
 
-  return errors;
+  return { errors, targets: seenHere };
 }
 
 /** The existing signpost an operation acts on, or undefined for a pure `add`. */
 function targetOf(operation: Operation): string | undefined {
   return operation.op === OPERATION_TAGS.add ? undefined : operation.id;
-}
-
-function targetsOf(operations: readonly Operation[]): string[] {
-  return operations.map(targetOf).filter((target): target is string => target !== undefined);
 }
 
 function scopeErrors(tempId: string, operation: Operation): string[] {
@@ -165,6 +176,3 @@ function isBalanced(text: string, open: string, close: string): boolean {
   return depth === 0;
 }
 
-function issueSummary(issues: readonly { path: PropertyKey[]; message: string }[]): string {
-  return issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; ");
-}

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   classifyUserTurn,
   criticUserTurn,
+  EXTRACT_INVALID_PREAMBLE,
   EXTRACT_RETRY_INSTRUCTION,
   EXTRACT_RETRY_PREAMBLE,
   extractUserTurn,
   formatCritique,
+  formatValidationErrors,
   resolveUserTurn,
 } from "../../../src/core/prompts/user-turns.js";
 import type { Candidate } from "../../../src/core/contracts/graph.js";
@@ -63,6 +65,63 @@ describe("extractUserTurn", () => {
   it("omits the retry block entirely when critique is undefined", () => {
     const turn = extractUserTurn({ repo: "acme/api", guttered: "human: hi", critique: undefined });
     expect(turn).not.toContain(EXTRACT_RETRY_PREAMBLE);
+  });
+});
+
+describe("extractUserTurn on a self-correction retry", () => {
+  // Without this block the regenerated prompt was byte-identical to the one
+  // that produced the invalid operation, so the retry could not do better.
+  it("appends the validation errors under their own preamble", () => {
+    const turn = extractUserTurn({
+      repo: "acme/api",
+      guttered: "human: hi",
+      validationErrors: ['t1: refine references unknown signpost id "gone"'],
+    });
+
+    expect(turn).toBe(
+      "Repository: acme/api\n\nTranscript:\nhuman: hi\n\n" +
+        `${EXTRACT_INVALID_PREAMBLE}\n\n` +
+        '- t1: refine references unknown signpost id "gone"\n\n' +
+        EXTRACT_RETRY_INSTRUCTION,
+    );
+  });
+
+  it("carries both reasons, transcript first and the instruction last", () => {
+    const turn = extractUserTurn({
+      repo: "acme/api",
+      guttered: "human: hi",
+      critique: "- Too vague\n  rejected: not actionable",
+      validationErrors: ["t1: bad scope glob"],
+    });
+
+    expect(turn).toBe(
+      "Repository: acme/api\n\nTranscript:\nhuman: hi\n\n" +
+        `${EXTRACT_RETRY_PREAMBLE}\n\n- Too vague\n  rejected: not actionable\n\n` +
+        `${EXTRACT_INVALID_PREAMBLE}\n\n- t1: bad scope glob\n\n` +
+        EXTRACT_RETRY_INSTRUCTION,
+    );
+  });
+
+  it("omits the block for an empty error list, not just an absent one", () => {
+    const turn = extractUserTurn({ repo: "acme/api", guttered: "human: hi", validationErrors: [] });
+
+    expect(turn).toBe("Repository: acme/api\n\nTranscript:\nhuman: hi");
+  });
+});
+
+describe("formatValidationErrors", () => {
+  it("renders one bullet per error, newline separated", () => {
+    expect(formatValidationErrors(["t1: too long", "t2: unknown id"])).toBe(
+      "- t1: too long\n- t2: unknown id",
+    );
+  });
+
+  it("renders a single error without a trailing separator", () => {
+    expect(formatValidationErrors(["t1: too long"])).toBe("- t1: too long");
+  });
+
+  it("is empty for no errors", () => {
+    expect(formatValidationErrors([])).toBe("");
   });
 });
 

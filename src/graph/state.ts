@@ -76,6 +76,7 @@ export const GraphAnnotation = Annotation.Root({
     default: () => undefined,
   }),
   extractAttempts: replaced<number>(() => 0),
+  criticRetries: replaced<number>(() => 0),
 
   neighbours: mergeableRecord<Signpost[]>(),
   classifications: mergeableRecord<Classification>(),

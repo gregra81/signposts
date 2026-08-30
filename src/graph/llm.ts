@@ -12,6 +12,7 @@
 
 import { jsonSchemaFor, NODE_RESPONSE_SCHEMAS } from "../core/graph/node-io.ts";
 import { systemPromptFor } from "../core/prompts/system.ts";
+import { summariseIssues } from "../core/errors/format-zod-error.ts";
 import type { ModelProvider, NodeName, ToolDef } from "../core/model/types.ts";
 import type { z } from "zod";
 
@@ -54,9 +55,7 @@ export async function callStructured<N extends NodeName>({
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
     throw new Error(
-      `${node}: structured output did not satisfy its schema: ${parsed.error.issues
-        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-        .join("; ")}`,
+      `${node}: structured output did not satisfy its schema: ${summariseIssues(parsed.error.issues)}`,
     );
   }
   return parsed.data as z.infer<(typeof NODE_RESPONSE_SCHEMAS)[N]>;

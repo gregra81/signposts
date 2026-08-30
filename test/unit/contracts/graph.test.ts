@@ -277,6 +277,7 @@ describe("graphStateSchema", () => {
     gutterStats: { tokenEstimate: 500, humanTurns: 1, redactionCount: 0 },
     candidates: [],
     extractAttempts: 0,
+    criticRetries: 0,
     neighbours: {},
     classifications: {},
     resolutions: {},

@@ -29,20 +29,52 @@ export const EXTRACT_RETRY_PREAMBLE =
 export const EXTRACT_RETRY_INSTRUCTION =
   "Try again. Be stricter. If nothing survives the test, return an empty list.";
 
+/**
+ * Appended when the self-correction loop sends the batch back — the errors
+ * `validate` produced, so the regeneration knows what was malformed.
+ *
+ * Without this the retry was a wasted call: the prompt came back byte-identical
+ * to the one that produced the invalid operation, so the model had no reason
+ * to answer differently and the candidate was dropped on the next pass anyway.
+ */
+export const EXTRACT_INVALID_PREAMBLE =
+  "A previous attempt produced operations that failed validation:";
+
 export interface ExtractUserTurnInput {
   repo: string;
   /** The re-derived guttered transcript. Never read from state — see 12-wire-contracts.md. */
   guttered: string;
   /** Present only on a retry through the reflection loop. */
   critique?: string | undefined;
+  /** Present only on a retry through the self-correction loop. */
+  validationErrors?: readonly string[] | undefined;
 }
 
-export function extractUserTurn({ repo, guttered, critique }: ExtractUserTurnInput): string {
-  const base = `Repository: ${repo}\n\nTranscript:\n${guttered}`;
-  if (critique === undefined) {
-    return base;
+export function extractUserTurn({
+  repo,
+  guttered,
+  critique,
+  validationErrors,
+}: ExtractUserTurnInput): string {
+  const sections = [`Repository: ${repo}\n\nTranscript:\n${guttered}`];
+
+  if (critique !== undefined) {
+    sections.push(`${EXTRACT_RETRY_PREAMBLE}\n\n${critique}`);
   }
-  return `${base}\n\n${EXTRACT_RETRY_PREAMBLE}\n\n${critique}\n\n${EXTRACT_RETRY_INSTRUCTION}`;
+  if (validationErrors !== undefined && validationErrors.length > 0) {
+    sections.push(`${EXTRACT_INVALID_PREAMBLE}\n\n${formatValidationErrors(validationErrors)}`);
+  }
+  if (sections.length === 1) {
+    return sections[0] as string;
+  }
+
+  sections.push(EXTRACT_RETRY_INSTRUCTION);
+  return sections.join("\n\n");
+}
+
+/** One line per error, in the order `validate` reported them. */
+export function formatValidationErrors(errors: readonly string[]): string {
+  return errors.map((error) => `- ${error}`).join("\n");
 }
 
 export function criticUserTurn(repo: string, candidates: readonly Candidate[]): string {

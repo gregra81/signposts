@@ -7,9 +7,15 @@
 //
 // The node applies the pure decision in src/core/graph/routing.ts and records
 // its result in state: a critique present means "go back to `extract`". The
-// bound (MAX_EXTRACT_ATTEMPTS) lives inside `criticRoute`, so the edge that
-// reads this cannot get it wrong, and an exhausted budget simply continues
-// with the survivors rather than failing the run.
+// bound lives inside `criticRoute`, so the edge that reads this cannot get it
+// wrong, and an exhausted budget simply continues with the survivors rather
+// than failing the run.
+//
+// `criticRetries` is this loop's own budget, incremented here at the point the
+// retry is issued. It is deliberately not `extractAttempts`: the
+// self-correction loop re-runs `extract` too, and sharing the counter let a
+// validate retry spend the critic's budget without the critic ever having
+// sent anything back.
 
 import { criticRoute } from "../../core/graph/routing.ts";
 import { survivors } from "../../core/graph/candidates.ts";
@@ -27,11 +33,20 @@ export function makeCriticNode(ports: GraphPorts) {
       user: criticUserTurn(state.repo, state.candidates),
     });
 
-    if (criticRoute({ verdicts, extractAttempts: state.extractAttempts }) === "retry-extract") {
+    const route = criticRoute({
+      candidates: state.candidates,
+      verdicts,
+      criticRetries: state.criticRetries,
+    });
+
+    if (route === "retry-extract") {
       // Candidates are left untouched: they are about to be replaced wholesale
       // by the retry, and narrowing them here would only shrink what a second
       // rejection has to work with.
-      return { critique: rejectionCritique(state.candidates, verdicts) };
+      return {
+        critique: rejectionCritique(state.candidates, verdicts),
+        criticRetries: state.criticRetries + 1,
+      };
     }
 
     return { candidates: survivors(state.candidates, verdicts), critique: undefined };
