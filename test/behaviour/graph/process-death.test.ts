@@ -58,23 +58,36 @@ function start(mode: "hang" | "resume", dbPath: string): ChildProcessWithoutNull
   return child;
 }
 
-/** Resolves on the first stdout line containing `marker`, rejecting if the process ends first. */
+/**
+ * Resolves on the first stdout line containing `marker`, rejecting if the
+ * process ends without printing one.
+ *
+ * The failure listener is `close`, not `exit`: `exit` fires when the process
+ * terminates, which for a child that prints its verdict and returns happens
+ * before the parent has drained the pipe — so a successful run would be
+ * reported as one that printed nothing. `close` fires once stdio is done.
+ *
+ * stderr is buffered separately. It only ever appears in the error message;
+ * merging it into `stdout` would let a Node warning splice itself into the
+ * middle of the JSON line the caller parses.
+ */
 function waitForLine(child: ChildProcessWithoutNullStreams, marker: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    let seen = "";
+    let out = "";
+    let err = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      seen += chunk;
-      const line = seen.split("\n").find((candidate) => candidate.includes(marker));
+      out += chunk;
+      const line = out.split("\n").find((candidate) => candidate.includes(marker));
       if (line !== undefined) {
         resolve(line);
       }
     });
     child.stderr.on("data", (chunk: string) => {
-      seen += chunk;
+      err += chunk;
     });
-    child.on("exit", () => {
-      reject(new Error(`child exited before printing ${marker}:\n${seen}`));
+    child.on("close", () => {
+      reject(new Error(`child ended before printing ${marker}:\nstdout: ${out}\nstderr: ${err}`));
     });
   });
 }

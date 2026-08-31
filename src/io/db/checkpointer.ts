@@ -49,6 +49,14 @@ export function openCheckpointer(checkpointPath: string): CheckpointerHandle {
   const db = new Database(checkpointPath);
 
   try {
+    // `new Database` does not read the file, and `new SqliteSaver` only stores
+    // the handle — its DDL is deferred to the first save. Without this read a
+    // corrupt or truncated checkpoints.db would open cleanly here and surface
+    // as "file is not a database" from inside `startRun`, with the connection
+    // still open. Reading a pragma parses the header now, so a bad file fails
+    // at the call that opened it, exactly as openDb's version check does.
+    db.pragma("user_version");
+
     return {
       checkpointer: new SqliteSaver(db),
       close: () => {
