@@ -10,19 +10,19 @@
 // test to the exact bytes of a prompt it is not testing.
 
 import { MemorySaver } from "@langchain/langgraph";
-import { MODEL_DEFAULT, STATE_VERSION } from "../../../src/core/config/constants.js";
-import { buildExtractionGraph } from "../../../src/graph/index.js";
+import { MODEL_DEFAULT, STATE_VERSION } from "../../../src/core/config/constants.ts";
+import { buildExtractionGraph } from "../../../src/graph/index.ts";
 import type {
   JSONSchema,
   ModelProvider,
   NodeName,
   ToolDef,
   Usage,
-} from "../../../src/core/model/types.js";
-import type { GutteredSession } from "../../../src/core/gutter/types.js";
-import type { Candidate, Operation } from "../../../src/core/contracts/graph.js";
-import type { Signpost } from "../../../src/core/signpost/schema.js";
-import type { ExtractionState } from "../../../src/graph/state.js";
+} from "../../../src/core/model/types.ts";
+import type { GutteredSession } from "../../../src/core/gutter/types.ts";
+import type { Candidate, Operation } from "../../../src/core/contracts/graph.ts";
+import type { Signpost } from "../../../src/core/signpost/schema.ts";
+import type { ExtractionState } from "../../../src/graph/state.ts";
 import type {
   CommitInput,
   CommitPort,
@@ -30,7 +30,7 @@ import type {
   GutterPort,
   NeighbourPort,
   SignpostIndexPort,
-} from "../../../src/graph/index.js";
+} from "../../../src/graph/index.ts";
 
 const USAGE: Usage = {
   inputTokens: 0,
