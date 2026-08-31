@@ -240,8 +240,27 @@ export const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // Models and cost
 // ---------------------------------------------------------------------------
 
-/** Every node, v1. */
+/**
+ * The model a node uses unless config names another, and the fallback for any
+ * node without its own constant below.
+ */
 export const MODEL_DEFAULT = "claude-opus-5";
+
+/**
+ * Per-node models (08-models-and-credentials.md, "Candidate step-down").
+ *
+ * `extract` carries the largest input and `classify` the highest call count,
+ * so they are where a cheaper model pays. `critic` and `resolve_conflict` stay
+ * on MODEL_DEFAULT deliberately: the doc's line on them is "never economise
+ * here" and "cost is irrelevant" — they are low-volume and the hardest
+ * judgment in the graph.
+ *
+ * The doc calls the classify step-down "genuinely uncertain: the hard case is
+ * duplicate-vs-contradiction, exactly where a small model may fold". Nothing
+ * currently measures that; see the note on the golden replay suite.
+ */
+export const MODEL_EXTRACT = "claude-sonnet-5";
+export const MODEL_CLASSIFY = "claude-haiku-4-5";
 
 /** `true` for background runs, `false` for `--sync`. */
 export const BATCH_BY_DEFAULT = true;
@@ -249,8 +268,13 @@ export const BATCH_BY_DEFAULT = true;
 /** Opus 5. System prompts below this will not cache. */
 export const PROMPT_CACHE_MIN_TOKENS = 512;
 
-/** Opus 5 thinking is on by default and shares this budget. */
-export const MAX_TOKENS_EXTRACT = 8000;
+/**
+ * Thinking is on by default on every model `extract` runs on and shares this
+ * budget with the reply. 8000 was enough for Opus but truncated Sonnet 5
+ * mid-JSON on the two largest golden transcripts (009, 025), which surfaces
+ * as a parse error rather than as the token cap it is.
+ */
+export const MAX_TOKENS_EXTRACT = 16000;
 
 /** critic, classify. */
 export const MAX_TOKENS_SMALL = 2000;
@@ -259,19 +283,37 @@ export const MAX_TOKENS_SMALL = 2000;
 export const COST_WARN_PER_RUN_USD = 1.0;
 
 /**
- * MODEL_DEFAULT's list price, USD per million tokens
- * (08-models-and-credentials.md). One model in v1, so one pair of numbers —
- * a per-model table is what step-down routing needs, and step-down routing
- * is not built yet.
+ * List price in USD per million tokens, by model id
+ * (08-models-and-credentials.md). Nodes can each run a different model, so a
+ * single pair of numbers would misreport every call that is not Opus.
+ *
+ * Anything absent here cannot be priced. priceCall throws rather than guess:
+ * costUsd is written into every fixture and usage record, and a number that
+ * is silently wrong is worse than a missing one.
+ *
+ * Sonnet 5's $2/$10 is introductory pricing that runs through 2026-08-31;
+ * list is $3/$15.
  */
-export const PRICE_INPUT_PER_MTOK = 5;
-export const PRICE_OUTPUT_PER_MTOK = 25;
+export const MODEL_PRICES: Readonly<Record<string, { input: number; output: number }>> = {
+  "claude-opus-5": { input: 5, output: 25 },
+  "claude-sonnet-5": { input: 2, output: 10 },
+  "claude-haiku-4-5": { input: 1, output: 5 },
+};
 
 /** Cache reads bill at ~0.1x input; writing a cache entry costs ~1.25x. */
 export const PRICE_CACHE_READ_MULTIPLIER = 0.1;
 export const PRICE_CACHE_WRITE_MULTIPLIER = 1.25;
 
 export const TOKENS_PER_MTOK = 1_000_000;
+
+/**
+ * A golden case's seeded mirror (src/io/mirror/seeded-mirror.ts). Neither
+ * value is a tunable — they exist so a seeded signpost is a valid Signpost
+ * without every fixture restating the same mechanical fields. The date is
+ * fixed so a re-record is byte-identical.
+ */
+export const MIRROR_SEED_CONFIDENCE = 1;
+export const MIRROR_SEED_DATE = "2026-01-01";
 
 /** Indent for JSON written to disk, so a fixture diff is readable line by line. */
 export const JSON_INDENT = 2;

@@ -12,7 +12,9 @@ import {
   HEDGE_CONFIDENCE_CAP,
   IDLE_HOURS,
   MAX_AGE_DAYS,
+  MODEL_CLASSIFY,
   MODEL_DEFAULT,
+  MODEL_EXTRACT,
   NEIGHBOUR_K,
 } from "../../../src/core/config/constants.js";
 
@@ -22,9 +24,9 @@ describe("configSchema", () => {
       version: 1,
       auth: { method: AUTH_METHOD_AUTO },
       models: {
-        extract: MODEL_DEFAULT,
+        extract: MODEL_EXTRACT,
         critic: MODEL_DEFAULT,
-        classify: MODEL_DEFAULT,
+        classify: MODEL_CLASSIFY,
         resolve: MODEL_DEFAULT,
       },
       thresholds: {

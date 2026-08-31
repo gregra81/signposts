@@ -24,7 +24,7 @@ import process from "node:process";
 import type { App } from "../app.ts";
 import { createApp } from "../app.ts";
 import { resolveConfig } from "../core/config/resolve.ts";
-import { AUTH_METHOD_AUTO, MODEL_DEFAULT } from "../core/config/constants.ts";
+import { AUTH_METHOD_AUTO, MODEL_CLASSIFY, MODEL_DEFAULT, MODEL_EXTRACT } from "../core/config/constants.ts";
 import type { NodeName } from "../core/model/types.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
 import { gatherAuthFacts } from "./credentials/index.ts";
@@ -33,9 +33,9 @@ import { systemClock } from "./clock/system-clock.ts";
 import { stubForge } from "./forge/stub-forge.ts";
 
 const MODELS: Record<NodeName, string> = {
-  extract: MODEL_DEFAULT,
+  extract: MODEL_EXTRACT,
   critic: MODEL_DEFAULT,
-  classify: MODEL_DEFAULT,
+  classify: MODEL_CLASSIFY,
   resolve: MODEL_DEFAULT,
 };
 

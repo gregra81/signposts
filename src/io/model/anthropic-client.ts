@@ -31,9 +31,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ModelCredential } from "../credentials/index.ts";
 
 /** Required alongside a Claude Code OAuth token; rejected without it. */
-export const API_VERSION_HEADER = "2023-06-01";
+export const OAUTH_BETA_HEADER = "oauth-2025-04-20";
 
-const ANTHROPIC_HEADER_NAME = "anthropic-version";
+const ANTHROPIC_BETA_HEADER_NAME = "anthropic-beta";
 const MAX_CLIENT_RETRIES = 3;
 
 export function createAnthropicClient(credential: ModelCredential): Anthropic {
@@ -43,7 +43,7 @@ export function createAnthropicClient(credential: ModelCredential): Anthropic {
   return new Anthropic({
     apiKey: null,
     authToken: credential.accessToken,
-    defaultHeaders: { [ANTHROPIC_HEADER_NAME]: API_VERSION_HEADER, 'user-agent': 'claude-code/1.0.0' },
+    defaultHeaders: { [ANTHROPIC_BETA_HEADER_NAME]: OAUTH_BETA_HEADER },
     // A recording run is 30 sessions of several calls each, unattended. The
     // SDK retries 408/409/429/5xx and connection errors, honouring
     // `retry-after` where the response carries one.

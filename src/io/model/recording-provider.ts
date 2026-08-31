@@ -23,10 +23,9 @@ import {
   ERROR_EXCERPT_CHARS,
   MAX_TOKENS_EXTRACT,
   MAX_TOKENS_SMALL,
+  MODEL_PRICES,
   PRICE_CACHE_READ_MULTIPLIER,
   PRICE_CACHE_WRITE_MULTIPLIER,
-  PRICE_INPUT_PER_MTOK,
-  PRICE_OUTPUT_PER_MTOK,
   TEXT_BLOCK_TYPE,
   TOKENS_PER_MTOK,
 } from "../../core/config/constants.ts";
@@ -51,8 +50,18 @@ const MAX_TOKENS: Record<NodeName, number> = {
   resolve: MAX_TOKENS_SMALL,
 };
 
-/** List price for what this call actually consumed, cache tiers included. */
-export function priceCall(usage: Anthropic.Usage): number {
+/**
+ * List price for what this call actually consumed, cache tiers included.
+ *
+ * Priced against the model that served the call, not a global default: each
+ * node can run its own model, so `usage` alone does not say what it cost.
+ * An unknown model throws — see MODEL_PRICES.
+ */
+export function priceCall(usage: Anthropic.Usage, model: string): number {
+  const price = MODEL_PRICES[model];
+  if (price === undefined) {
+    throw new Error(`no list price for model "${model}" — add it to MODEL_PRICES`);
+  }
   const cacheRead = usage.cache_read_input_tokens ?? 0;
   const cacheWrite = usage.cache_creation_input_tokens ?? 0;
   const inputUnits =
@@ -60,10 +69,12 @@ export function priceCall(usage: Anthropic.Usage): number {
     cacheRead * PRICE_CACHE_READ_MULTIPLIER +
     cacheWrite * PRICE_CACHE_WRITE_MULTIPLIER;
   return (
-    (inputUnits * PRICE_INPUT_PER_MTOK + usage.output_tokens * PRICE_OUTPUT_PER_MTOK) /
-    TOKENS_PER_MTOK
+    (inputUnits * price.input + usage.output_tokens * price.output) / TOKENS_PER_MTOK
   );
 }
+
+/** `stop_reason` when the reply was cut off by the token cap rather than finished. */
+const STOP_REASON_MAX_TOKENS = "max_tokens";
 
 /** The response's JSON, from the single text block structured output returns. */
 function parseReply(message: Anthropic.Message, node: NodeName): unknown {
@@ -77,6 +88,13 @@ function parseReply(message: Anthropic.Message, node: NodeName): unknown {
   try {
     return JSON.parse(text);
   } catch {
+    // Truncation at the token cap produces JSON that is merely incomplete.
+    // Saying so beats sending the reader to look for a malformed schema.
+    if (message.stop_reason === STOP_REASON_MAX_TOKENS) {
+      throw new Error(
+        `${node}: reply hit max_tokens (${MAX_TOKENS[node]}) and was cut off mid-JSON — raise the budget for this node`,
+      );
+    }
     throw new Error(`${node}: structured output was not valid JSON: ${text.slice(0, ERROR_EXCERPT_CHARS)}`);
   }
 }
@@ -135,7 +153,7 @@ export class RecordingModelProvider implements ModelProvider {
       cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
       cacheCreationTokens: message.usage.cache_creation_input_tokens ?? 0,
       model,
-      costUsd: priceCall(message.usage),
+      costUsd: priceCall(message.usage, model),
     };
 
     this.writeFixture({ node: req.node, model, system: req.system, user: req.user, value, usage });
