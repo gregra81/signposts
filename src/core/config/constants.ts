@@ -258,6 +258,27 @@ export const MAX_TOKENS_SMALL = 2000;
 /** Log a warning above this. */
 export const COST_WARN_PER_RUN_USD = 1.0;
 
+/**
+ * MODEL_DEFAULT's list price, USD per million tokens
+ * (08-models-and-credentials.md). One model in v1, so one pair of numbers —
+ * a per-model table is what step-down routing needs, and step-down routing
+ * is not built yet.
+ */
+export const PRICE_INPUT_PER_MTOK = 5;
+export const PRICE_OUTPUT_PER_MTOK = 25;
+
+/** Cache reads bill at ~0.1x input; writing a cache entry costs ~1.25x. */
+export const PRICE_CACHE_READ_MULTIPLIER = 0.1;
+export const PRICE_CACHE_WRITE_MULTIPLIER = 1.25;
+
+export const TOKENS_PER_MTOK = 1_000_000;
+
+/** Indent for JSON written to disk, so a fixture diff is readable line by line. */
+export const JSON_INDENT = 2;
+
+/** How much of a bad reply to quote in an error before it stops helping. */
+export const ERROR_EXCERPT_CHARS = 300;
+
 // ---------------------------------------------------------------------------
 // Paths
 // ---------------------------------------------------------------------------
