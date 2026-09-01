@@ -15,6 +15,7 @@ import { openDb } from "../../../src/io/db/migrate.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { fakePorts, NO_CREDENTIALS } from "../helpers/fake-ports.js";
+import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 
 function signpost(overrides: Partial<Signpost> & Pick<Signpost, "id" | "claim">): Signpost {
   return {
@@ -33,7 +34,7 @@ function signpost(overrides: Partial<Signpost> & Pick<Signpost, "id" | "claim">)
   };
 }
 
-const modelCacheRoot = mkdtempSync(path.join(tmpdir(), "signposts-index-cli-model-"));
+const modelCacheRoot = testModelCache();
 
 describe("signpost index", () => {
   let homeDir: string;
@@ -50,7 +51,18 @@ describe("signpost index", () => {
     repo = (originUrl !== null ? deriveOwnerRepo(originUrl) : null) ?? "test/repo";
     config = resolveConfig({ repoRoot, homeDir, env: {} });
     // Share one model cache dir across this file's tests (avoids re-downloading).
-    config = { ...config, paths: { ...config.paths, modelCacheDir: modelCacheRoot } };
+    config = {
+      ...config,
+      paths: { ...config.paths, modelCacheDir: modelCacheRoot },
+      // Resolve the model from the local copy global-setup.ts prepared, so
+      // this suite needs no network. The defaults allow remote models, which
+      // makes transformers.js fetch file metadata even from a warm cache.
+      retrieval: {
+        ...config.retrieval,
+        allow_remote_models: false,
+        local_model_path: testLocalModelPath(),
+      },
+    };
   });
 
   afterEach(() => {
@@ -59,7 +71,6 @@ describe("signpost index", () => {
   });
 
   afterAll(() => {
-    rmSync(modelCacheRoot, { recursive: true, force: true });
   });
 
   function writeSignpostFile(s: Signpost): void {

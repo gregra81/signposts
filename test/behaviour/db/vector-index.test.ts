@@ -16,9 +16,10 @@ import { normalize } from "../../../src/core/retrieval/normalize.js";
 import { createEmbedder } from "../../../src/io/embed/embedder.js";
 import { openDb } from "../../../src/io/db/migrate.js";
 import { rebuildIndex, type ActiveSignpost } from "../../../src/io/db/vector-index.js";
+import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 
-const modelCacheRoot = mkdtempSync(path.join(tmpdir(), "signposts-vector-index-model-"));
-const retrieval = { allow_remote_models: true, local_model_path: null };
+const modelCacheRoot = testModelCache();
+const retrieval = { allow_remote_models: false, local_model_path: testLocalModelPath() };
 
 const signposts: ActiveSignpost[] = [
   {
@@ -83,7 +84,6 @@ describe("rebuildIndex", () => {
   });
 
   afterAll(() => {
-    rmSync(modelCacheRoot, { recursive: true, force: true });
   });
 
   it(

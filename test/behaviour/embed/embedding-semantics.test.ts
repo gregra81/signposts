@@ -18,11 +18,11 @@ import { afterAll, describe, expect, it } from "vitest";
 import { cosineSimilarity } from "../../../src/core/retrieval/cosine-similarity.js";
 import { EMBEDDING_MODEL } from "../../../src/core/config/constants.js";
 import { createEmbedder } from "../../../src/io/embed/embedder.js";
+import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 
-const modelCacheRoot = mkdtempSync(path.join(tmpdir(), "signposts-embedding-semantics-model-"));
+const modelCacheRoot = testModelCache();
 
 afterAll(() => {
-  rmSync(modelCacheRoot, { recursive: true, force: true });
 });
 
 describe("embedder semantics", () => {
@@ -31,8 +31,8 @@ describe("embedder semantics", () => {
     async () => {
       const embedder = await createEmbedder({
         modelCacheDir: modelCacheRoot,
-        allowRemoteModels: true,
-        localModelPath: null,
+        allowRemoteModels: false,
+        localModelPath: testLocalModelPath(),
         embeddingModel: EMBEDDING_MODEL,
       });
 
