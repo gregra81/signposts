@@ -279,6 +279,14 @@ export const MAX_TOKENS_EXTRACT = 16000;
 /** critic, classify. */
 export const MAX_TOKENS_SMALL = 2000;
 
+/**
+ * resolve_conflict. Larger than the other two small nodes because it is the
+ * only one that reasons about two competing claims and can return two scopes
+ * with it, and because thinking shares the budget. At MAX_TOKENS_SMALL it
+ * truncated mid-JSON on the first genuine contradiction the scenarios reached.
+ */
+export const MAX_TOKENS_RESOLVE = 8000;
+
 /** Log a warning above this. */
 export const COST_WARN_PER_RUN_USD = 1.0;
 

@@ -22,6 +22,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   ERROR_EXCERPT_CHARS,
   MAX_TOKENS_EXTRACT,
+  MAX_TOKENS_RESOLVE,
   MAX_TOKENS_SMALL,
   MODEL_PRICES,
   PRICE_CACHE_READ_MULTIPLIER,
@@ -47,7 +48,7 @@ const MAX_TOKENS: Record<NodeName, number> = {
   extract: MAX_TOKENS_EXTRACT,
   critic: MAX_TOKENS_SMALL,
   classify: MAX_TOKENS_SMALL,
-  resolve: MAX_TOKENS_SMALL,
+  resolve: MAX_TOKENS_RESOLVE,
 };
 
 /**
