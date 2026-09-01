@@ -313,6 +313,12 @@ export const TOKENS_PER_MTOK = 1_000_000;
  * fixed so a re-record is byte-identical.
  */
 export const MIRROR_SEED_CONFIDENCE = 1;
+
+/**
+ * Characters of an ISO 8601 timestamp that make up the date: `YYYY-MM-DD`.
+ * Provenance records a date, never a time (03-memory-model.md).
+ */
+export const ISO_DATE_CHARS = 10;
 export const MIRROR_SEED_DATE = "2026-01-01";
 
 /** Indent for JSON written to disk, so a fixture diff is readable line by line. */

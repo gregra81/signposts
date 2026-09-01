@@ -58,9 +58,21 @@ export function seededMirror(
   seeds: readonly MirrorSeed[],
   author: string,
 ): { neighbours: NeighbourPort; index: SignpostIndexPort } {
-  const signposts = seeds.map((seed) => toSignpost(seed, author));
+  return mirrorPorts(seeds.map((seed) => toSignpost(seed, author)));
+}
+
+/**
+ * The same ports over signposts that already exist as records — the state a
+ * scenario threads from one step to the next, rather than one written by hand.
+ * Superseded signposts are held but never offered as neighbours: a retired
+ * claim is history, not something a new candidate can duplicate.
+ */
+export function mirrorPorts(
+  signposts: readonly Signpost[],
+): { neighbours: NeighbourPort; index: SignpostIndexPort } {
   const byId = new Map(signposts.map((s) => [s.id, s]));
-  const forRepo = (repo: string) => signposts.filter((s) => s.scope.repo === repo);
+  const forRepo = (repo: string) =>
+    signposts.filter((s) => s.scope.repo === repo && s.status === ACTIVE_STATUS);
 
   return {
     neighbours: {
@@ -70,7 +82,9 @@ export function seededMirror(
     },
     index: {
       async existingIds(repo) {
-        return new Set(forRepo(repo).map((s) => s.id));
+        // Every id ever used in this repo, superseded included — a new slug
+        // must not collide with a retired claim's file.
+        return new Set(signposts.filter((s) => s.scope.repo === repo).map((s) => s.id));
       },
       // A seeded mirror is by definition not a first run; an empty one is.
       async isBootstrap(repo) {
