@@ -38,6 +38,23 @@ function reinforced(existing: Signpost, sessionId: string, author: string, now: 
   };
 }
 
+/**
+ * Every operation a run decided on, with the gated ones approved.
+ *
+ * A repo's first run holds everything under `bootstrap_run`, and any edit to
+ * an existing claim holds under `edits_existing`. A scenario has no reviewer,
+ * so without approving them nothing would ever land, every later step would
+ * still see an empty mirror, and no sequence could progress past its first
+ * session. Shared by the recorder and the replay suite so the two cannot
+ * disagree about what a step produced.
+ */
+export function approvedOperations(gated: {
+  auto: readonly Operation[];
+  needsHuman: readonly { operation: Operation; reason: string }[];
+}): Operation[] {
+  return [...gated.auto, ...gated.needsHuman.map((held) => held.operation)];
+}
+
 export function applyOperations(
   current: readonly Signpost[],
   operations: readonly Operation[],
