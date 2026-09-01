@@ -14,7 +14,7 @@ import {
   TEST_LOCAL_MODELS,
   localModelReady,
   testModelCache,
-} from "./model-cache.js";
+} from "./model-cache.ts";
 
 /** What a feature-extraction pipeline needs on disk to load offline. */
 const MODEL_FILES = ["config.json", "tokenizer.json", "tokenizer_config.json"];

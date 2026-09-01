@@ -1,22 +1,21 @@
-// The live ModelProvider, and the only thing in signposts that spends money.
-//
-// It wraps the real client, makes the call, and writes the reply to the
-// fixture store on the way back — so one recording run turns the whole graph
-// into something FixtureModelProvider can replay offline forever
-// (09-evaluation.md, "Fixture replay").
+// The live ModelProvider: the only thing in signposts that calls a model, and
+// the only thing that spends money.
 //
 // Every call is structured output: the JSON Schema goes out as
 // `output_config.format`, so the reply is schema-valid JSON by contract and
-// there is no free-text parsing anywhere. src/graph/llm.ts still validates
-// it against the zod schema the JSON Schema came from — a provider that
-// breaks its own contract should fail loudly here, not three nodes later.
+// there is no free-text parsing anywhere. src/graph/llm.ts still validates it
+// against the zod schema the JSON Schema came from — a provider that breaks
+// its own contract should fail loudly here, not three nodes later.
 //
 // The system turn is sent as a cached block. It is byte-stable across every
 // call in a run by construction (src/core/prompts/system.ts), which is the
-// whole reason 08-models-and-credentials.md insists nothing per-run leaks
-// into it. `usage.cacheReadTokens > 0` on the second and later calls of a
-// run is the acceptance criterion that proves it, and it is recorded into
-// every fixture rather than merely logged.
+// whole reason 08-models-and-credentials.md insists nothing per-run leaks into
+// it; `usage.cacheReadTokens > 0` on the second and later calls of a run is
+// the acceptance criterion that proves it.
+//
+// This knows nothing about fixtures. Recording is a concern of the eval
+// harness, not of the product: test/support/recording-provider.ts wraps this
+// one and writes what came back.
 
 import Anthropic from "@anthropic-ai/sdk";
 import {
@@ -38,7 +37,6 @@ import type {
   Usage,
 } from "../../core/model/types.ts";
 import { toOutputFormatSchema } from "./output-schema.ts";
-import type { FixtureRecord } from "./fixture-store.ts";
 
 /**
  * `extract` returns a whole candidate list and thinking shares the budget;
@@ -100,19 +98,13 @@ function parseReply(message: Anthropic.Message, node: NodeName): unknown {
   }
 }
 
-export class RecordingModelProvider implements ModelProvider {
+export class AnthropicModelProvider implements ModelProvider {
   private readonly client: Anthropic;
   private readonly models: Record<NodeName, string>;
-  private readonly writeFixture: (record: FixtureRecord) => void;
 
-  constructor(
-    client: Anthropic,
-    models: Record<NodeName, string>,
-    writeFixture: (record: FixtureRecord) => void,
-  ) {
+  constructor(client: Anthropic, models: Record<NodeName, string>) {
     this.client = client;
     this.models = models;
-    this.writeFixture = writeFixture;
   }
 
   async structured<T>(req: {
@@ -157,7 +149,6 @@ export class RecordingModelProvider implements ModelProvider {
       costUsd: priceCall(message.usage, model),
     };
 
-    this.writeFixture({ node: req.node, model, system: req.system, user: req.user, value, usage });
     return { value: value as T, usage };
   }
 }

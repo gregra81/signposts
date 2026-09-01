@@ -24,8 +24,8 @@
 
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { EMBEDDING_MODEL } from "../../src/core/config/constants.js";
-import { splitPinnedModel } from "../../src/core/retrieval/pinned-model.js";
+import { EMBEDDING_MODEL } from "../../src/core/config/constants.ts";
+import { splitPinnedModel } from "../../src/core/retrieval/pinned-model.ts";
 
 const CACHE_ROOT = path.join(process.cwd(), "node_modules", ".cache");
 
