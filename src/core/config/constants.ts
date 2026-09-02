@@ -287,9 +287,15 @@ export const BATCH_BY_DEFAULT = true;
  * "PROMPT_CACHE_MIN_TOKENS is per model"): the minimum does not fall as the
  * models get newer, and Haiku 4.5 needs eight times what Opus 5 needs.
  *
- * PROMPT_CACHE_MIN_TOKENS_FALLBACK is the largest published minimum, used for
- * a model absent from the map: assuming a short prompt will not cache costs a
- * cache entry, assuming it will costs a false acceptance criterion.
+ * PROMPT_CACHE_MIN_TOKENS_FALLBACK is the largest published minimum, for a
+ * model absent from the map.
+ *
+ * These describe the API's behaviour; they do not gate anything. signposts
+ * always sends the `cache_control` marker, because a marker below the minimum
+ * is ignored for free while withholding one forfeits every read it would have
+ * earned. What they explain is why `usage.cacheReadTokens` is an acceptance
+ * criterion for extract, critic and resolve but never for classify, whose
+ * ~330-token prompt clears no model's minimum.
  */
 export const PROMPT_CACHE_MIN_TOKENS: Readonly<Record<string, number>> = {
   "claude-opus-5": 512,

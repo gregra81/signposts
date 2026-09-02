@@ -11,13 +11,20 @@
 // (src/core/prompts/system.ts), which is the whole reason
 // 08-models-and-credentials.md insists nothing per-run leaks into it.
 //
-// It is marked cacheable only when it is long enough to cache on the model
-// serving that node. Below PROMPT_CACHE_MIN_TOKENS the marker is silently
-// ignored — no error, `cache_creation_input_tokens: 0` — so sending it anyway
-// would leave `usage.cacheReadTokens > 0` looking like a broken invariant
-// rather than a prompt that was always too short. CLASSIFY_SYSTEM is ~330
-// estimated tokens and clears no model's minimum, so classify never caches
-// and cacheReadTokens is only an acceptance criterion for the nodes that do.
+// The marker always goes out. A prefix below the serving model's minimum is
+// ignored silently — no error, `cache_creation_input_tokens: 0` — so sending
+// one costs nothing, while withholding one costs every cache read it would
+// have earned. There is no reliable way to know the tokenised length before
+// the call, and guessing has already been wrong in the expensive direction:
+// a chars/4 estimate put EXTRACT_SYSTEM at 772 tokens when the API reported
+// the cached prefix as 1578, which would have suppressed caching on the
+// highest-volume prefix in the graph.
+//
+// So `usage.cacheReadTokens > 0` is an acceptance criterion only for the nodes
+// whose prompt is long enough to cache on the model serving them. Measured
+// from the recorded fixtures: extract 1578 tokens on Sonnet 5, critic 848 and
+// resolve 963 on Opus 5, all caching; classify never does, because its ~330
+// tokens are far under Haiku 4.5's 4096 minimum.
 //
 // This knows nothing about fixtures. Recording is a concern of the eval
 // harness, not of the product: the recorder lives in signposts-eval and wraps
@@ -32,12 +39,9 @@ import {
   MODEL_PRICES,
   PRICE_CACHE_READ_MULTIPLIER,
   PRICE_CACHE_WRITE_MULTIPLIER,
-  PROMPT_CACHE_MIN_TOKENS,
-  PROMPT_CACHE_MIN_TOKENS_FALLBACK,
   TEXT_BLOCK_TYPE,
   TOKENS_PER_MTOK,
 } from "../../core/config/constants.ts";
-import { estimateTokens } from "../../core/gutter/tokens.ts";
 import type {
   JSONSchema,
   ModelProvider,
@@ -135,15 +139,6 @@ function modelPrices(models: Record<NodeName, string>): Record<NodeName, ModelPr
   ) as Record<NodeName, ModelPrice>;
 }
 
-/**
- * Whether a system prompt of this length caches on this model. Below the
- * minimum the `cache_control` marker is silently ignored, so signposts does
- * not send one: an unmarked prefix and an ignored marker cost the same, and
- * only the first is honest about it.
- */
-function willCache(system: string, model: string): boolean {
-  return estimateTokens(system) >= (PROMPT_CACHE_MIN_TOKENS[model] ?? PROMPT_CACHE_MIN_TOKENS_FALLBACK);
-}
 
 export class AnthropicModelProvider implements ModelProvider {
   private readonly client: Anthropic;
@@ -174,11 +169,7 @@ export class AnthropicModelProvider implements ModelProvider {
         model,
         max_tokens: MAX_TOKENS[req.node],
         system: [
-          {
-            type: TEXT_BLOCK_TYPE,
-            text: req.system,
-            ...(willCache(req.system, model) ? { cache_control: { type: "ephemeral" as const } } : {}),
-          },
+          { type: TEXT_BLOCK_TYPE, text: req.system, cache_control: { type: "ephemeral" } },
         ],
         messages: [{ role: "user", content: req.user }],
         output_config: { format: { type: "json_schema", schema: toOutputFormatSchema(req.schema) } },

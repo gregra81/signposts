@@ -12,13 +12,11 @@ import { describe, expect, it } from "vitest";
 import { AnthropicModelProvider, priceCall } from "../../../src/io/model/anthropic-provider.js";
 import {
   MAX_TOKENS_EXTRACT,
-  PROMPT_CACHE_MIN_TOKENS_FALLBACK,
   MODEL_CLASSIFY,
   MODEL_DEFAULT,
   MODEL_EXTRACT,
   PRICE_CACHE_READ_MULTIPLIER,
   PRICE_CACHE_WRITE_MULTIPLIER,
-  PROMPT_CACHE_MIN_TOKENS,
   TOKENS_PER_MTOK,
 } from "../../../src/core/config/constants.js";
 import type { NodeName } from "../../../src/core/model/types.js";
@@ -30,9 +28,6 @@ type SdkClient = ConstructorParameters<typeof AnthropicModelProvider>[0];
 type SdkUsage = Parameters<typeof priceCall>[0];
 
 /** The serving model's minimum, spelled the way the provider spells it. */
-function minTokens(model: string): number {
-  return PROMPT_CACHE_MIN_TOKENS[model] ?? PROMPT_CACHE_MIN_TOKENS_FALLBACK;
-}
 
 const MODELS: Record<NodeName, string> = {
   extract: MODEL_EXTRACT,
@@ -185,55 +180,31 @@ describe("AnthropicModelProvider — a truncated reply names the token cap", () 
   });
 });
 
-describe("AnthropicModelProvider — the cache marker only goes out when it would work", () => {
-  function systemOf(tokens: number): string {
-    return "x".repeat(tokens * 4);
-  }
-
+describe("AnthropicModelProvider — the cache marker always goes out", () => {
   function cacheControlOf(sent: Record<string, unknown>[]): unknown {
     const system = sent[0]?.system as Array<Record<string, unknown>>;
     return system[0]?.cache_control;
   }
 
-  it("marks a prefix that clears the serving model's minimum", async () => {
+  it("marks the system prefix regardless of how short it is", async () => {
     const { client, sent } = stubClient(textReply("{}"));
-    const long = systemOf(minTokens(MODEL_EXTRACT));
 
-    await new AnthropicModelProvider(client, MODELS).structured({ ...REQUEST, system: long });
+    await new AnthropicModelProvider(client, MODELS).structured({ ...REQUEST, system: "x" });
 
+    // A prefix under the serving model's minimum is ignored by the API at no
+    // cost. Withholding the marker instead forfeits every read it would have
+    // earned, and no estimate available before the call is accurate enough to
+    // make that trade safely — chars/4 put EXTRACT_SYSTEM at 772 tokens when
+    // the API reported 1578.
     expect(cacheControlOf(sent)).toEqual({ type: "ephemeral" });
   });
 
-  it("omits the marker on a prefix below the minimum, rather than sending one the API ignores", async () => {
+  it("marks a long prefix the same way", async () => {
     const { client, sent } = stubClient(textReply("{}"));
-    const short = systemOf(minTokens(MODEL_EXTRACT) - 1);
 
-    await new AnthropicModelProvider(client, MODELS).structured({ ...REQUEST, system: short });
+    await new AnthropicModelProvider(client, MODELS).structured({ ...REQUEST, system: "x".repeat(40000) });
 
-    expect(cacheControlOf(sent)).toBeUndefined();
-  });
-
-  it("applies the serving model's own minimum, not one shared number", async () => {
-    // The same prefix caches on Sonnet and does not on Haiku: the minimum is
-    // not monotonic across generations, and classify runs the model with the
-    // highest one.
-    const between = systemOf(minTokens(MODEL_EXTRACT));
-
-    const extract = stubClient(textReply("{}"));
-    await new AnthropicModelProvider(extract.client, MODELS).structured({
-      ...REQUEST,
-      system: between,
-    });
-
-    const classify = stubClient(textReply("{}"));
-    await new AnthropicModelProvider(classify.client, MODELS).structured({
-      ...REQUEST,
-      node: "classify",
-      system: between,
-    });
-
-    expect(cacheControlOf(extract.sent)).toEqual({ type: "ephemeral" });
-    expect(cacheControlOf(classify.sent)).toBeUndefined();
+    expect(cacheControlOf(sent)).toEqual({ type: "ephemeral" });
   });
 });
 
