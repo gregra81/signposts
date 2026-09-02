@@ -278,8 +278,8 @@ export const MODEL_DEFAULT = "claude-opus-5";
  * against Haiku 4.5's 4096 minimum, so extract no longer caches, having been
  * the largest consumer of cache reads in the graph.
  */
-export const MODEL_EXTRACT = "claude-haiku-4-5";
-export const MODEL_CLASSIFY = "claude-sonnet-5";
+export const MODEL_EXTRACT = "claude-sonnet-5";
+export const MODEL_CLASSIFY = "claude-haiku-4-5";
 
 /** `true` for background runs, `false` for `--sync`. */
 export const BATCH_BY_DEFAULT = true;
