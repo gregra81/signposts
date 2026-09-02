@@ -260,20 +260,26 @@ export const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 export const MODEL_DEFAULT = "claude-opus-5";
 
 /**
- * Per-node models (08-models-and-credentials.md, "Candidate step-down").
+ * Per-node models. `critic` and `resolve_conflict` stay on MODEL_DEFAULT: the
+ * line on them in 08-models-and-credentials.md is "never economise here" and
+ * "cost is irrelevant", and they are the lowest-volume, hardest judgment in
+ * the graph.
  *
- * `extract` carries the largest input and `classify` the highest call count,
- * so they are where a cheaper model pays. `critic` and `resolve_conflict` stay
- * on MODEL_DEFAULT deliberately: the doc's line on them is "never economise
- * here" and "cost is irrelevant" — they are low-volume and the hardest
- * judgment in the graph.
+ * `extract` and `classify` are the reverse of 08's candidate table, which put
+ * extract on Sonnet 5 and classify on Haiku 4.5. That table optimises for cost
+ * per call: extract carries the largest input, classify the highest count.
+ * This assignment weights where the judgment is instead — classify decides a
+ * relation against retrieved neighbours, and 08 itself names
+ * duplicate-versus-contradiction as the case a small model folds on.
  *
- * The doc calls the classify step-down "genuinely uncertain: the hard case is
- * duplicate-vs-contradiction, exactly where a small model may fold". Nothing
- * currently measures that; see the note on the golden replay suite.
+ * Neither ordering is measured. Nothing scores extraction quality, so the
+ * argument for either is a reading of the task rather than a result. What is
+ * measured is the cache consequence: EXTRACT_SYSTEM's prefix is 1578 tokens
+ * against Haiku 4.5's 4096 minimum, so extract no longer caches, having been
+ * the largest consumer of cache reads in the graph.
  */
-export const MODEL_EXTRACT = "claude-sonnet-5";
-export const MODEL_CLASSIFY = "claude-haiku-4-5";
+export const MODEL_EXTRACT = "claude-haiku-4-5";
+export const MODEL_CLASSIFY = "claude-sonnet-5";
 
 /** `true` for background runs, `false` for `--sync`. */
 export const BATCH_BY_DEFAULT = true;
