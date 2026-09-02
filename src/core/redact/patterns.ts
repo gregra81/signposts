@@ -11,7 +11,13 @@
 // mostly security regexes". Building each regex per call keeps every
 // pattern mutation-testable.
 
-import { ENTROPY_MIN_LEN, SECRET_KEY_NAME_RE, TOKEN_PREFIXES } from "../config/constants.ts";
+import { createHash } from "node:crypto";
+import {
+  AUTHOR_PSEUDONYM_PREFIX,
+  ENTROPY_MIN_LEN,
+  SECRET_KEY_NAME_RE,
+  TOKEN_PREFIXES,
+} from "../config/constants.ts";
 import { placeholderFor } from "./types.ts";
 import type { Redactor } from "./types.ts";
 
@@ -92,3 +98,40 @@ export const redactHighEntropy: Redactor = (text) => {
   const highEntropyRe = new RegExp(`[A-Za-z0-9+/]{${ENTROPY_MIN_LEN},}={0,2}`, "g");
   return text.replace(highEntropyRe, placeholderFor("high-entropy"));
 };
+
+/**
+ * Email addresses -> `author-a4f2`, stable per repo (02-ingestion.md
+ * "Redaction", AUTHOR_PSEUDONYM in 13-constants.md).
+ *
+ * A factory rather than a bare Redactor because the hash is salted with
+ * repoRoot, which text alone cannot supply. Per repo rather than per session
+ * so two sessions from the same person read as the same person; salted at all
+ * so a pseudonym from one repo says nothing about the same address in
+ * another.
+ *
+ * Not a `[REDACTED:*]` placeholder: this one is pseudonymisation, not
+ * removal, and a transcript where three people argue is unreadable if all
+ * three collapse into the same marker. Lower-cased before hashing so
+ * `Greg@x.com` and `greg@x.com` are one person.
+ *
+ * The digest length is AUTHOR_PSEUDONYM's `[:4]`, kept here rather than in
+ * constants.ts: see the note beside AUTHOR_PSEUDONYM_PREFIX.
+ *
+ * Wire measure only. 02-ingestion.md is explicit that `provenance.authors` in
+ * committed markdown carries the real address — pseudonymise on the way out
+ * to the model, never in the file.
+ */
+const PSEUDONYM_HASH_CHARS = 4;
+
+export function redactEmails(repoRoot: string): Redactor {
+  return (text) => {
+    const emailRe = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+    return text.replace(emailRe, (email) => {
+      const digest = createHash("sha256")
+        .update(`${email.toLowerCase()}${repoRoot}`)
+        .digest("hex")
+        .slice(0, PSEUDONYM_HASH_CHARS);
+      return `${AUTHOR_PSEUDONYM_PREFIX}${digest}`;
+    });
+  };
+}

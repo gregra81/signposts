@@ -12,17 +12,26 @@
 //
 // Redaction is fail-closed (safeRedact): a redactor that throws means this
 // transcript is skipped entirely, never sent with partial redaction applied.
+//
+// It uses wireRedactors(repoRoot), not defaultRedactors(): this is the first
+// module that assembles a GutteredSession and hands it to a model, so it is
+// where 02-ingestion.md's "Nothing leaves the machine unredacted" becomes
+// reachable, email pseudonymisation included. `filesTouched` goes through the
+// same pass — those are absolute paths lifted verbatim out of `tool_use`
+// inputs, and a path is as capable of carrying a secret or a person's name as
+// the prose around it.
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { gutterTurns } from "../../core/gutter/gutter.ts";
 import { toGutterInputTurn } from "../../core/gutter/input.ts";
 import { estimateGutteredSessionTokens } from "../../core/gutter/tokens.ts";
-import { safeRedact } from "../../core/redact/redact.ts";
+import { safeRedact, wireRedactors } from "../../core/redact/redact.ts";
 import { readTranscript } from "../transcript/read.ts";
 import { KNOWN_LINE_TYPES } from "../../core/contracts/schema.ts";
 import type { Envelope, TranscriptLine } from "../../core/contracts/schema.ts";
 import type { GutterInputTurn, GutteredSession, GutteredTurn } from "../../core/gutter/types.ts";
+import type { Redactor } from "../../core/redact/types.ts";
 
 /**
  * The envelope fields, for the lines that actually carry one.
@@ -52,24 +61,40 @@ async function hashFile(filePath: string): Promise<string> {
   return hash.digest("hex");
 }
 
+/** One string through the fail-closed boundary, or a throw that skips the transcript. */
+function redactOne(text: string, redactors: readonly Redactor[]): string {
+  const result = safeRedact(text, redactors);
+  if (!result.ok) {
+    throw new Error("redaction failed — transcript skipped rather than sent partially redacted");
+  }
+  return result.text;
+}
+
 /**
- * Redacts every turn's text, and reports how many turns it changed.
+ * Redacts every turn's text and file paths, and reports how many turns it
+ * changed.
  *
  * "Turns changed" rather than "secrets found" because a Redactor returns
  * text, not a match count — and the number only exists to be logged, never
- * to gate anything, so the cheaper definition is the honest one.
+ * to gate anything, so the cheaper definition is the honest one. A turn whose
+ * only change was to a path counts the same as one whose prose changed:
+ * both mean something in that turn would have left the machine raw.
+ *
+ * `toolNames` is left alone. They are tool names from a fixed vocabulary —
+ * Read, Bash, Edit — with nothing user-supplied in them to redact.
  */
-function redactTurns(turns: GutteredTurn[]): { turns: GutteredTurn[]; redactionCount: number } {
+function redactTurns(
+  turns: GutteredTurn[],
+  redactors: readonly Redactor[],
+): { turns: GutteredTurn[]; redactionCount: number } {
   let redactionCount = 0;
   const redacted = turns.map((turn) => {
-    const result = safeRedact(turn.text);
-    if (!result.ok) {
-      throw new Error("redaction failed — transcript skipped rather than sent partially redacted");
-    }
-    if (result.text !== turn.text) {
+    const text = redactOne(turn.text, redactors);
+    const filesTouched = turn.filesTouched?.map((file) => redactOne(file, redactors));
+    if (text !== turn.text || filesTouched?.some((file, i) => file !== turn.filesTouched?.[i]) === true) {
       redactionCount += 1;
     }
-    return { ...turn, text: result.text };
+    return { ...turn, text, ...(filesTouched === undefined ? {} : { filesTouched }) };
   });
   return { turns: redacted, redactionCount };
 }
@@ -114,7 +139,7 @@ export async function gutterSession(
     throw new Error(`${transcriptPath}: no usable transcript lines`);
   }
 
-  const { turns, redactionCount } = redactTurns(gutterTurns(inputTurns));
+  const { turns, redactionCount } = redactTurns(gutterTurns(inputTurns), wireRedactors(scope.repoRoot));
 
   return {
     sessionId,

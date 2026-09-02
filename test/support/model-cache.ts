@@ -37,8 +37,16 @@ export const TEST_LOCAL_MODELS = path.join(CACHE_ROOT, "signposts-test-local");
 
 export const { repoId: MODEL_REPO, revision: MODEL_REVISION } = splitPinnedModel(EMBEDDING_MODEL);
 
-/** The file whose presence means the offline copy is complete. */
-export const LOCAL_MODEL_MARKER = path.join(TEST_LOCAL_MODELS, MODEL_REPO, "tokenizer.json");
+/**
+ * The file whose presence means the offline copy is complete — so
+ * global-setup.ts must copy it last. Shared with that file rather than
+ * spelled twice: if the marker moves and the copy order does not, an
+ * interrupted first run leaves the marker behind without the weights and
+ * every later run skips the download and fails offline on a missing file.
+ */
+export const LOCAL_MODEL_MARKER_FILE = "tokenizer.json";
+
+export const LOCAL_MODEL_MARKER = path.join(TEST_LOCAL_MODELS, MODEL_REPO, LOCAL_MODEL_MARKER_FILE);
 
 export function testModelCache(): string {
   mkdirSync(TEST_MODEL_CACHE, { recursive: true });

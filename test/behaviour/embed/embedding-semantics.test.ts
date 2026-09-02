@@ -11,19 +11,13 @@
 // encode meaning: two differently-worded claims about the same fact land
 // closer together than two claims about unrelated facts.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { cosineSimilarity } from "../../../src/core/retrieval/cosine-similarity.js";
 import { EMBEDDING_MODEL } from "../../../src/core/config/constants.js";
 import { createEmbedder } from "../../../src/io/embed/embedder.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 
 const modelCacheRoot = testModelCache();
-
-afterAll(() => {
-});
 
 describe("embedder semantics", () => {
   it(

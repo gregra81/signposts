@@ -1,0 +1,259 @@
+// The live provider, driven against a stub SDK client. Nothing here touches
+// the network: `structured()` is the seam, and what it sends and what it does
+// with the reply are both observable from a fake `messages.stream`.
+//
+// Three properties are worth pinning here, and each of them was a defect:
+// an unpriced model must be refused before a call is billed rather than
+// after; a reply cut off at the token cap must say so whichever block the cut
+// landed in; and the `cache_control` marker must only go out when the prefix
+// is long enough for the serving model to actually cache it.
+
+import { describe, expect, it } from "vitest";
+import { AnthropicModelProvider, priceCall } from "../../../src/io/model/anthropic-provider.js";
+import {
+  MAX_TOKENS_EXTRACT,
+  PROMPT_CACHE_MIN_TOKENS_FALLBACK,
+  MODEL_CLASSIFY,
+  MODEL_DEFAULT,
+  MODEL_EXTRACT,
+  PRICE_CACHE_READ_MULTIPLIER,
+  PRICE_CACHE_WRITE_MULTIPLIER,
+  PROMPT_CACHE_MIN_TOKENS,
+  TOKENS_PER_MTOK,
+} from "../../../src/core/config/constants.js";
+import type { NodeName } from "../../../src/core/model/types.js";
+
+// The SDK's own types are off-limits outside src/io/model/
+// (eslint-rules/no-anthropic-sdk-outside-io-model.js), so the two SDK-shaped
+// arguments are taken from the functions under test instead of imported.
+type SdkClient = ConstructorParameters<typeof AnthropicModelProvider>[0];
+type SdkUsage = Parameters<typeof priceCall>[0];
+
+/** The serving model's minimum, spelled the way the provider spells it. */
+function minTokens(model: string): number {
+  return PROMPT_CACHE_MIN_TOKENS[model] ?? PROMPT_CACHE_MIN_TOKENS_FALLBACK;
+}
+
+const MODELS: Record<NodeName, string> = {
+  extract: MODEL_EXTRACT,
+  critic: MODEL_DEFAULT,
+  classify: MODEL_CLASSIFY,
+  resolve: MODEL_DEFAULT,
+};
+
+const NO_USAGE = {
+  input_tokens: 10,
+  output_tokens: 5,
+  cache_read_input_tokens: 0,
+  cache_creation_input_tokens: 0,
+};
+
+type Reply = {
+  content: unknown[];
+  stop_reason: string;
+  usage?: Record<string, number>;
+};
+
+/**
+ * A client that records the request and returns a canned message. `stream()`
+ * is what the provider calls, and only `.finalMessage()` is read off it.
+ */
+function stubClient(reply: Reply): { client: SdkClient; sent: Record<string, unknown>[] } {
+  const sent: Record<string, unknown>[] = [];
+  const client = {
+    messages: {
+      stream(request: Record<string, unknown>) {
+        sent.push(request);
+        return {
+          finalMessage: () =>
+            Promise.resolve({ ...reply, usage: reply.usage ?? NO_USAGE }),
+        };
+      },
+    },
+  } as unknown as SdkClient;
+  return { client, sent };
+}
+
+function textReply(text: string, stopReason = "end_turn"): Reply {
+  return { content: [{ type: "text", text }], stop_reason: stopReason };
+}
+
+const REQUEST = {
+  node: "extract" as const,
+  system: "system prompt",
+  user: "user turn",
+  schema: { type: "object" },
+};
+
+describe("AnthropicModelProvider — pricing is refused before the call, not after it", () => {
+  it("rejects a model with no list price when the provider is constructed", () => {
+    expect(() => new AnthropicModelProvider(stubClient(textReply("{}")).client, {
+      ...MODELS,
+      extract: "claude-sonnet-5-20260101",
+    })).toThrow(/no list price/);
+  });
+
+  it("names every unpriced model, once each", () => {
+    let message = "";
+    try {
+      new AnthropicModelProvider(stubClient(textReply("{}")).client, {
+        extract: "made-up-a",
+        critic: "made-up-a",
+        classify: "made-up-b",
+        resolve: MODEL_DEFAULT,
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+
+    expect(message).toContain('"made-up-a"');
+    expect(message).toContain('"made-up-b"');
+    expect(message.match(/made-up-a/g)).toHaveLength(1);
+  });
+
+  it("never reaches the API with an unpriced model", () => {
+    const { client, sent } = stubClient(textReply("{}"));
+
+    expect(() => new AnthropicModelProvider(client, { ...MODELS, critic: "unpriced" })).toThrow();
+    expect(sent).toHaveLength(0);
+  });
+});
+
+describe("priceCall", () => {
+  it("bills cache reads and cache writes at their own multipliers", () => {
+    const price = { input: 5, output: 25 };
+    const cost = priceCall(
+      {
+        input_tokens: 1000,
+        output_tokens: 100,
+        cache_read_input_tokens: 2000,
+        cache_creation_input_tokens: 400,
+      } as unknown as SdkUsage,
+      price,
+    );
+
+    const inputUnits = 1000 + 2000 * PRICE_CACHE_READ_MULTIPLIER + 400 * PRICE_CACHE_WRITE_MULTIPLIER;
+    expect(cost).toBeCloseTo((inputUnits * price.input + 100 * price.output) / TOKENS_PER_MTOK, 12);
+  });
+
+  it("treats absent cache counters as zero rather than NaN", () => {
+    const cost = priceCall(
+      { input_tokens: 1000, output_tokens: 0 } as unknown as SdkUsage,
+      { input: 5, output: 25 },
+    );
+
+    expect(cost).toBeCloseTo((1000 * 5) / TOKENS_PER_MTOK, 12);
+  });
+});
+
+describe("AnthropicModelProvider — a truncated reply names the token cap", () => {
+  it("names the cap when the cut landed inside a thinking block, leaving no text at all", async () => {
+    // Thinking is on by default and shares max_tokens, so this is what
+    // exhausting the budget on a long transcript actually returns.
+    const { client } = stubClient({
+      content: [{ type: "thinking", thinking: "still reasoning when the budget ran out" }],
+      stop_reason: "max_tokens",
+    });
+
+    await expect(new AnthropicModelProvider(client, MODELS).structured(REQUEST)).rejects.toThrow(
+      `extract: reply hit max_tokens (${MAX_TOKENS_EXTRACT}) and was cut off`,
+    );
+  });
+
+  it("names the cap when the cut landed mid-JSON", async () => {
+    const { client } = stubClient(textReply('{"candidates": [{"claim": "half a c', "max_tokens"));
+
+    await expect(new AnthropicModelProvider(client, MODELS).structured(REQUEST)).rejects.toThrow(
+      `extract: reply hit max_tokens (${MAX_TOKENS_EXTRACT}) and was cut off`,
+    );
+  });
+
+  it("still reports an empty reply as an empty reply when the cap was not the cause", async () => {
+    const { client } = stubClient({ content: [], stop_reason: "end_turn" });
+
+    await expect(new AnthropicModelProvider(client, MODELS).structured(REQUEST)).rejects.toThrow(
+      "extract: model returned no text block (stop_reason=end_turn)",
+    );
+  });
+
+  it("still reports malformed JSON as malformed JSON", async () => {
+    const { client } = stubClient(textReply("not json at all"));
+
+    await expect(new AnthropicModelProvider(client, MODELS).structured(REQUEST)).rejects.toThrow(
+      "extract: structured output was not valid JSON: not json at all",
+    );
+  });
+});
+
+describe("AnthropicModelProvider — the cache marker only goes out when it would work", () => {
+  function systemOf(tokens: number): string {
+    return "x".repeat(tokens * 4);
+  }
+
+  function cacheControlOf(sent: Record<string, unknown>[]): unknown {
+    const system = sent[0]?.system as Array<Record<string, unknown>>;
+    return system[0]?.cache_control;
+  }
+
+  it("marks a prefix that clears the serving model's minimum", async () => {
+    const { client, sent } = stubClient(textReply("{}"));
+    const long = systemOf(minTokens(MODEL_EXTRACT));
+
+    await new AnthropicModelProvider(client, MODELS).structured({ ...REQUEST, system: long });
+
+    expect(cacheControlOf(sent)).toEqual({ type: "ephemeral" });
+  });
+
+  it("omits the marker on a prefix below the minimum, rather than sending one the API ignores", async () => {
+    const { client, sent } = stubClient(textReply("{}"));
+    const short = systemOf(minTokens(MODEL_EXTRACT) - 1);
+
+    await new AnthropicModelProvider(client, MODELS).structured({ ...REQUEST, system: short });
+
+    expect(cacheControlOf(sent)).toBeUndefined();
+  });
+
+  it("applies the serving model's own minimum, not one shared number", async () => {
+    // The same prefix caches on Sonnet and does not on Haiku: the minimum is
+    // not monotonic across generations, and classify runs the model with the
+    // highest one.
+    const between = systemOf(minTokens(MODEL_EXTRACT));
+
+    const extract = stubClient(textReply("{}"));
+    await new AnthropicModelProvider(extract.client, MODELS).structured({
+      ...REQUEST,
+      system: between,
+    });
+
+    const classify = stubClient(textReply("{}"));
+    await new AnthropicModelProvider(classify.client, MODELS).structured({
+      ...REQUEST,
+      node: "classify",
+      system: between,
+    });
+
+    expect(cacheControlOf(extract.sent)).toEqual({ type: "ephemeral" });
+    expect(cacheControlOf(classify.sent)).toBeUndefined();
+  });
+});
+
+describe("AnthropicModelProvider — usage", () => {
+  it("reports the model that served the call and its cost", async () => {
+    const { client } = stubClient({
+      ...textReply('{"ok": true}'),
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 100,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+    });
+
+    const { value, usage } = await new AnthropicModelProvider(client, MODELS).structured(REQUEST);
+
+    expect(value).toEqual({ ok: true });
+    expect(usage.model).toBe(MODEL_EXTRACT);
+    expect(usage.inputTokens).toBe(1000);
+    expect(usage.costUsd).toBeGreaterThan(0);
+  });
+});

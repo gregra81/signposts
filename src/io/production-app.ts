@@ -4,13 +4,14 @@
 // itself — is the only place any port is constructed; every command
 // downstream receives ports already built, never builds its own (R2).
 //
-// The model port has no live implementation yet (Slice B — see
-// src/io/model/recording-provider.ts's "not implemented" stub); wiring one
-// up here would mean a live Anthropic call reachable from this task, which
-// is explicitly out of scope. FixtureModelProvider with no fixtures stands
-// in exactly as 16-build-plan.md sanctions for the test double, and is
-// equally correct here: none of init/index/doctor call the model port, and
-// a call that did would fail loudly rather than silently going live.
+// The model port is deliberately still the double. src/io/model/
+// anthropic-provider.ts is the live implementation and is ready, but wiring
+// it up here would make a billable Anthropic call reachable from `init`,
+// `index` and `doctor`, which is out of scope until the graph is wired.
+// FixtureModelProvider with no fixtures stands in exactly as
+// 16-build-plan.md sanctions for the test double, and is equally correct
+// here: none of the three commands call the model port, and a call that did
+// would fail loudly rather than silently going live.
 //
 // `repo` (the "owner/name" git-origin key) is NOT resolved here: `doctor`
 // must run in any repo, including one with no GitHub origin, so eagerly

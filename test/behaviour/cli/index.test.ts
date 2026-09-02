@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { serialiseSignpost } from "../../../src/core/signpost/codec.js";
 import type { Signpost } from "../../../src/core/signpost/schema.js";
@@ -68,9 +68,6 @@ describe("signpost index", () => {
   afterEach(() => {
     rmSync(homeDir, { recursive: true, force: true });
     rmSync(repoRoot, { recursive: true, force: true });
-  });
-
-  afterAll(() => {
   });
 
   function writeSignpostFile(s: Signpost): void {

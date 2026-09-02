@@ -9,7 +9,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EMBEDDING_DIM, EMBEDDING_MODEL } from "../../../src/core/config/constants.js";
 import { computeCorpusHash } from "../../../src/core/retrieval/corpus-hash.js";
 import { normalize } from "../../../src/core/retrieval/normalize.js";
@@ -81,9 +81,6 @@ describe("rebuildIndex", () => {
   afterEach(() => {
     db.close();
     rmSync(dir, { recursive: true, force: true });
-  });
-
-  afterAll(() => {
   });
 
   it(

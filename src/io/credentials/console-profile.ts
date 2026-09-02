@@ -27,11 +27,22 @@ export interface ConsoleProfileInput {
   env: Readonly<Record<string, string | undefined>>;
 }
 
+/**
+ * The profile `ant` would use: $ANTHROPIC_PROFILE, else "default".
+ *
+ * Exported because a client pinned to this method has to name it. Passing
+ * `profile` to the SDK constructor is what stops ANTHROPIC_API_KEY in the
+ * environment from shadowing the profile (`client.mjs` skips both credential
+ * env vars when `profile` is set), so the name is the whole pin.
+ */
+export function activeConsoleProfile(env: ConsoleProfileInput["env"]): string {
+  return env[PROFILE_ENV] ?? ANTHROPIC_DEFAULT_PROFILE;
+}
+
 /** Absolute path to the active profile's credential file — exported so `doctor` can name it. */
 export function consoleProfilePath(input: ConsoleProfileInput): string {
   const configDir = input.env[CONFIG_DIR_ENV] ?? path.join(input.homeDir, ANTHROPIC_CONFIG_DIRNAME);
-  const profile = input.env[PROFILE_ENV] ?? ANTHROPIC_DEFAULT_PROFILE;
-  return path.join(configDir, ANTHROPIC_CREDENTIALS_DIRNAME, `${profile}.json`);
+  return path.join(configDir, ANTHROPIC_CREDENTIALS_DIRNAME, `${activeConsoleProfile(input.env)}.json`);
 }
 
 export function hasConsoleProfile(input: ConsoleProfileInput): boolean {

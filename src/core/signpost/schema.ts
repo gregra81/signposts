@@ -59,9 +59,6 @@ export type Status = z.infer<typeof statusSchema>;
 // not a second hand-maintained string.
 export const ACTIVE_STATUS = statusSchema.enum.active;
 
-/** Its counterpart, for the same reason: one spelling of the literal. */
-export const SUPERSEDED_STATUS = statusSchema.enum.superseded;
-
 export const signpostSchema = z.object({
   id: z.string().regex(ID_PATTERN, "id must be a kebab-case slug"),
   claim: claimSchema,

@@ -221,6 +221,19 @@ export const AUTHOR_SLUG = "local-part of git config user.email, kebab-cased";
 /** Prompts and local DB only. Never written to `.signposts/`. */
 export const AUTHOR_PSEUDONYM = "author-<sha256(email + repoRoot)[:4]>";
 
+/**
+ * AUTHOR_PSEUDONYM's prefix as a value rather than as prose — what
+ * src/core/redact/patterns.ts builds a pseudonym from. Per repo rather than
+ * per session (02-ingestion.md) so the same person is recognisably the same
+ * person across sessions, which is the whole reason the model can follow a
+ * conversation between two of them.
+ *
+ * The `[:4]` half deliberately stays out of this module: exporting the number
+ * 4 would make every unrelated literal 4 under src/ a no-magic-literal error,
+ * which is a poor trade for one slice length. It lives beside its only use.
+ */
+export const AUTHOR_PSEUDONYM_PREFIX = "author-";
+
 // ---------------------------------------------------------------------------
 // Claim validation
 // ---------------------------------------------------------------------------
@@ -265,8 +278,26 @@ export const MODEL_CLASSIFY = "claude-haiku-4-5";
 /** `true` for background runs, `false` for `--sync`. */
 export const BATCH_BY_DEFAULT = true;
 
-/** Opus 5. System prompts below this will not cache. */
-export const PROMPT_CACHE_MIN_TOKENS = 512;
+/**
+ * Minimum cacheable prefix, per model. A system prompt shorter than its
+ * model's entry does not cache: the `cache_control` marker is silently
+ * ignored and `cache_creation_input_tokens` comes back 0, with no error.
+ *
+ * One number per model, not one number (13-constants.md,
+ * "PROMPT_CACHE_MIN_TOKENS is per model"): the minimum does not fall as the
+ * models get newer, and Haiku 4.5 needs eight times what Opus 5 needs.
+ *
+ * PROMPT_CACHE_MIN_TOKENS_FALLBACK is the largest published minimum, used for
+ * a model absent from the map: assuming a short prompt will not cache costs a
+ * cache entry, assuming it will costs a false acceptance criterion.
+ */
+export const PROMPT_CACHE_MIN_TOKENS: Readonly<Record<string, number>> = {
+  "claude-opus-5": 512,
+  "claude-sonnet-5": 1024,
+  "claude-haiku-4-5": 4096,
+};
+
+export const PROMPT_CACHE_MIN_TOKENS_FALLBACK = 4096;
 
 /**
  * Thinking is on by default on every model `extract` runs on and shares this
@@ -295,12 +326,15 @@ export const COST_WARN_PER_RUN_USD = 1.0;
  * (08-models-and-credentials.md). Nodes can each run a different model, so a
  * single pair of numbers would misreport every call that is not Opus.
  *
- * Anything absent here cannot be priced. priceCall throws rather than guess:
+ * Anything absent here cannot be priced, and signposts refuses to guess:
  * costUsd is written into every fixture and usage record, and a number that
- * is silently wrong is worse than a missing one.
+ * is silently wrong is worse than a missing one. The refusal happens when the
+ * provider is constructed, before any request is sent — see modelPrices() in
+ * src/io/model/anthropic-provider.ts.
  *
- * Sonnet 5's $2/$10 is introductory pricing that runs through 2026-08-31;
- * list is $3/$15.
+ * Sonnet 5's $2/$10 launched as introductory pricing through 2026-08-31. It
+ * is the standard price now: Anthropic cancelled the increase to $3/$15 that
+ * was scheduled for 2026-09-01, so these numbers need no expiry handling.
  */
 export const MODEL_PRICES: Readonly<Record<string, { input: number; output: number }>> = {
   "claude-opus-5": { input: 5, output: 25 },

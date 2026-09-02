@@ -9,6 +9,7 @@ import path from "node:path";
 import { env, pipeline } from "@huggingface/transformers";
 import {
   LOCAL_MODEL_MARKER,
+  LOCAL_MODEL_MARKER_FILE,
   MODEL_REPO,
   MODEL_REVISION,
   TEST_LOCAL_MODELS,
@@ -16,8 +17,11 @@ import {
   testModelCache,
 } from "./model-cache.ts";
 
-/** What a feature-extraction pipeline needs on disk to load offline. */
-const MODEL_FILES = ["config.json", "tokenizer.json", "tokenizer_config.json"];
+/**
+ * What a feature-extraction pipeline needs on disk to load offline, with the
+ * marker deliberately absent — see the copy loop.
+ */
+const MODEL_FILES = ["config.json", "tokenizer_config.json"];
 const ONNX_FILE = path.join("onnx", "model_quantized.onnx");
 
 export default async function setup(): Promise<void> {
@@ -36,7 +40,15 @@ export default async function setup(): Promise<void> {
   const from = path.join(cacheDir, MODEL_REPO, MODEL_REVISION);
   const to = path.join(TEST_LOCAL_MODELS, MODEL_REPO);
   mkdirSync(path.join(to, "onnx"), { recursive: true });
-  for (const file of [...MODEL_FILES, ONNX_FILE]) {
+  // LOCAL_MODEL_MARKER_FILE is copied last, and that ordering is the whole
+  // point of the constant. localModelReady() takes its presence to mean the
+  // offline copy is complete, so anything that can interrupt the copy — Ctrl-C,
+  // a full disk, a killed CI step — must not be able to leave it behind
+  // without the ~23MB of weights beside it. It used to be second of four, and
+  // an interrupted first run poisoned node_modules/.cache permanently: every
+  // later run skipped the download and the behaviour suites failed offline on
+  // a missing ONNX file, with nothing pointing at the directory to delete.
+  for (const file of [...MODEL_FILES, ONNX_FILE, LOCAL_MODEL_MARKER_FILE]) {
     copyFileSync(path.join(from, file), path.join(to, file));
   }
 
