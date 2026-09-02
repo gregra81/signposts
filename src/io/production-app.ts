@@ -4,13 +4,14 @@
 // itself — is the only place any port is constructed; every command
 // downstream receives ports already built, never builds its own (R2).
 //
-// The model port has no live implementation yet (Slice B — see
-// src/io/model/recording-provider.ts's "not implemented" stub); wiring one
-// up here would mean a live Anthropic call reachable from this task, which
-// is explicitly out of scope. FixtureModelProvider with no fixtures stands
-// in exactly as 16-build-plan.md sanctions for the test double, and is
-// equally correct here: none of init/index/doctor call the model port, and
-// a call that did would fail loudly rather than silently going live.
+// The model port is deliberately still the double. src/io/model/
+// anthropic-provider.ts is the live implementation and is ready, but wiring
+// it up here would make a billable Anthropic call reachable from `init`,
+// `index` and `doctor`, which is out of scope until the graph is wired.
+// FixtureModelProvider with no fixtures stands in exactly as
+// 16-build-plan.md sanctions for the test double, and is equally correct
+// here: none of the three commands call the model port, and a call that did
+// would fail loudly rather than silently going live.
 //
 // `repo` (the "owner/name" git-origin key) is NOT resolved here: `doctor`
 // must run in any repo, including one with no GitHub origin, so eagerly
@@ -24,7 +25,7 @@ import process from "node:process";
 import type { App } from "../app.ts";
 import { createApp } from "../app.ts";
 import { resolveConfig } from "../core/config/resolve.ts";
-import { AUTH_METHOD_AUTO, MODEL_DEFAULT } from "../core/config/constants.ts";
+import { AUTH_METHOD_AUTO, MODEL_CLASSIFY, MODEL_DEFAULT, MODEL_EXTRACT } from "../core/config/constants.ts";
 import type { NodeName } from "../core/model/types.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
 import { gatherAuthFacts } from "./credentials/index.ts";
@@ -33,9 +34,9 @@ import { systemClock } from "./clock/system-clock.ts";
 import { stubForge } from "./forge/stub-forge.ts";
 
 const MODELS: Record<NodeName, string> = {
-  extract: MODEL_DEFAULT,
+  extract: MODEL_EXTRACT,
   critic: MODEL_DEFAULT,
-  classify: MODEL_DEFAULT,
+  classify: MODEL_CLASSIFY,
   resolve: MODEL_DEFAULT,
 };
 

@@ -10,6 +10,7 @@
 
 import {
   redactConnectionStrings,
+  redactEmails,
   redactEnvSecrets,
   redactHighEntropy,
   redactPrivateKeys,
@@ -31,6 +32,26 @@ import type { Redactor } from "./types.ts";
  */
 export function defaultRedactors(): readonly Redactor[] {
   return [redactPrivateKeys, redactConnectionStrings, redactEnvSecrets, redactTokens, redactHighEntropy];
+}
+
+/**
+ * Every redactor 02-ingestion.md requires before text leaves the machine —
+ * the secret patterns above plus email pseudonymisation. **This is the set a
+ * caller sending text to a model wants**, and the only reason it is not
+ * `defaultRedactors()` itself is the repoRoot argument, which pins a
+ * pseudonym to a repo and which a bare `(text) => string` cannot carry.
+ *
+ * Required, not optional: an optional repoRoot would let a caller who forgot
+ * it ship every colleague's address to the model and see no error, which is
+ * the failure this exists to close.
+ *
+ * Emails go last. Each earlier stage consumes text this one would otherwise
+ * also match — a `postgres://user:pass@host.com/db` is a connection string,
+ * not a person — and none of them can match a pseudonym, so the order is
+ * stable in only this direction.
+ */
+export function wireRedactors(repoRoot: string): readonly Redactor[] {
+  return [...defaultRedactors(), redactEmails(repoRoot)];
 }
 
 /** Runs every redactor in sequence. Throws if any redactor throws — does not fall back to raw text. */

@@ -45,6 +45,10 @@ const THRESHOLDS = [
   { module: "src/core/doctor", break: 95 },
   { module: "src/core/errors", break: 95 },
   { module: "src/core/prompts", break: 95 },
+  // The structured-output schema adapter. A surviving mutant here is a
+  // keyword wrongly kept or wrongly stripped, which is a 400 on every call to
+  // the node whose schema it mangled.
+  { module: "src/core/model", break: 95 },
   // The graph wiring. Held at 100 rather than 95: it is thin, every branch in
   // it is a routing decision, and it is the half of the extraction graph that
   // src/core's pure functions cannot cover.

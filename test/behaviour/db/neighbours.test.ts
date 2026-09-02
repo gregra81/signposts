@@ -9,16 +9,17 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EMBEDDING_MODEL } from "../../../src/core/config/constants.js";
 import { normalize } from "../../../src/core/retrieval/normalize.js";
 import { createEmbedder, type Embedder } from "../../../src/io/embed/embedder.js";
 import { openDb } from "../../../src/io/db/migrate.js";
 import { rebuildIndex, type ActiveSignpost } from "../../../src/io/db/vector-index.js";
 import { findNeighbours } from "../../../src/io/db/neighbours.js";
+import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 
-const modelCacheRoot = mkdtempSync(path.join(tmpdir(), "signposts-neighbours-model-"));
-const retrieval = { allow_remote_models: true, local_model_path: null };
+const modelCacheRoot = testModelCache();
+const retrieval = { allow_remote_models: false, local_model_path: testLocalModelPath() };
 
 const platformSignposts: ActiveSignpost[] = [
   {
@@ -74,10 +75,6 @@ describe("findNeighbours", () => {
   afterEach(() => {
     db.close();
     rmSync(dir, { recursive: true, force: true });
-  });
-
-  afterAll(() => {
-    rmSync(modelCacheRoot, { recursive: true, force: true });
   });
 
   it(

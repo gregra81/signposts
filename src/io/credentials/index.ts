@@ -20,7 +20,7 @@ import {
 import { AUTH_CHAIN } from "../../core/config/constants.ts";
 import { isCredentialUsable } from "../../core/credentials/claude-code-payload.ts";
 import { readSubscriptionCredential } from "./claude-code.ts";
-import { hasConsoleProfile } from "./console-profile.ts";
+import { activeConsoleProfile, hasConsoleProfile } from "./console-profile.ts";
 
 // Destructured from the tuple so each method name stays a single spelling
 // owned by constants.ts, with its literal type preserved.
@@ -92,16 +92,36 @@ export function gatherAuthFacts(input: GatherAuthInput, preference: AuthPreferen
   };
 }
 
+/**
+ * The selected method plus whatever the SDK client needs to be pinned to it.
+ *
+ * Exactly one of the four value fields is set, matching `method`. They are
+ * carried rather than left to the SDK's own resolution order because that
+ * order is fixed — ANTHROPIC_API_KEY outranks ANTHROPIC_AUTH_TOKEN outranks
+ * the `ant` profile — and a bare client therefore ignores the pin whenever a
+ * higher-ranked credential happens to be exported. src/core/credentials/
+ * chain.ts states the contract that would break: a pinned method "is never
+ * silently downgraded to another method, because the whole point of pinning
+ * is choosing which account gets billed."
+ *
+ * Reading the environment here is R7-clean: `input.env` was handed down from
+ * the composition root, not read from `process.env`.
+ */
 export interface ModelCredential {
   method: AuthMethod;
   /**
    * Bearer token, set only for the Claude subscription — the SDK cannot read
    * Claude Code's credential store, so signposts has to hand it over. Send it
    * as `Authorization: Bearer` with the `oauth-2025-04-20` beta header, never
-   * as `x-api-key`. Undefined for every other method, where a bare client
-   * resolves the credential itself.
+   * as `x-api-key`.
    */
   accessToken?: string;
+  /** ANTHROPIC_API_KEY's value, set only for `api-key`. */
+  apiKey?: string;
+  /** ANTHROPIC_AUTH_TOKEN's value, set only for `auth-token`. */
+  authToken?: string;
+  /** The `ant` profile name, set only for `console-profile`. */
+  profile?: string;
 }
 
 /**
@@ -118,8 +138,14 @@ export function resolveCredential(
   if (facts.selected === "none") {
     return undefined;
   }
-  if (facts.selected !== SUBSCRIPTION) {
-    return { method: facts.selected };
+  if (facts.selected === API_KEY) {
+    return { method: API_KEY, apiKey: input.env[API_KEY_ENV] ?? "" };
+  }
+  if (facts.selected === AUTH_TOKEN) {
+    return { method: AUTH_TOKEN, authToken: input.env[AUTH_TOKEN_ENV] ?? "" };
+  }
+  if (facts.selected === CONSOLE_PROFILE) {
+    return { method: CONSOLE_PROFILE, profile: activeConsoleProfile(input.env) };
   }
 
   const subscription = readSubscriptionCredential({

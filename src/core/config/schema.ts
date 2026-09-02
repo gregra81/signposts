@@ -18,7 +18,9 @@ import {
   HEDGE_CONFIDENCE_CAP,
   IDLE_HOURS,
   MAX_AGE_DAYS,
+  MODEL_CLASSIFY,
   MODEL_DEFAULT,
+  MODEL_EXTRACT,
   NEIGHBOUR_K,
 } from "./constants.ts";
 
@@ -30,9 +32,9 @@ const authSchema = z.object({
 });
 
 const modelsSchema = z.object({
-  extract: z.string().default(MODEL_DEFAULT),
+  extract: z.string().default(MODEL_EXTRACT),
   critic: z.string().default(MODEL_DEFAULT),
-  classify: z.string().default(MODEL_DEFAULT),
+  classify: z.string().default(MODEL_CLASSIFY),
   resolve: z.string().default(MODEL_DEFAULT),
 });
 

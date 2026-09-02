@@ -198,8 +198,60 @@ describe("resolveCredential", () => {
     expect(resolve()).toEqual({ method: SUBSCRIPTION, accessToken: TOKEN });
   });
 
-  it("carries no token for methods the SDK resolves itself", () => {
-    expect(resolve({ ANTHROPIC_API_KEY: "key-value" })).toEqual({ method: API_KEY });
-    expect(resolve({ ANTHROPIC_AUTH_TOKEN: "token-value" })).toEqual({ method: AUTH_TOKEN });
+  // This used to assert `{ method: API_KEY }` with no value, on the premise
+  // that the SDK resolves these three itself. It does — but by its own fixed
+  // order, which is not the user's pin: with ANTHROPIC_API_KEY exported, a
+  // client built for `auth-token` or `console-profile` billed the console
+  // account anyway. The value is carried now so the client can pin it, and
+  // this test asserts that instead of the premise that allowed the downgrade.
+  it("carries the credential for methods the SDK would otherwise re-resolve", () => {
+    expect(resolve({ ANTHROPIC_API_KEY: "key-value" })).toEqual({
+      method: API_KEY,
+      apiKey: "key-value",
+    });
+    expect(resolve({ ANTHROPIC_AUTH_TOKEN: "token-value" })).toEqual({
+      method: AUTH_TOKEN,
+      authToken: "token-value",
+    });
+  });
+
+  it("carries the profile name a pinned console-profile client has to pass", () => {
+    const file = path.join(
+      homeDir,
+      ANTHROPIC_CONFIG_DIRNAME,
+      ANTHROPIC_CREDENTIALS_DIRNAME,
+      `${ANTHROPIC_DEFAULT_PROFILE}.json`,
+    );
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, "{}", "utf8");
+
+    expect(resolve({}, CONSOLE_PROFILE)).toEqual({
+      method: CONSOLE_PROFILE,
+      profile: ANTHROPIC_DEFAULT_PROFILE,
+    });
+  });
+
+  it("names $ANTHROPIC_PROFILE when one is set, not the default", () => {
+    const file = path.join(
+      homeDir,
+      ANTHROPIC_CONFIG_DIRNAME,
+      ANTHROPIC_CREDENTIALS_DIRNAME,
+      "work.json",
+    );
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, "{}", "utf8");
+
+    expect(resolve({ ANTHROPIC_PROFILE: "work" }, CONSOLE_PROFILE)).toEqual({
+      method: CONSOLE_PROFILE,
+      profile: "work",
+    });
+  });
+
+  it("keeps a pinned method pinned when a higher-ranked credential is also exported", () => {
+    // The downgrade scenario: `auth.method: auth-token` while an old
+    // ANTHROPIC_API_KEY is still in the environment.
+    expect(
+      resolve({ ANTHROPIC_API_KEY: "key-value", ANTHROPIC_AUTH_TOKEN: "token-value" }, AUTH_TOKEN),
+    ).toEqual({ method: AUTH_TOKEN, authToken: "token-value" });
   });
 });
