@@ -13,7 +13,7 @@
 import { jsonSchemaFor, NODE_RESPONSE_SCHEMAS } from "../core/graph/node-io.ts";
 import { systemPromptFor } from "../core/prompts/system.ts";
 import { summariseIssues } from "../core/errors/format-zod-error.ts";
-import type { ModelProvider, NodeName, ToolDef } from "../core/model/types.ts";
+import type { ModelProvider, NodeName, ToolDef, ToolRunner } from "../core/model/types.ts";
 import type { z } from "zod";
 
 export interface StructuredCall {
@@ -21,8 +21,9 @@ export interface StructuredCall {
   node: NodeName;
   user: string;
   batchable?: boolean;
-  /** Phase 4.5, `resolve` only. */
+  /** Phase 4.5, `resolve` only. Supplied together with `runTool` or not at all. */
   tools?: ToolDef[];
+  runTool?: ToolRunner;
 }
 
 /**
@@ -41,6 +42,7 @@ export async function callStructured<N extends NodeName>({
   user,
   batchable,
   tools,
+  runTool,
 }: StructuredCall & { node: N }): Promise<z.infer<(typeof NODE_RESPONSE_SCHEMAS)[N]>> {
   const { value } = await model.structured<unknown>({
     node,
@@ -49,6 +51,7 @@ export async function callStructured<N extends NodeName>({
     schema: jsonSchemaFor(node),
     ...(batchable === undefined ? {} : { batchable }),
     ...(tools === undefined ? {} : { tools }),
+    ...(runTool === undefined ? {} : { runTool }),
   });
 
   const schema = NODE_RESPONSE_SCHEMAS[node];

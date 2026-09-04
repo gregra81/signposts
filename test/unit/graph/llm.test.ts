@@ -75,6 +75,7 @@ describe("the request", () => {
 
     expect("batchable" in model.sent).toBe(false);
     expect("tools" in model.sent).toBe(false);
+    expect("runTool" in model.sent).toBe(false);
   });
 
   it("forwards batchable when it was given, including false", async () => {
@@ -97,6 +98,22 @@ describe("the request", () => {
     await callStructured({ model, node: "resolve" as NodeName, user: "u", tools });
 
     expect(model.sent.tools).toEqual(tools);
+  });
+
+  it("forwards the tool runner alongside the tools", async () => {
+    // A ToolDef says what a tool is; only the runner can perform one. The
+    // provider refuses a call carrying tools it cannot execute, so dropping
+    // this on the way through would fail every resolve.
+    const model = new RecordingProvider({
+      tempId: "t1",
+      outcome: "undecidable",
+      reasoning: "The evidence did not settle it.",
+    });
+    const runTool = async () => ({ content: "", isError: false });
+
+    await callStructured({ model, node: "resolve" as NodeName, user: "u", runTool });
+
+    expect(model.sent.runTool).toBe(runTool);
   });
 
   it("returns the parsed reply", async () => {

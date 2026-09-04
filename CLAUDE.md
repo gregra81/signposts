@@ -80,21 +80,23 @@ wired.
 ## The graph is not wired yet
 
 `buildExtractionGraph` and `startRun` are referenced nowhere outside `src/graph/`.
-`production-app.ts` builds a `FixtureModelProvider` with an empty map and no `neighbours`, `index`
-or `commit` ports. `src/io/db/neighbours.ts` implements RRF retrieval, has tests, and nothing calls
+`production-app.ts` builds a `FixtureModelProvider` with an empty map and no `neighbours`, `index`,
+`commit` or `tools` ports. `src/io/db/neighbours.ts` implements RRF retrieval, has tests, and nothing calls
 it. The CLI has three commands: `doctor`, `init`, `index`.
 
 So a change can be correct, tested, and still unreachable by a user. Say so when that is true of
 what you just wrote.
 
-## Two known holes
+## A known hole
 
 `retire` is in the operation union, `validate-operations.ts` checks it, and `partition.ts` maps it
-to the `deletes_existing` gate reason. No classification path emits it. Both are unreachable.
+to the `deletes_existing` gate reason. No classification path emits it, so both are unreachable.
 
-`RESOLVE_SYSTEM` tells the model it has read-only tools (`read_file`, `git_log`, `grep_repo`) and
-instructs it to use them. `resolve-conflict.ts` passes no tools. The `ToolDef` plumbing exists and
-no node supplies it, so the resolver follows its other instruction and prefers `undecidable`.
+The resolver's tools used to be the second hole and are now built: `resolve-conflict.ts` passes the
+three `RESOLVE_SYSTEM` names through `src/core/graph/resolve-tools.ts`, the provider loops on them
+up to `MAX_RESOLVE_TOOL_ITERATIONS` and then forbids further calls with `tool_choice: none`, and
+`src/io/tools/repo-tools.ts` runs each one behind `confine()`. Like the rest of the graph, none of
+it runs until `production-app.ts` builds a `RepoToolsPort`.
 
 ## Style
 

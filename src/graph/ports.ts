@@ -8,7 +8,7 @@
 
 import type { GutteredSession } from "../core/gutter/types.ts";
 import type { Candidate, Operation } from "../core/contracts/graph.ts";
-import type { ModelProvider } from "../core/model/types.ts";
+import type { ModelProvider, ToolRunner } from "../core/model/types.ts";
 import type { Signpost } from "../core/signpost/schema.ts";
 
 /**
@@ -54,12 +54,27 @@ export interface CommitPort {
   apply(input: CommitInput): Promise<void>;
 }
 
+/**
+ * The read-only tools `resolve_conflict` is given at Phase 4.5
+ * (12-wire-contracts.md). A port because every one of them is filesystem or
+ * subprocess work, and because the confinement that makes them safe needs a
+ * real `realpath` — see src/io/tools/repo-tools.ts.
+ */
+export interface RepoToolsPort {
+  /**
+   * A runner for one checkout. `repoRoot` comes from graph state; every path
+   * the model then supplies is confined against it before anything is read.
+   */
+  forRepo(repoRoot: string): ToolRunner;
+}
+
 export interface GraphPorts {
   model: ModelProvider;
   gutter: GutterPort;
   neighbours: NeighbourPort;
   index: SignpostIndexPort;
   commit: CommitPort;
+  tools: RepoToolsPort;
   /** REAL `git config user.email` — written into provenance, never a pseudonym. */
   author: string;
   /** Injected so provenance dates are deterministic under test. */
