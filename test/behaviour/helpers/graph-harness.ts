@@ -22,6 +22,7 @@ import type {
 } from "../../../src/core/model/types.ts";
 import type { GutteredSession } from "../../../src/core/gutter/types.ts";
 import type { Candidate, NeighbourSignpost, Operation } from "../../../src/core/contracts/graph.ts";
+import type { PendingProposal } from "../../../src/core/graph/pending.ts";
 import type { Signpost } from "../../../src/core/signpost/schema.ts";
 import type { ExtractionState } from "../../../src/graph/state.ts";
 import type {
@@ -147,11 +148,11 @@ export class FakeGutterPort implements GutterPort {
  * which does the same three writes against SQLite.
  */
 export class FakePendingIndexPort implements PendingIndexPort {
-  readonly indexed: { repo: string; signposts: Signpost[] }[] = [];
+  readonly indexed: { repo: string; proposals: PendingProposal[] }[] = [];
   readonly cleared: string[] = [];
 
-  async indexPending(repo: string, signposts: readonly Signpost[]): Promise<void> {
-    this.indexed.push({ repo, signposts: [...signposts] });
+  async indexPending(repo: string, proposals: readonly PendingProposal[]): Promise<void> {
+    this.indexed.push({ repo, proposals: [...proposals] });
   }
 
   async clear(repo: string): Promise<void> {
@@ -163,9 +164,9 @@ export class FakePendingIndexPort implements PendingIndexPort {
     }
   }
 
-  /** Everything proposed for `repo` so far in this run. */
-  forRepo(repo: string): Signpost[] {
-    return this.indexed.filter((entry) => entry.repo === repo).flatMap((entry) => entry.signposts);
+  /** Everything proposed for `repo` so far in this run, each with its state. */
+  forRepo(repo: string): PendingProposal[] {
+    return this.indexed.filter((entry) => entry.repo === repo).flatMap((entry) => entry.proposals);
   }
 }
 
@@ -185,7 +186,9 @@ export class FakeNeighbourPort implements NeighbourPort {
   // is visible at all, not about ranking.
   async find(repo: string, candidate: Candidate): Promise<NeighbourSignpost[]> {
     this.calls.push(candidate.tempId);
-    const merged = this.pendingIndex.forRepo(repo).map((signpost) => ({ ...signpost, pending: true }));
+    const merged = this.pendingIndex
+      .forRepo(repo)
+      .map(({ signpost, state }) => ({ ...signpost, pending: state }));
     return [...(this.byTempId[candidate.tempId] ?? []), ...merged];
   }
 }
@@ -209,7 +212,7 @@ export class FakeIndexPort implements SignpostIndexPort {
   // stops that reinforce from auto-publishing against a signpost nobody has
   // merged is the gate, not this — see partition.ts's `pending_neighbour`.
   private all(repo: string): Signpost[] {
-    return [...this.signposts, ...this.pendingIndex.forRepo(repo)];
+    return [...this.signposts, ...this.pendingIndex.forRepo(repo).map(({ signpost }) => signpost)];
   }
 
   async existingIds(repo: string): Promise<Set<string>> {

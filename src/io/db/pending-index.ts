@@ -9,9 +9,12 @@
 //   - **Additive.** Nothing is deleted except the rows for the ids being
 //     written, so a re-run of the same session replaces its own proposals and
 //     leaves every other repo row alone.
-//   - **`is_pending = 1`.** These claims are proposed, not merged; the PR may
-//     yet be rejected. The flag is what lets `classify` see that a neighbour
-//     is not yet approved (12-wire-contracts.md's `signposts.is_pending`).
+//   - **`is_pending = 1`, plus `pending_review`.** These claims are proposed,
+//     not merged. `is_pending` says that much; `pending_review` says whether a
+//     person is still holding this one, which is the half the gate acts on —
+//     an operation against a proposal that may yet be rejected inherits its
+//     review (src/core/gate/partition.ts), while one against a proposal
+//     already committed to the branch does not.
 //   - **`index_meta` is not touched.** That row records the hash of the
 //     *merged* corpus, and moving it here would tell the next `signpost
 //     index` run that a rebuild it actually needs is already done.
@@ -40,7 +43,8 @@ import { EMBEDDING_DIM, EMBEDDING_MODEL } from "../../core/config/constants.ts";
 import { normalize } from "../../core/retrieval/normalize.ts";
 import { vectorToBlob } from "../../core/retrieval/vector-codec.ts";
 import { contentHashFor } from "../../core/signpost/content-hash.ts";
-import type { Signpost } from "../../core/signpost/schema.ts";
+import { PENDING_STATES } from "../../core/contracts/graph.ts";
+import type { PendingProposal } from "../../core/graph/pending.ts";
 import type { Embedder } from "../embed/embedder.ts";
 
 export interface IndexPendingOptions {
@@ -52,8 +56,8 @@ export interface IndexPendingOptions {
    */
   embedder: Embedder;
   repo: string;
-  /** What the session proposed — src/core/graph/pending.ts's pendingSignposts. */
-  signposts: readonly Signpost[];
+  /** What the session proposed — src/core/graph/pending.ts's pendingProposals. */
+  proposals: readonly PendingProposal[];
 }
 
 /**
@@ -62,17 +66,19 @@ export interface IndexPendingOptions {
  * apart from the pending flag.
  */
 export async function indexPending(db: Database.Database, options: IndexPendingOptions): Promise<void> {
-  if (options.signposts.length === 0) {
+  if (options.proposals.length === 0) {
     return;
   }
 
-  const vectors = await options.embedder.embed(options.signposts.map((signpost) => normalize(signpost.claim)));
-  const embedded = options.signposts.map((signpost, i) => ({ signpost, vector: vectors[i]! }));
+  const vectors = await options.embedder.embed(
+    options.proposals.map(({ signpost }) => normalize(signpost.claim)),
+  );
+  const embedded = options.proposals.map((proposal, i) => ({ ...proposal, vector: vectors[i]! }));
 
   const upsertSignpost = db.prepare(`
     INSERT INTO signposts
-      (id, repo, claim, category, evidence, scope_json, confidence, status, provenance_json, is_pending, content_hash, embedding_model, embedding_dim)
-    VALUES (@id, @repo, @claim, @category, @evidence, @scope_json, @confidence, @status, @provenance_json, 1, @content_hash, @embedding_model, @embedding_dim)
+      (id, repo, claim, category, evidence, scope_json, confidence, status, provenance_json, is_pending, pending_review, content_hash, embedding_model, embedding_dim)
+    VALUES (@id, @repo, @claim, @category, @evidence, @scope_json, @confidence, @status, @provenance_json, 1, @pending_review, @content_hash, @embedding_model, @embedding_dim)
     ON CONFLICT (repo, id) DO UPDATE SET
       claim = excluded.claim,
       category = excluded.category,
@@ -82,6 +88,7 @@ export async function indexPending(db: Database.Database, options: IndexPendingO
       status = excluded.status,
       provenance_json = excluded.provenance_json,
       is_pending = excluded.is_pending,
+      pending_review = excluded.pending_review,
       content_hash = excluded.content_hash,
       embedding_model = excluded.embedding_model,
       embedding_dim = excluded.embedding_dim
@@ -94,7 +101,7 @@ export async function indexPending(db: Database.Database, options: IndexPendingO
   const insertFts = db.prepare("INSERT INTO signpost_fts (repo, signpost_id, claim, evidence) VALUES (?, ?, ?, ?)");
 
   const write = db.transaction(() => {
-    for (const { signpost, vector } of embedded) {
+    for (const { signpost, state, vector } of embedded) {
       upsertSignpost.run({
         id: signpost.id,
         repo: options.repo,
@@ -105,6 +112,7 @@ export async function indexPending(db: Database.Database, options: IndexPendingO
         confidence: signpost.confidence,
         status: signpost.status,
         provenance_json: JSON.stringify(signpost.provenance),
+        pending_review: state === PENDING_STATES.awaiting_review ? 1 : 0,
         content_hash: contentHashFor(signpost),
         embedding_model: EMBEDDING_MODEL,
         embedding_dim: EMBEDDING_DIM,

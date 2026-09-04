@@ -80,21 +80,33 @@ describe("pendingNeighbourTargets", () => {
   });
 
   const merged = existingSignpost({ id: "staging-writable" });
-  const pending = { ...existingSignpost({ id: "staging-read-only" }), pending: true as const };
+  const held = { ...existingSignpost({ id: "staging-read-only" }), pending: "awaiting_review" as const };
+  const committed = { ...existingSignpost({ id: "etl-window" }), pending: "in_pr" as const };
 
-  it("includes a candidate matched against a pending neighbour", () => {
+  it("includes a candidate matched against a proposal a person is holding", () => {
     const state = graphState({
-      classifications: { t1: duplicate(pending.id) },
-      neighbours: { t1: [merged, pending] },
+      classifications: { t1: duplicate(held.id) },
+      neighbours: { t1: [merged, held] },
     });
 
     expect([...pendingNeighbourTargets(state)]).toEqual(["t1"]);
   });
 
+  // That proposal cleared the gate and is already in the branch, so an
+  // operation against it lands in the same pull request.
+  it("excludes one matched against a proposal that auto-published", () => {
+    const state = graphState({
+      classifications: { t1: duplicate(committed.id) },
+      neighbours: { t1: [committed] },
+    });
+
+    expect([...pendingNeighbourTargets(state)]).toEqual([]);
+  });
+
   it("excludes one matched against a merged neighbour", () => {
     const state = graphState({
       classifications: { t1: duplicate(merged.id) },
-      neighbours: { t1: [merged, pending] },
+      neighbours: { t1: [merged, held] },
     });
 
     expect([...pendingNeighbourTargets(state)]).toEqual([]);
@@ -105,14 +117,14 @@ describe("pendingNeighbourTargets", () => {
   it("excludes a NOVEL candidate", () => {
     const state = graphState({
       classifications: { t1: { tempId: "t1", kind: "NOVEL", rationale: "New." } },
-      neighbours: { t1: [pending] },
+      neighbours: { t1: [held] },
     });
 
     expect([...pendingNeighbourTargets(state)]).toEqual([]);
   });
 
   it("excludes a candidate whose neighbours were never retrieved", () => {
-    const state = graphState({ classifications: { t1: duplicate(pending.id) } });
+    const state = graphState({ classifications: { t1: duplicate(held.id) } });
 
     expect([...pendingNeighbourTargets(state)]).toEqual([]);
   });

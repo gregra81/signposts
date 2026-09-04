@@ -35,9 +35,10 @@ export interface PartitionInput {
    */
   unresolvedContradictions: ReadonlySet<string>;
   /**
-   * tempIds whose classification named a neighbour that is still pending —
-   * proposed by an earlier session in this same run and not yet approved.
-   * Their operations inherit that neighbour's review (06-review-and-pr.md).
+   * tempIds whose classification named a neighbour a person is still holding —
+   * proposed by an earlier session in this same run and gated for review.
+   * Their operations inherit that review (06-review-and-pr.md). A proposal
+   * that auto-published is not one of them: it is already in the branch.
    */
   pendingNeighbourTargets: ReadonlySet<string>;
 }
@@ -103,10 +104,10 @@ interface HoldInput {
  *
  * A pending target bypasses it for a related reason. `reinforce` is
  * provenance-only and gate() sends it straight to `auto`, which is right when
- * it names a signpost that exists on disk. Against a proposal from earlier in
- * this same run it is not: the person holding that proposal may reject it, and
- * the reinforce would then have auto-published a reference to a signpost that
- * never existed. Whatever a person decides about the proposal, they should be
+ * it names a signpost that exists on disk or is already in the branch. Against
+ * a proposal a person is still holding it is not: they may reject it, and the
+ * reinforce would then have auto-published a reference to a signpost that
+ * never existed. Whatever they decide about the proposal, they should be
  * deciding about this too.
  */
 function holdReason(operation: Operation, input: HoldInput): GateReason | undefined {

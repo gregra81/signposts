@@ -161,6 +161,18 @@ const migrations: MigrationStep[] = [
     db.exec(`DROP TABLE repo_state`);
     db.exec(`ALTER TABLE repo_state_new RENAME TO repo_state`);
   },
+  // Splits `is_pending` in two (06-review-and-pr.md, "Reindex within a run").
+  // `is_pending` still means "proposed in a run, not merged"; this says
+  // whether a person still has to accept it. The gate needs the difference:
+  // an operation against a proposal that auto-published may auto-publish
+  // itself, because that proposal is in the pull request either way, while
+  // one against a proposal a person is still holding must wait for the same
+  // person — otherwise it publishes a reference to a signpost that may be
+  // rejected. A plain ALTER, since existing rows default correctly: nothing
+  // already in the table is pending at all.
+  (db) => {
+    db.exec(`ALTER TABLE signposts ADD COLUMN pending_review INTEGER NOT NULL DEFAULT 0`);
+  },
 ];
 
 function readUserVersion(db: Database.Database): number {

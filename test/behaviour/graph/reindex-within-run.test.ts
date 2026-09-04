@@ -99,14 +99,15 @@ describe("reindexing between the sessions of one run", () => {
     });
   });
 
-  // The add auto-published in session one; the reinforce did not, because it
-  // names a signpost nobody has merged yet. See the pending_neighbour gate.
-  it("commits the add and holds the reinforce for a person", async () => {
+  // Session one's add cleared the gate, so its commit already wrote it into
+  // the branch. The reinforce lands in the same pull request and needs no
+  // second opinion.
+  it("commits both when the proposal it reinforces auto-published", async () => {
     const { ports, checkpointer, graph } = twoSessions();
 
     await runSessions(graph, checkpointer, ports, [SESSION_ONE, SESSION_TWO]);
 
-    expect(ports.commit.operations.map((operation) => operation.op)).toEqual(["add"]);
+    expect(ports.commit.operations.map((operation) => operation.op)).toEqual(["add", "reinforce"]);
   });
 
   it("indexes the first session's proposal before the second is processed", async () => {
@@ -119,8 +120,8 @@ describe("reindexing between the sessions of one run", () => {
     // session already put there.
     expect(ports.pendingIndex.indexed).toHaveLength(1);
     expect(ports.pendingIndex.indexed[0]).toMatchObject({ repo: SESSION_ONE.repo });
-    expect(ports.pendingIndex.indexed[0]?.signposts.map((signpost) => signpost.claim)).toEqual([
-      FIRST.claim,
+    expect(ports.pendingIndex.indexed[0]?.proposals).toEqual([
+      { signpost: expect.objectContaining({ claim: FIRST.claim }), state: "in_pr" },
     ]);
   });
 
@@ -133,18 +134,27 @@ describe("reindexing between the sessions of one run", () => {
   });
 
   // The laundering case. A reinforce is provenance-only and normally
-  // auto-publishes; against a proposal from earlier in this same run it must
-  // not, because the person holding that proposal may reject it and the
-  // reinforce would then name a signpost that never existed.
-  it("holds back an operation against a proposal nobody has merged", async () => {
-    const { ports, checkpointer, graph } = twoSessions();
+  // auto-publishes; against a proposal a person is still holding it must not,
+  // because they may reject it and the reinforce would then name a signpost
+  // that never existed.
+  it("holds back an operation against a proposal a person is still holding", async () => {
+    const { ports, checkpointer, graph } = twoSessions({
+      ...SCRIPT,
+      // Below AUTO_PUBLISH_CONFIDENCE, so session one's add is gated and the
+      // run halts on it.
+      extract: [{ candidates: [{ ...FIRST, confidence: 0.5 }] }, { candidates: [SECOND] }],
+    });
 
-    const [, second] = await runSessions(graph, checkpointer, ports, [SESSION_ONE, SESSION_TWO]);
+    const [first, second] = await runSessions(graph, checkpointer, ports, [SESSION_ONE, SESSION_TWO]);
 
+    expect(first?.state.gated.needsHuman).toEqual([
+      { operation: expect.objectContaining({ op: "add" }), reason: "low_confidence" },
+    ]);
     expect(second?.state.gated.auto).toEqual([]);
     expect(second?.state.gated.needsHuman).toEqual([
       { operation: expect.objectContaining({ op: "reinforce" }), reason: "pending_neighbour" },
     ]);
+    expect(ports.commit.operations).toEqual([]);
   });
 
   it("shows the second session that its neighbour is still pending", async () => {
@@ -153,8 +163,8 @@ describe("reindexing between the sessions of one run", () => {
     await runSessions(graph, checkpointer, ports, [SESSION_ONE, SESSION_TWO]);
 
     const [first, second] = ports.model.callsTo("classify");
-    expect(first?.user).not.toContain('"pending":true');
-    expect(second?.user).toContain('"pending":true');
+    expect(first?.user).not.toContain('"pending"');
+    expect(second?.user).toContain('"pending":"in_pr"');
     expect(second?.user).toContain(FIRST.claim);
   });
 

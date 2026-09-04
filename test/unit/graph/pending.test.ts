@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pendingSignposts } from "../../../src/core/graph/pending.js";
+import { pendingProposals } from "../../../src/core/graph/pending.js";
 import type { GatedOperations, Operation } from "../../../src/core/contracts/graph.js";
 import type { Signpost } from "../../../src/core/signpost/schema.js";
 
@@ -40,9 +40,11 @@ function gated(overrides: Partial<GatedOperations> = {}): GatedOperations {
   return { auto: [], needsHuman: [], ...overrides };
 }
 
-describe("pendingSignposts", () => {
+describe("pendingProposals", () => {
   it("indexes the signpost an add would create", () => {
-    expect(pendingSignposts(gated({ auto: [ADD] }))).toEqual([signpost("staging-read-only")]);
+    expect(pendingProposals(gated({ auto: [ADD] }))).toEqual([
+      { signpost: signpost("staging-read-only"), state: "in_pr" },
+    ]);
   });
 
   // reinforce, refine and retire touch a signpost the index already has or
@@ -56,26 +58,27 @@ describe("pendingSignposts", () => {
     ["retire", RETIRE],
     ["supersede", SUPERSEDE],
   ])("indexes nothing for a %s", (_name, operation) => {
-    expect(pendingSignposts(gated({ auto: [operation] }))).toEqual([]);
+    expect(pendingProposals(gated({ auto: [operation] }))).toEqual([]);
   });
 
   // A person may sit on a gated operation for days. Leaving it out would make
   // the claim invisible to every later session in the run, which is the
-  // duplicate this exists to prevent.
-  it("indexes what a human has yet to approve as well as what auto-published", () => {
+  // duplicate this exists to prevent. It goes in under the other state: what a
+  // later session derives from it has to wait for the same person.
+  it("separates what a human has yet to approve from what auto-published", () => {
     const held: Operation = { op: "add", signpost: signpost("etl-window") };
     const partition = gated({
       auto: [ADD],
       needsHuman: [{ operation: held, reason: "low_confidence" }],
     });
 
-    expect(pendingSignposts(partition).map((entry) => entry.id)).toEqual([
-      "staging-read-only",
-      "etl-window",
+    expect(pendingProposals(partition)).toEqual([
+      { signpost: signpost("staging-read-only"), state: "in_pr" },
+      { signpost: signpost("etl-window"), state: "awaiting_review" },
     ]);
   });
 
   it("indexes nothing for a session that proposed nothing", () => {
-    expect(pendingSignposts(gated())).toEqual([]);
+    expect(pendingProposals(gated())).toEqual([]);
   });
 });

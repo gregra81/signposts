@@ -50,23 +50,38 @@ export const candidateSchema = z.object({
 export type Candidate = z.infer<typeof candidateSchema>;
 
 /**
- * A retrieved neighbour: a recorded signpost, plus whether it is still only
- * *proposed* — indexed by an earlier session in this same run and not yet
- * merged (06-review-and-pr.md, "Reindex within a run, not only at commit").
- * `classify` is shown the flag, and CLASSIFY_SYSTEM (../prompts/system.ts,
- * transcribed from 14-prompts.md) tells the model what it means: judge a
- * pending neighbour like any other, and say in the rationale when the one it
- * matched is pending. The gate reads it too — an operation targeting a pending
- * neighbour inherits that neighbour's review, under `pending_neighbour`.
+ * A retrieved neighbour: a recorded signpost, plus what it is still waiting on
+ * if an earlier session in this same run proposed it (06-review-and-pr.md,
+ * "Reindex within a run, not only at commit").
  *
- * The flag lives here rather than on ../signpost/schema.ts's signpostSchema
- * because that schema is the on-disk file, and nothing pending is ever
- * written to disk. It is omitted rather than written `false` for a merged
- * neighbour, so the classify user turn for an ordinary corpus is byte-for-byte
- * what it was before this existed — see ../prompts/user-turns.ts.
+ * Two pending states rather than one boolean, because the gate has to tell
+ * them apart:
+ *
+ *   - `in_pr` — the proposal cleared the confidence gate and session N's
+ *     `commit` has already written it into the branch. An operation against it
+ *     may auto-publish, because the two land in the same pull request.
+ *   - `awaiting_review` — a person is holding it and may reject it. An
+ *     operation against it inherits that review (`pending_neighbour` below);
+ *     auto-publishing one would put a reference to a signpost in the branch
+ *     that may never exist.
+ *
+ * `classify` is shown the field too, and CLASSIFY_SYSTEM (../prompts/system.ts,
+ * transcribed from 14-prompts.md) tells the model what the two values mean.
+ *
+ * It lives here rather than on ../signpost/schema.ts's signpostSchema because
+ * that schema is the on-disk file, and nothing pending is ever written to disk.
+ * It is absent, not `null`, for a merged neighbour, so the classify user turn
+ * for an ordinary corpus is byte-for-byte what it was before this existed —
+ * see ../prompts/user-turns.ts.
  */
+export const pendingStateSchema = z.enum(["in_pr", "awaiting_review"]);
+export type PendingState = z.infer<typeof pendingStateSchema>;
+
+/** Single source of truth for the two pending literals. */
+export const PENDING_STATES = pendingStateSchema.enum;
+
 export const neighbourSignpostSchema = signpostSchema.extend({
-  pending: z.boolean().optional(),
+  pending: pendingStateSchema.optional(),
 });
 export type NeighbourSignpost = z.infer<typeof neighbourSignpostSchema>;
 
@@ -202,13 +217,13 @@ export const gateReasonSchema = z.enum([
   "unresolved_contradiction",
   "bootstrap_run",
   // The operation targets a signpost an earlier session in this same run
-  // proposed and nobody has approved yet (06-review-and-pr.md, "Reindex within
-  // a run"). Sixth reason, added with the within-run reindex: before it, a
-  // pending id was absent from `existingIds` and `validate` dropped the
-  // candidate, so an operation could never target one. Now that it can, the
-  // operation has to inherit the neighbour's review — otherwise a `reinforce`
-  // of a proposal a person has yet to accept auto-publishes against a signpost
-  // that may never exist.
+  // proposed and a person has not accepted yet — `awaiting_review` above
+  // (06-review-and-pr.md, "Reindex within a run"). Sixth reason, added with
+  // the within-run reindex: before it, a pending id was absent from
+  // `existingIds` and `validate` dropped the candidate, so an operation could
+  // never target one. Now that it can, the operation inherits the neighbour's
+  // review — otherwise a `reinforce` of a proposal a person may reject
+  // auto-publishes a reference to a signpost that never exists.
   "pending_neighbour",
 ]);
 export type GateReason = z.infer<typeof gateReasonSchema>;

@@ -25,7 +25,7 @@ import type { BaseCheckpointSaver, LangGraphRunnableConfig } from "@langchain/la
 import { STATE_VERSION, THREAD_EXPIRY_DAYS } from "../core/config/constants.ts";
 import { buildThreadId, type ThreadIdParts } from "../core/graph/thread-id.ts";
 import { decideCheckpoint, type CheckpointDecision } from "../core/graph/state-version.ts";
-import { pendingSignposts } from "../core/graph/pending.ts";
+import { pendingProposals } from "../core/graph/pending.ts";
 import type { ExtractionGraph } from "./graph.ts";
 import type { GraphPorts } from "./ports.ts";
 import type { ExtractionState } from "./state.ts";
@@ -152,9 +152,9 @@ export async function runSessions(
     const result = await startRun(graph, checkpointer, input);
     results.push(result);
 
-    const pending = pendingSignposts(result.state.gated);
-    if (pending.length > 0) {
-      await ports.pendingIndex.indexPending(input.repo, pending);
+    const proposals = pendingProposals(result.state.gated);
+    if (proposals.length > 0) {
+      await ports.pendingIndex.indexPending(input.repo, proposals);
     }
   }
 

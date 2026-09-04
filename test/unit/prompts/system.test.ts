@@ -29,8 +29,8 @@ const DIGESTS: Record<NodeName, { sha256: string; bytes: number }> = {
   // flag means, and this is that paragraph's digest. The golden set needs a
   // re-run against the new prompt (09-evaluation.md).
   classify: {
-    sha256: "d7b36d3eb5635dc05f77fc6251ed5b81bcb4aca2b6940498dd3d8df57b15f018",
-    bytes: 1605,
+    sha256: "85d540c5cbbe48f27e0c1a91c9a7965281d63f5ff26a81b8f8273313be25f0d1",
+    bytes: 1746,
   },
   resolve: {
     sha256: "962026769fc12d997cab97aaac51b621310d3cd577f5cf21f1911de79e24ded9",

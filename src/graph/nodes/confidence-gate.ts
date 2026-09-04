@@ -10,7 +10,7 @@
 // from.
 
 import { partitionOperations } from "../../core/gate/partition.ts";
-import { CLASSIFICATION_KINDS, RESOLUTION_OUTCOMES } from "../../core/contracts/graph.ts";
+import { CLASSIFICATION_KINDS, PENDING_STATES, RESOLUTION_OUTCOMES } from "../../core/contracts/graph.ts";
 import type { ExtractionState, ExtractionUpdate } from "../state.ts";
 import type { GraphPorts } from "../ports.ts";
 
@@ -35,9 +35,14 @@ export function unresolvedContradictions(state: ExtractionState): Set<string> {
 }
 
 /**
- * tempIds whose classification named a neighbour that is still pending —
- * proposed by an earlier session in this run and not yet approved
+ * tempIds whose classification named a neighbour a person is still holding —
+ * proposed by an earlier session in this run and gated for review
  * (06-review-and-pr.md, "Reindex within a run").
+ *
+ * A neighbour pending as `in_pr` is not one of them. That proposal cleared the
+ * gate and this session's predecessor has already committed it, so an
+ * operation against it lands in the same pull request and needs no second
+ * opinion. Only `awaiting_review` can still be rejected out from under it.
  *
  * Derived here from `neighbours` and `classifications` for the same reason
  * `unresolvedContradictions` is: both channels are already in state, and a
@@ -51,7 +56,7 @@ export function pendingNeighbourTargets(state: ExtractionState): Set<string> {
     const named = state.neighbours[tempId]?.find(
       (neighbour) => neighbour.id === classification.relatedId,
     );
-    if (named?.pending === true) {
+    if (named?.pending === PENDING_STATES.awaiting_review) {
       targets.add(tempId);
     }
   }

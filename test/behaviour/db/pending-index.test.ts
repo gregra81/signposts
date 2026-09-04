@@ -17,7 +17,11 @@ import { contentHashFor } from "../../../src/core/signpost/content-hash.js";
 import type { Signpost } from "../../../src/core/signpost/schema.js";
 import { createEmbedder, type Embedder } from "../../../src/io/embed/embedder.js";
 import { openDb } from "../../../src/io/db/migrate.js";
-import { clearPending, indexPending } from "../../../src/io/db/pending-index.js";
+import {
+  clearPending,
+  indexPending,
+  type IndexPendingOptions,
+} from "../../../src/io/db/pending-index.js";
 import { findNeighbours } from "../../../src/io/db/neighbours.js";
 import { rebuildIndex } from "../../../src/io/db/vector-index.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
@@ -76,13 +80,13 @@ describe("indexPending", () => {
     "a proposal from one session is retrievable, and marked pending, in the next",
     async () => {
       const signpost = proposed();
-      await indexPending(db, { embedder, repo: REPO, signposts: [signpost] });
+      await indexPending(db, { embedder, repo: REPO, proposals: [{ signpost, state: "in_pr" }] });
 
       const claim = "Staging DB is read-only, migrations must target dev.";
       const neighbours = findNeighbours(db, REPO, { claim, embedding: await embedCandidate(claim) }, 6);
 
       expect(neighbours).toHaveLength(1);
-      expect(neighbours[0]).toMatchObject({ id: signpost.id, pending: true });
+      expect(neighbours[0]).toMatchObject({ id: signpost.id, pending: "in_pr" });
     },
     120_000,
   );
@@ -91,7 +95,7 @@ describe("indexPending", () => {
     "writes the mirror row a rebuild would, apart from the pending flag",
     async () => {
       const signpost = proposed();
-      await indexPending(db, { embedder, repo: REPO, signposts: [signpost] });
+      await indexPending(db, { embedder, repo: REPO, proposals: [{ signpost, state: "in_pr" }] });
 
       const row = db.prepare("SELECT * FROM signposts WHERE repo = ? AND id = ?").get(REPO, signpost.id) as {
         is_pending: number;
@@ -112,10 +116,43 @@ describe("indexPending", () => {
     120_000,
   );
 
+  // The half the gate reads: a proposal a person is still holding is written
+  // as awaiting_review and comes back out of retrieval that way.
+  it(
+    "records which proposals a person is still holding",
+    async () => {
+      await indexPending(db, {
+        embedder,
+        repo: REPO,
+        proposals: [
+          { signpost: proposed(), state: "awaiting_review" },
+          { signpost: proposed({ id: "etl-window", claim: "The ETL job runs at 03:00 UTC." }), state: "in_pr" },
+        ],
+      });
+
+      const rows = db
+        .prepare("SELECT id, pending_review FROM signposts WHERE repo = ? ORDER BY id")
+        .all(REPO) as { id: string; pending_review: number }[];
+      expect(rows).toEqual([
+        { id: "etl-window", pending_review: 0 },
+        { id: "staging-db-read-only", pending_review: 1 },
+      ]);
+
+      const claim = "Staging DB is read-only, migrations must target dev.";
+      const [nearest] = findNeighbours(db, REPO, { claim, embedding: await embedCandidate(claim) }, 1);
+      expect(nearest).toMatchObject({ id: "staging-db-read-only", pending: "awaiting_review" });
+    },
+    120_000,
+  );
+
   it(
     "re-proposing the same signpost leaves one vector, not two",
     async () => {
-      const options = { embedder, repo: REPO, signposts: [proposed()] };
+      const options: IndexPendingOptions = {
+        embedder,
+        repo: REPO,
+        proposals: [{ signpost: proposed(), state: "in_pr" }],
+      };
       await indexPending(db, options);
       await indexPending(db, options);
 
@@ -140,7 +177,7 @@ describe("indexPending", () => {
       });
       const before = db.prepare("SELECT corpus_hash FROM index_meta WHERE repo = ?").get(REPO);
 
-      await indexPending(db, { embedder, repo: REPO, signposts: [proposed()] });
+      await indexPending(db, { embedder, repo: REPO, proposals: [{ signpost: proposed(), state: "in_pr" }] });
 
       expect(db.prepare("SELECT corpus_hash FROM index_meta WHERE repo = ?").get(REPO)).toEqual(before);
     },
@@ -150,7 +187,7 @@ describe("indexPending", () => {
   it(
     "a session that proposed nothing writes nothing",
     async () => {
-      await indexPending(db, { embedder, repo: REPO, signposts: [] });
+      await indexPending(db, { embedder, repo: REPO, proposals: [] });
 
       const count = db.prepare("SELECT count(*) AS n FROM signposts").get() as { n: number };
       expect(count.n).toBe(0);
@@ -185,7 +222,7 @@ describe("clearPending", () => {
   it(
     "removes a proposal nobody merged, along with its vector and FTS rows",
     async () => {
-      await indexPending(db, { embedder, repo: REPO, signposts: [proposed()] });
+      await indexPending(db, { embedder, repo: REPO, proposals: [{ signpost: proposed(), state: "in_pr" }] });
 
       clearPending(db, REPO);
 
@@ -207,7 +244,7 @@ describe("clearPending", () => {
           (id, repo, claim, category, evidence, scope_json, confidence, status, provenance_json, is_pending, content_hash, embedding_model, embedding_dim)
          VALUES ('prisma-schema-path', ?, 'The Prisma schema lives at prisma/schema.prisma.', 'gotcha', '', '{}', 0.9, 'active', '{}', 0, 'hash-2', '', 0)`,
       ).run(REPO);
-      await indexPending(db, { embedder, repo: REPO, signposts: [proposed()] });
+      await indexPending(db, { embedder, repo: REPO, proposals: [{ signpost: proposed(), state: "in_pr" }] });
 
       clearPending(db, REPO);
 
@@ -222,8 +259,8 @@ describe("clearPending", () => {
   it(
     "leaves another repo's pending rows alone",
     async () => {
-      await indexPending(db, { embedder, repo: REPO, signposts: [proposed()] });
-      await indexPending(db, { embedder, repo: "acme/api", signposts: [proposed()] });
+      await indexPending(db, { embedder, repo: REPO, proposals: [{ signpost: proposed(), state: "in_pr" }] });
+      await indexPending(db, { embedder, repo: "acme/api", proposals: [{ signpost: proposed(), state: "in_pr" }] });
 
       clearPending(db, REPO);
 

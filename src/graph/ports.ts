@@ -8,6 +8,7 @@
 
 import type { GutteredSession } from "../core/gutter/types.ts";
 import type { Candidate, NeighbourSignpost, Operation } from "../core/contracts/graph.ts";
+import type { PendingProposal } from "../core/graph/pending.ts";
 import type { ModelProvider, ToolRunner } from "../core/model/types.ts";
 import type { Signpost } from "../core/signpost/schema.ts";
 
@@ -54,8 +55,11 @@ export interface NeighbourPort {
  * every future run as though someone had approved it.
  */
 export interface PendingIndexPort {
-  /** Index these proposals for `repo`, so later sessions retrieve them as pending. */
-  indexPending(repo: string, signposts: readonly Signpost[]): Promise<void>;
+  /**
+   * Index these proposals for `repo`, so later sessions retrieve them as
+   * pending, each carrying whether a person is still holding it.
+   */
+  indexPending(repo: string, proposals: readonly PendingProposal[]): Promise<void>;
   /** Drop every pending row for `repo`, whatever run left it there. */
   clear(repo: string): Promise<void>;
 }
