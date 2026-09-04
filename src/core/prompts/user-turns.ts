@@ -12,7 +12,7 @@
 // whitespace, so a replayed fixture keys on exactly the bytes it was recorded
 // with (src/io/model/fixture-provider.ts keys on the user turn).
 
-import type { Candidate } from "../contracts/graph.ts";
+import type { Candidate, NeighbourSignpost } from "../contracts/graph.ts";
 import type { Signpost } from "../signpost/schema.ts";
 
 function renderJson(value: unknown): string {
@@ -81,7 +81,7 @@ export function criticUserTurn(repo: string, candidates: readonly Candidate[]): 
   return `Repository: ${repo}\n\nCandidates:\n${renderJson(candidates)}`;
 }
 
-export function classifyUserTurn(candidate: Candidate, neighbours: readonly Signpost[]): string {
+export function classifyUserTurn(candidate: Candidate, neighbours: readonly NeighbourSignpost[]): string {
   return `Candidate:\n${renderJson(candidate)}\n\nExisting neighbours:\n${renderJson(neighbours)}`;
 }
 

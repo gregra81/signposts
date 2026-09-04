@@ -49,6 +49,24 @@ export const candidateSchema = z.object({
 });
 export type Candidate = z.infer<typeof candidateSchema>;
 
+/**
+ * A retrieved neighbour: a recorded signpost, plus whether it is still only
+ * *proposed* — indexed by an earlier session in this same run and not yet
+ * merged (06-review-and-pr.md, "Reindex within a run, not only at commit").
+ * `classify` is shown the flag so it can tell a merged claim from one that is
+ * still waiting on a review.
+ *
+ * The flag lives here rather than on ../signpost/schema.ts's signpostSchema
+ * because that schema is the on-disk file, and nothing pending is ever
+ * written to disk. It is omitted rather than written `false` for a merged
+ * neighbour, so the classify user turn for an ordinary corpus is byte-for-byte
+ * what it was before this existed — see ../prompts/user-turns.ts.
+ */
+export const neighbourSignpostSchema = signpostSchema.extend({
+  pending: z.boolean().optional(),
+});
+export type NeighbourSignpost = z.infer<typeof neighbourSignpostSchema>;
+
 export const criticVerdictSchema = z.object({
   tempId: z.string(),
   keep: z.boolean(),
@@ -265,7 +283,7 @@ export const graphStateSchema = z.object({
   // number of `extract` runs: the self-correction loop also re-runs `extract`,
   // and a shared counter let its retry silently spend the critic's budget.
   criticRetries: z.number(),
-  neighbours: z.record(z.string(), z.array(signpostSchema)),
+  neighbours: z.record(z.string(), z.array(neighbourSignpostSchema)),
   classifications: z.record(z.string(), classificationSchema),
   resolutions: z.record(z.string(), resolutionSchema),
   // What `validate` passed, still grouped by candidate. Written by node 7 and

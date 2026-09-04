@@ -35,6 +35,13 @@ export interface Neighbour {
   claim: string;
   evidence: string;
   scope: Scope;
+  /**
+   * Proposed by an earlier session in this run and not yet merged
+   * (./pending-index.ts). Retrieved like any other neighbour — pending is a
+   * review state, not a lifecycle state — but carried out of here so
+   * `classify` can be shown it (06-review-and-pr.md).
+   */
+  pending: boolean;
 }
 
 interface SignpostIdRow {
@@ -46,6 +53,7 @@ interface SignpostRow {
   claim: string;
   evidence: string;
   scope_json: string;
+  is_pending: number;
 }
 
 /**
@@ -101,7 +109,9 @@ export function findNeighbours(
   const ids = fused.map((entry) => entry.id);
   const placeholders = ids.map(() => "?").join(", ");
   const signpostRows = db
-    .prepare(`SELECT id, claim, evidence, scope_json FROM signposts WHERE repo = ? AND id IN (${placeholders})`)
+    .prepare(
+      `SELECT id, claim, evidence, scope_json, is_pending FROM signposts WHERE repo = ? AND id IN (${placeholders})`,
+    )
     .all(repo, ...ids) as SignpostRow[];
   const rowsById = new Map(signpostRows.map((row) => [row.id, row]));
 
@@ -114,7 +124,14 @@ export function findNeighbours(
       const scope = scopeSchema.parse(JSON.parse(row.scope_json));
       const boost = pathOverlapBoost(candidate.paths, scope.paths);
       const combined = combineScore(entry.score, boost);
-      return { neighbour: { id: row.id, claim: row.claim, evidence: row.evidence, scope }, combined };
+      const neighbour = {
+        id: row.id,
+        claim: row.claim,
+        evidence: row.evidence,
+        scope,
+        pending: row.is_pending === 1,
+      };
+      return { neighbour, combined };
     })
     .filter((entry): entry is { neighbour: Neighbour; combined: number } => entry !== null)
     .sort((a, b) => b.combined - a.combined)

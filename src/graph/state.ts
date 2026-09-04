@@ -30,11 +30,11 @@ import type {
   Classification,
   GatedOperations,
   HumanDecision,
+  NeighbourSignpost,
   Operation,
   Resolution,
 } from "../core/contracts/graph.ts";
 import type { GutterStats } from "../core/contracts/graph.ts";
-import type { Signpost } from "../core/signpost/schema.ts";
 
 /**
  * A keyed channel that merges partial writes from parallel `Send` tasks, and
@@ -78,7 +78,7 @@ export const GraphAnnotation = Annotation.Root({
   extractAttempts: replaced<number>(() => 0),
   criticRetries: replaced<number>(() => 0),
 
-  neighbours: mergeableRecord<Signpost[]>(),
+  neighbours: mergeableRecord<NeighbourSignpost[]>(),
   classifications: mergeableRecord<Classification>(),
   resolutions: mergeableRecord<Resolution>(),
 

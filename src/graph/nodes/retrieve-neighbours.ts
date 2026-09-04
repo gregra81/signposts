@@ -14,7 +14,7 @@ import { NODE_IDS } from "../node-ids.ts";
 import type { ClassifyPayload } from "./classify.ts";
 import type { ExtractionState, ExtractionUpdate } from "../state.ts";
 import type { GraphPorts } from "../ports.ts";
-import type { Signpost } from "../../core/signpost/schema.ts";
+import type { NeighbourSignpost } from "../../core/contracts/graph.ts";
 
 export function makeRetrieveNeighboursNode(ports: GraphPorts) {
   return async function retrieveNeighboursNode(state: ExtractionState): Promise<ExtractionUpdate> {
@@ -25,7 +25,7 @@ export function makeRetrieveNeighboursNode(ports: GraphPorts) {
       }),
     );
 
-    const neighbours: Record<string, Signpost[]> = {};
+    const neighbours: Record<string, NeighbourSignpost[]> = {};
     for (const [tempId, list] of found) {
       neighbours[tempId] = list;
     }
