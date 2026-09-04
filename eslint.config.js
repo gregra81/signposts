@@ -16,6 +16,7 @@ export default tseslint.config(
     },
     rules: {
       "signposts/no-anthropic-sdk-outside-io-model": "error",
+      "signposts/no-io-in-core": "error",
       "signposts/no-magic-literal": "error",
       "signposts/no-src-import-in-hooks-or-statusline": "error",
     },

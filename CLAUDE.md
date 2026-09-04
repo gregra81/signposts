@@ -19,13 +19,21 @@ model: `extract`, `critic`, `classify`, `resolve_conflict`.
 
 ## Rules the linter enforces, and why
 
-Three custom rules in `eslint-rules/`. Each exists because of a specific failure, so work with
+Four custom rules in `eslint-rules/`. Each exists because of a specific failure, so work with
 them instead of around them.
 
 **`no-magic-literal`** — a string or number under `src/` that duplicates a value exported by
 `src/core/config/constants.ts` is an error. Re-tuning a constant has to stay a one-line change
 there. When you hit this and the collision is coincidental, the fix is a named constant for your
 value, never a reference to the unrelated one that happens to share it.
+
+**`no-io-in-core`** — under `src/core/`, every Node builtin is an error unless it is on a short
+allowlist (`path`, `url`, `util`, `buffer`, and `crypto` for hashing only), and so are
+`process.*`, `Date.now()`, `new Date()` and `Math.random()`. An allowlist rather than a list of
+banned modules, because a denylist catches `node:fs` and waves through `node:fs/promises`. The
+rule exists because `confine.ts` imported `node:fs` and called lstat, readlink and realpath for
+months while this file claimed core was pure. When you hit it, the fix is the one the shape
+section describes: take what you need as an argument, as `confine()` now takes `PathFacts`.
 
 **`no-anthropic-sdk-outside-io-model`** — `@anthropic-ai/sdk` may only be imported under
 `src/io/model/`. Any live model call belongs there.
