@@ -194,3 +194,143 @@ describe("finding the existing claim", () => {
     expect(Object.keys(update.resolutions ?? {})).toEqual(["t1"]);
   });
 });
+
+// Phase 4.5. The node's job here is small — hand over the tool definitions
+// and a runner bound to *this run's* checkout — and getting either wrong is
+// the difference between a resolver with evidence and one guessing from text.
+describe("the read-only tools", () => {
+  it("offers the model all three on every resolve call", async () => {
+    const { ports, node } = nodeWith({});
+
+    await node(
+      graphState({
+        candidates: [candidate({ tempId: "t1" })],
+        classifications: { t1: contradiction("t1") },
+        neighbours: { t1: [EXISTING] },
+      }),
+    );
+
+    expect(ports.model.callsTo("resolve")[0]?.tools?.map((tool) => tool.name)).toEqual([
+      "read_file",
+      "git_log",
+      "grep_repo",
+    ]);
+  });
+
+  it("supplies a runner with them, because tool definitions cannot run themselves", async () => {
+    const { ports, node } = nodeWith({});
+
+    await node(
+      graphState({
+        candidates: [candidate({ tempId: "t1" })],
+        classifications: { t1: contradiction("t1") },
+        neighbours: { t1: [EXISTING] },
+      }),
+    );
+
+    expect(ports.model.callsTo("resolve")[0]?.hasRunTool).toBe(true);
+  });
+
+  it("binds the runner to graph state's repoRoot, never to anything the model named", async () => {
+    const { ports, node } = nodeWith({});
+
+    await node(
+      graphState({
+        repoRoot: "/checkouts/acme-api",
+        candidates: [candidate({ tempId: "t1" }), candidate({ tempId: "t2" })],
+        classifications: { t1: contradiction("t1"), t2: contradiction("t2") },
+        neighbours: { t1: [EXISTING], t2: [EXISTING] },
+      }),
+    );
+
+    expect(ports.tools.roots).toEqual(["/checkouts/acme-api", "/checkouts/acme-api"]);
+  });
+
+  it("does not build a runner for a contradiction it never adjudicates", async () => {
+    const { ports, node } = nodeWith({ existing: [] });
+
+    await node(
+      graphState({
+        candidates: [candidate({ tempId: "t1" })],
+        classifications: { t1: contradiction("t1") },
+      }),
+    );
+
+    expect(ports.tools.roots).toEqual([]);
+  });
+});
+
+// "undecidable is a legitimate answer, not a failure" (RESOLVE_SYSTEM). It has
+// to travel the same path as every other outcome: recorded in state, keyed to
+// its candidate, and never mistaken for the node having failed.
+describe("undecidable", () => {
+  const undecidable = (tempId: string): Resolution => ({
+    tempId,
+    outcome: "undecidable",
+    reasoning: "The commit history does not say when the change landed.",
+  });
+
+  it("is recorded as a resolution like any other outcome", async () => {
+    const ports = makeHarness({
+      script: { resolve: [undecidable("t1")] },
+      session: gutteredSession(),
+      existing: [EXISTING],
+    });
+
+    const update = await makeResolveConflictNode(ports)(
+      graphState({
+        candidates: [candidate({ tempId: "t1" })],
+        classifications: { t1: contradiction("t1") },
+        neighbours: { t1: [EXISTING] },
+      }),
+    );
+
+    expect(update.resolutions).toEqual({ t1: undecidable("t1") });
+  });
+
+  it("does not stop its siblings from being resolved", async () => {
+    const ports = makeHarness({
+      script: { resolve: [undecidable("t1"), resolution("t2")] },
+      session: gutteredSession(),
+      existing: [EXISTING],
+    });
+
+    const update = await makeResolveConflictNode(ports)(
+      graphState({
+        candidates: [candidate({ tempId: "t1" }), candidate({ tempId: "t2" })],
+        classifications: { t1: contradiction("t1"), t2: contradiction("t2") },
+        neighbours: { t1: [EXISTING], t2: [EXISTING] },
+      }),
+    );
+
+    const resolutions = (update.resolutions ?? {}) as Record<string, Resolution>;
+    expect(resolutions.t1?.outcome).toBe("undecidable");
+    expect(resolutions.t2?.outcome).toBe("new_wins");
+  });
+
+  it("carries evidenceChecked when the model cited what it read", async () => {
+    const withEvidence: Resolution = {
+      ...undecidable("t1"),
+      evidenceChecked: ["src/config.ts", "git log src/config.ts"],
+    };
+    const ports = makeHarness({
+      script: { resolve: [withEvidence] },
+      session: gutteredSession(),
+      existing: [EXISTING],
+    });
+
+    const update = await makeResolveConflictNode(ports)(
+      graphState({
+        candidates: [candidate({ tempId: "t1" })],
+        classifications: { t1: contradiction("t1") },
+        neighbours: { t1: [EXISTING] },
+      }),
+    );
+
+    const resolutions = (update.resolutions ?? {}) as Record<string, Resolution>;
+    expect(resolutions.t1?.evidenceChecked).toEqual([
+      "src/config.ts",
+      "git log src/config.ts",
+    ]);
+  });
+});

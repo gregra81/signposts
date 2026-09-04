@@ -17,6 +17,7 @@ import type {
   ModelProvider,
   NodeName,
   ToolDef,
+  ToolRunner,
   Usage,
 } from "../../../src/core/model/types.ts";
 import type { GutteredSession } from "../../../src/core/gutter/types.ts";
@@ -29,6 +30,7 @@ import type {
   GraphPorts,
   GutterPort,
   NeighbourPort,
+  RepoToolsPort,
   SignpostIndexPort,
 } from "../../../src/graph/index.ts";
 
@@ -46,6 +48,9 @@ export interface RecordedCall {
   system: string;
   user: string;
   schema: JSONSchema;
+  /** Phase 4.5: what the node offered the model, and whether it can be run. */
+  tools?: ToolDef[];
+  hasRunTool: boolean;
 }
 
 /** Replies per node, consumed in order. The last reply repeats if exhausted. */
@@ -72,8 +77,16 @@ export class ScriptedModelProvider implements ModelProvider {
     schema: JSONSchema;
     batchable?: boolean;
     tools?: ToolDef[];
+    runTool?: ToolRunner;
   }): Promise<{ value: T; usage: Usage }> {
-    this.calls.push({ node: req.node, system: req.system, user: req.user, schema: req.schema });
+    this.calls.push({
+      node: req.node,
+      system: req.system,
+      user: req.user,
+      schema: req.schema,
+      ...(req.tools === undefined ? {} : { tools: req.tools }),
+      hasRunTool: req.runTool !== undefined,
+    });
 
     const queue = this.queues[req.node];
     if (queue === undefined || queue.length === 0) {
@@ -169,6 +182,25 @@ export class FakeCommitPort implements CommitPort {
   }
 }
 
+/**
+ * Records which checkout each runner was bound to and every call made through
+ * it, so a test can assert the node passed graph state's repoRoot rather than
+ * something the model named. The real port is src/io/tools/repo-tools.ts;
+ * confinement is tested there, against a real filesystem.
+ */
+export class FakeRepoToolsPort implements RepoToolsPort {
+  readonly roots: string[] = [];
+  readonly calls: { repoRoot: string; name: string; input: unknown }[] = [];
+
+  forRepo(repoRoot: string): ToolRunner {
+    this.roots.push(repoRoot);
+    return async (name, input) => {
+      this.calls.push({ repoRoot, name, input });
+      return { content: "nothing recorded", isError: false };
+    };
+  }
+}
+
 export interface HarnessOptions {
   script: Script;
   session: GutteredSession;
@@ -184,6 +216,7 @@ export interface Harness extends GraphPorts {
   neighbours: FakeNeighbourPort;
   index: FakeIndexPort;
   commit: FakeCommitPort;
+  tools: FakeRepoToolsPort;
 }
 
 export const AUTHOR = "dev@acme.example";
@@ -196,6 +229,7 @@ export function makeHarness(options: HarnessOptions): Harness {
     neighbours: new FakeNeighbourPort(options.neighbours ?? {}),
     index: new FakeIndexPort(options.existing ?? [], options.bootstrap ?? false),
     commit: new FakeCommitPort(),
+    tools: new FakeRepoToolsPort(),
     author: AUTHOR,
     now: () => now,
   };

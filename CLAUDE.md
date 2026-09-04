@@ -19,13 +19,21 @@ model: `extract`, `critic`, `classify`, `resolve_conflict`.
 
 ## Rules the linter enforces, and why
 
-Three custom rules in `eslint-rules/`. Each exists because of a specific failure, so work with
+Four custom rules in `eslint-rules/`. Each exists because of a specific failure, so work with
 them instead of around them.
 
 **`no-magic-literal`** — a string or number under `src/` that duplicates a value exported by
 `src/core/config/constants.ts` is an error. Re-tuning a constant has to stay a one-line change
 there. When you hit this and the collision is coincidental, the fix is a named constant for your
 value, never a reference to the unrelated one that happens to share it.
+
+**`no-io-in-core`** — under `src/core/`, every Node builtin is an error unless it is on a short
+allowlist (`path`, `url`, `util`, `buffer`, and `crypto` for hashing only), and so are
+`process.*`, `Date.now()`, `new Date()` and `Math.random()`. An allowlist rather than a list of
+banned modules, because a denylist catches `node:fs` and waves through `node:fs/promises`. The
+rule exists because `confine.ts` imported `node:fs` and called lstat, readlink and realpath for
+months while this file claimed core was pure. When you hit it, the fix is the one the shape
+section describes: take what you need as an argument, as `confine()` now takes `PathFacts`.
 
 **`no-anthropic-sdk-outside-io-model`** — `@anthropic-ai/sdk` may only be imported under
 `src/io/model/`. Any live model call belongs there.
@@ -80,21 +88,23 @@ wired.
 ## The graph is not wired yet
 
 `buildExtractionGraph` and `startRun` are referenced nowhere outside `src/graph/`.
-`production-app.ts` builds a `FixtureModelProvider` with an empty map and no `neighbours`, `index`
-or `commit` ports. `src/io/db/neighbours.ts` implements RRF retrieval, has tests, and nothing calls
+`production-app.ts` builds a `FixtureModelProvider` with an empty map and no `neighbours`, `index`,
+`commit` or `tools` ports. `src/io/db/neighbours.ts` implements RRF retrieval, has tests, and nothing calls
 it. The CLI has three commands: `doctor`, `init`, `index`.
 
 So a change can be correct, tested, and still unreachable by a user. Say so when that is true of
 what you just wrote.
 
-## Two known holes
+## A known hole
 
 `retire` is in the operation union, `validate-operations.ts` checks it, and `partition.ts` maps it
-to the `deletes_existing` gate reason. No classification path emits it. Both are unreachable.
+to the `deletes_existing` gate reason. No classification path emits it, so both are unreachable.
 
-`RESOLVE_SYSTEM` tells the model it has read-only tools (`read_file`, `git_log`, `grep_repo`) and
-instructs it to use them. `resolve-conflict.ts` passes no tools. The `ToolDef` plumbing exists and
-no node supplies it, so the resolver follows its other instruction and prefers `undecidable`.
+The resolver's tools used to be the second hole and are now built: `resolve-conflict.ts` passes the
+three `RESOLVE_SYSTEM` names through `src/core/graph/resolve-tools.ts`, the provider loops on them
+up to `MAX_RESOLVE_TOOL_ITERATIONS` and then forbids further calls with `tool_choice: none`, and
+`src/io/tools/repo-tools.ts` runs each one behind `confine()`. Like the rest of the graph, none of
+it runs until `production-app.ts` builds a `RepoToolsPort`.
 
 ## Style
 

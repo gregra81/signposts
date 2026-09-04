@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fc from "fast-check";
 import { confine } from "../../src/core/paths/confine.js";
+import { nodePathFacts } from "../../src/io/paths/node-path-facts.js";
 
 describe("confine property tests", () => {
   let repoRoot: string;
@@ -23,7 +24,7 @@ describe("confine property tests", () => {
   it("P8: for any candidatePath, result is either ok:false or ok:true with a path inside repoRoot", () => {
     fc.assert(
       fc.property(fc.string(), (candidatePath) => {
-        const result = confine(repoRoot, candidatePath);
+        const result = confine(repoRoot, candidatePath, nodePathFacts);
 
         if (result.ok) {
           const rel = path.relative(repoRoot, result.path);

@@ -164,7 +164,18 @@ export const MAX_VALIDATE_ATTEMPTS = 2;
 /** Above this ratio of critic rejections → retry extraction. Judgement; tune with golden set. */
 export const CRITIC_REJECT_RATIO = 0.66;
 
-/** Phase 4.5. */
+/**
+ * Phase 4.5. Bounds the resolver's tool loop — how many times it may ask for
+ * a file, read the answer, and decide what to ask next before it must answer.
+ *
+ * Kept at 6 against a request for 2, deliberately. Measured against a live
+ * model: it opened with a grep the tool refused, then spent five more turns
+ * adaptively narrowing to the commit that settled the contradiction. At 2
+ * that run answers `undecidable` with no evidence,
+ * because the whole budget went on recovering from one bad call — and
+ * `undecidable` routes to a person. A tight budget here does not save much on
+ * the graph's rarest node; it converts resolvable contradictions into review.
+ */
 export const MAX_RESOLVE_TOOL_ITERATIONS = 6;
 
 /** Unrecognised → discard thread, re-run from transcript. */

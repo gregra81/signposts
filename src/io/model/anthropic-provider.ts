@@ -33,6 +33,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   ERROR_EXCERPT_CHARS,
+  MAX_RESOLVE_TOOL_ITERATIONS,
   MAX_TOKENS_EXTRACT,
   MAX_TOKENS_RESOLVE,
   MAX_TOKENS_SMALL,
@@ -41,12 +42,15 @@ import {
   PRICE_CACHE_WRITE_MULTIPLIER,
   TEXT_BLOCK_TYPE,
   TOKENS_PER_MTOK,
+  TOOL_RESULT_BLOCK_TYPE,
+  TOOL_USE_BLOCK_TYPE,
 } from "../../core/config/constants.ts";
 import type {
   JSONSchema,
   ModelProvider,
   NodeName,
   ToolDef,
+  ToolRunner,
   Usage,
 } from "../../core/model/types.ts";
 import { toOutputFormatSchema } from "../../core/model/output-schema.ts";
@@ -88,6 +92,26 @@ export function priceCall(usage: Anthropic.Usage, price: ModelPrice): number {
   return (
     (inputUnits * price.input + usage.output_tokens * price.output) / TOKENS_PER_MTOK
   );
+}
+
+function emptyUsage(model: string): Usage {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    model,
+    costUsd: 0,
+  };
+}
+
+/** Folds one turn's usage into the running total for the call. Mutates `total`. */
+function addUsage(total: Usage, turn: Anthropic.Usage, price: ModelPrice): void {
+  total.inputTokens += turn.input_tokens;
+  total.outputTokens += turn.output_tokens;
+  total.cacheReadTokens += turn.cache_read_input_tokens ?? 0;
+  total.cacheCreationTokens += turn.cache_creation_input_tokens ?? 0;
+  total.costUsd += priceCall(turn, price);
 }
 
 /** `stop_reason` when the reply was cut off by the token cap rather than finished. */
@@ -158,43 +182,91 @@ export class AnthropicModelProvider implements ModelProvider {
     schema: JSONSchema;
     batchable?: boolean;
     tools?: ToolDef[];
+    runTool?: ToolRunner;
   }): Promise<{ value: T; usage: Usage }> {
     const model = this.models[req.node];
+    const price = this.prices[req.node];
 
-    // Streamed because MAX_TOKENS_EXTRACT plus adaptive thinking can outrun
-    // the SDK's non-streaming HTTP timeout on a long transcript. The final
-    // message is identical either way.
-    const message = await this.client.messages
-      .stream({
-        model,
-        max_tokens: MAX_TOKENS[req.node],
-        system: [
-          { type: TEXT_BLOCK_TYPE, text: req.system, cache_control: { type: "ephemeral" } },
-        ],
-        messages: [{ role: "user", content: req.user }],
-        output_config: { format: { type: "json_schema", schema: toOutputFormatSchema(req.schema) } },
-        ...(req.tools === undefined
-          ? {}
-          : {
-              tools: req.tools.map((tool) => ({
-                name: tool.name,
-                description: tool.description,
-                input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
-              })),
-            }),
-      })
-      .finalMessage();
+    if (req.tools !== undefined && req.runTool === undefined) {
+      throw new Error(`${req.node}: tools were supplied with no runTool to execute them`);
+    }
 
-    const value = parseReply(message, req.node);
-    const usage: Usage = {
-      inputTokens: message.usage.input_tokens,
-      outputTokens: message.usage.output_tokens,
-      cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
-      cacheCreationTokens: message.usage.cache_creation_input_tokens ?? 0,
-      model,
-      costUsd: priceCall(message.usage, this.prices[req.node]),
-    };
+    const tools = req.tools?.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+    }));
 
-    return { value: value as T, usage };
+    // One turn without tools; up to MAX_RESOLVE_TOOL_ITERATIONS with them.
+    const iterations = tools === undefined ? 1 : MAX_RESOLVE_TOOL_ITERATIONS;
+    const messages: Anthropic.MessageParam[] = [{ role: "user", content: req.user }];
+    const usage = emptyUsage(model);
+
+    for (let iteration = 0; iteration < iterations; iteration += 1) {
+      // The last iteration is offered the same tools — dropping them would
+      // invalidate the cached prefix, which is rendered tools-first — but
+      // forbidden from calling one. That is what turns the budget running out
+      // into an answer: 14-prompts.md tells the resolver that `undecidable`
+      // is a legitimate outcome when the evidence does not settle it, and a
+      // resolver that has run out of lookups is in exactly that position.
+      const lastIteration = iteration === iterations - 1;
+
+      // Streamed because MAX_TOKENS_EXTRACT plus adaptive thinking can outrun
+      // the SDK's non-streaming HTTP timeout on a long transcript. The final
+      // message is identical either way.
+      const message = await this.client.messages
+        .stream({
+          model,
+          max_tokens: MAX_TOKENS[req.node],
+          system: [
+            { type: TEXT_BLOCK_TYPE, text: req.system, cache_control: { type: "ephemeral" } },
+          ],
+          messages,
+          output_config: {
+            format: { type: "json_schema", schema: toOutputFormatSchema(req.schema) },
+          },
+          ...(tools === undefined
+            ? {}
+            : { tools, tool_choice: { type: lastIteration ? "none" : "auto" } }),
+        })
+        .finalMessage();
+
+      // Accumulated across every turn, so the run's cost record is what the
+      // node actually spent rather than what its final turn spent. A tool
+      // loop can be several calls, and only counting the last one would
+      // under-report the most expensive node in the graph.
+      addUsage(usage, message.usage, price);
+
+      const toolUses = message.content.filter(
+        (block): block is Anthropic.ToolUseBlock => block.type === TOOL_USE_BLOCK_TYPE,
+      );
+      if (toolUses.length === 0) {
+        return { value: parseReply(message, req.node) as T, usage };
+      }
+
+      messages.push({ role: "assistant", content: message.content });
+      // Concurrent, and every result returned in a single user message: the
+      // API pairs tool_result blocks to the assistant turn that requested
+      // them, and splitting them across messages teaches the model to stop
+      // asking for more than one at a time.
+      const results = await Promise.all(
+        toolUses.map(async (block) => {
+          const result = await req.runTool!(block.name, block.input);
+          return {
+            type: TOOL_RESULT_BLOCK_TYPE,
+            tool_use_id: block.id,
+            content: result.content,
+            is_error: result.isError,
+          } satisfies Anthropic.ToolResultBlockParam;
+        }),
+      );
+      messages.push({ role: "user", content: results });
+    }
+
+    // Unreachable: the final iteration sends tool_choice "none", so it cannot
+    // come back with a tool_use block, and any other reply returns above.
+    throw new Error(
+      `${req.node}: still calling tools after ${iterations} iterations`,
+    );
   }
 }

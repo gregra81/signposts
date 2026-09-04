@@ -4,10 +4,35 @@
 // outside repoRoot, percent-encoded traversal — is rejected. Never
 // throws: any failure comes back as `{ ok: false, reason }`.
 
-import fs from "node:fs";
 import path from "node:path";
 
 export type ConfineResult = { ok: true; path: string } | { ok: false; reason: string };
+
+/**
+ * The three filesystem questions confinement has to ask, as a port.
+ *
+ * Symlink resolution cannot be done from a string: `a/b/c` is only outside
+ * repoRoot if something on disk says so. So this module needs a real
+ * filesystem — but it does not need `node:fs`, and taking these three as an
+ * argument is what keeps the walk-up, the hop counting and every containment
+ * decision in core, where they are mutation-graded, rather than in io, where
+ * they are not.
+ *
+ * src/io/paths/node-path-facts.ts is the implementation over `node:fs`.
+ */
+export interface PathFacts {
+  /**
+   * `lstat`, or `undefined` when nothing exists at `p`. Every other failure
+   * throws — a path running through a file, a symlink loop, a permission
+   * error — so it surfaces as a `confine failed` reason rather than being
+   * mistaken for a path that has simply not been created yet.
+   */
+  lstat(p: string): { isSymbolicLink: boolean } | undefined;
+  /** The literal target of a symlink, absolute or relative as stored. */
+  readlink(p: string): string;
+  /** The canonical path, with every symlink resolved. */
+  realpath(p: string): string;
+}
 
 /**
  * `path.relative`-based containment check — a segment-boundary check,
@@ -18,22 +43,6 @@ export type ConfineResult = { ok: true; path: string } | { ok: false; reason: st
 function isInside(parent: string, child: string): boolean {
   const rel = path.relative(parent, child);
   return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
-}
-
-/**
- * `fs.lstatSync`, with "doesn't exist" reported as `undefined` instead of
- * a throw. Every other error (ENOTDIR on a path that runs through a file,
- * ELOOP, EACCES, an invalid argument) still throws, so it surfaces as a
- * `confine failed` reason rather than being mistaken for a path that has
- * simply not been created yet.
- */
-function lstatOrUndefined(p: string): fs.Stats | undefined {
-  try {
-    return fs.lstatSync(p);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw err;
-  }
 }
 
 /** Linux's MAXSYMLINKS, the point at which `realpath` gives up with ELOOP. */
@@ -59,24 +68,24 @@ const MAX_SYMLINK_HOPS = 40;
  * stack ran out — so `hops` caps it the way MAXSYMLINKS caps
  * `realpath`, and a cycle comes back as a `confine failed` reason.
  */
-function realpathOrWalkUp(p: string, hops = 0): string {
-  const stat = lstatOrUndefined(p);
+function realpathOrWalkUp(facts: PathFacts, p: string, hops = 0): string {
+  const stat = facts.lstat(p);
 
   if (stat === undefined) {
-    return path.join(realpathOrWalkUp(path.dirname(p), hops), path.basename(p));
+    return path.join(realpathOrWalkUp(facts, path.dirname(p), hops), path.basename(p));
   }
 
-  if (stat.isSymbolicLink()) {
+  if (stat.isSymbolicLink) {
     if (hops >= MAX_SYMLINK_HOPS) {
       throw new Error(`too many symbolic links: ${p}`);
     }
-    const parentReal = realpathOrWalkUp(path.dirname(p), hops);
-    const target = fs.readlinkSync(p);
+    const parentReal = realpathOrWalkUp(facts, path.dirname(p), hops);
+    const target = facts.readlink(p);
     const resolvedTarget = path.isAbsolute(target) ? target : path.resolve(parentReal, target);
-    return realpathOrWalkUp(resolvedTarget, hops + 1);
+    return realpathOrWalkUp(facts, resolvedTarget, hops + 1);
   }
 
-  return fs.realpathSync(p);
+  return facts.realpath(p);
 }
 
 /**
@@ -109,7 +118,11 @@ function hasDangerousPercentEscape(candidatePath: string): boolean {
  * is caught the same way literal traversal is. Malformed percent-encoding
  * is treated as a literal string.
  */
-export function confine(repoRoot: string, candidatePath: string): ConfineResult {
+export function confine(
+  repoRoot: string,
+  candidatePath: string,
+  facts: PathFacts,
+): ConfineResult {
   try {
     if (candidatePath.trim() === "") {
       return { ok: false, reason: "candidatePath is empty" };
@@ -119,7 +132,7 @@ export function confine(repoRoot: string, candidatePath: string): ConfineResult 
       return { ok: false, reason: `percent-encoded separator/dot rejected: ${candidatePath}` };
     }
 
-    const repoRootReal = realpathOrWalkUp(path.resolve(repoRoot));
+    const repoRootReal = realpathOrWalkUp(facts, path.resolve(repoRoot));
 
     let decoded: string;
     try {
@@ -138,7 +151,7 @@ export function confine(repoRoot: string, candidatePath: string): ConfineResult 
       return { ok: false, reason: `path escapes repoRoot: ${candidatePath}` };
     }
 
-    const real = realpathOrWalkUp(lexical);
+    const real = realpathOrWalkUp(facts, lexical);
 
     if (!isInside(repoRootReal, real)) {
       return { ok: false, reason: `resolved path escapes repoRoot: ${candidatePath}` };
