@@ -16,11 +16,24 @@
 //     *merged* corpus, and moving it here would tell the next `signpost
 //     index` run that a rebuild it actually needs is already done.
 //
-// Rows are written with status 'active' because retrieval filters on it
-// (./neighbours.ts) and a pending claim must be retrievable — pending is a
-// review state, not a lifecycle state. The next full rebuild drops the vec/
-// FTS rows for anything the merged corpus does not contain, which is the
-// correct outcome for a proposal that was rejected.
+// A pending row must be retrievable, so `status` has to be 'active' —
+// ./neighbours.ts hard-filters on it, and a row written any other way would be
+// embedded and then silently never returned. Nothing enforces that here
+// because nothing needs to: src/core/graph/pending.ts indexes only what an
+// `add` proposed, and operations.ts mints those with ACTIVE_STATUS. The status
+// on the signpost is written as it arrives rather than overridden, so a future
+// caller passing something else fails visibly in its own tests instead of
+// having a lie written for it.
+//
+// **Pending rows are run-scoped, and `clearPending` is what makes that true.**
+// Nothing else removes them: a rejected proposal never changes the merged
+// corpus hash, so `shouldReindex` stays false and rebuildIndex never fires —
+// and even when it does fire it rewrites signpost_vec/signpost_fts and never
+// touches the `signposts` row. Left alone, a proposal nobody accepted would
+// stay active and retrievable in every future run of that repo, indistinguishable
+// from approved knowledge. So a run clears the repo's pending rows before it
+// starts: anything that merged in the meantime comes back through
+// mirrorSignposts as an ordinary row, and anything that did not is gone.
 
 import type Database from "better-sqlite3";
 import { EMBEDDING_DIM, EMBEDDING_MODEL } from "../../core/config/constants.ts";
@@ -28,15 +41,16 @@ import { normalize } from "../../core/retrieval/normalize.ts";
 import { vectorToBlob } from "../../core/retrieval/vector-codec.ts";
 import { contentHashFor } from "../../core/signpost/content-hash.ts";
 import type { Signpost } from "../../core/signpost/schema.ts";
-import { createEmbedder } from "../embed/embedder.ts";
+import type { Embedder } from "../embed/embedder.ts";
 
 export interface IndexPendingOptions {
-  /** Global model cache dir (paths.ts's modelCacheDir). */
-  modelCacheDir: string;
-  retrieval: {
-    allow_remote_models: boolean;
-    local_model_path: string | null;
-  };
+  /**
+   * Built once per run by the caller and passed in on every call.
+   * `createEmbedder` loads an ONNX pipeline each time it is called and caches
+   * nothing, and this runs once per session boundary — constructing it here
+   * would make an N-session run pay N model loads.
+   */
+  embedder: Embedder;
   repo: string;
   /** What the session proposed — src/core/graph/pending.ts's pendingSignposts. */
   signposts: readonly Signpost[];
@@ -52,14 +66,7 @@ export async function indexPending(db: Database.Database, options: IndexPendingO
     return;
   }
 
-  const embedder = await createEmbedder({
-    modelCacheDir: options.modelCacheDir,
-    allowRemoteModels: options.retrieval.allow_remote_models,
-    localModelPath: options.retrieval.local_model_path,
-    embeddingModel: EMBEDDING_MODEL,
-  });
-
-  const vectors = await embedder.embed(options.signposts.map((signpost) => normalize(signpost.claim)));
+  const vectors = await options.embedder.embed(options.signposts.map((signpost) => normalize(signpost.claim)));
   const embedded = options.signposts.map((signpost, i) => ({ signpost, vector: vectors[i]! }));
 
   const upsertSignpost = db.prepare(`
@@ -114,4 +121,25 @@ export async function indexPending(db: Database.Database, options: IndexPendingO
   });
 
   write();
+}
+
+/**
+ * Drops every pending row for `repo`, and the vector and FTS rows that went
+ * with them. Called at the start of a run — see the module comment on why
+ * nothing else would ever remove them.
+ */
+export function clearPending(db: Database.Database, repo: string): void {
+  const clear = db.transaction(() => {
+    const ids = (
+      db.prepare("SELECT id FROM signposts WHERE repo = ? AND is_pending = 1").all(repo) as { id: string }[]
+    ).map((row) => row.id);
+
+    for (const id of ids) {
+      db.prepare("DELETE FROM signpost_vec WHERE repo = ? AND signpost_id = ?").run(repo, id);
+      db.prepare("DELETE FROM signpost_fts WHERE repo = ? AND signpost_id = ?").run(repo, id);
+    }
+    db.prepare("DELETE FROM signposts WHERE repo = ? AND is_pending = 1").run(repo);
+  });
+
+  clear();
 }

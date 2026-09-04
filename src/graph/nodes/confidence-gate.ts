@@ -34,6 +34,30 @@ export function unresolvedContradictions(state: ExtractionState): Set<string> {
   return unresolved;
 }
 
+/**
+ * tempIds whose classification named a neighbour that is still pending —
+ * proposed by an earlier session in this run and not yet approved
+ * (06-review-and-pr.md, "Reindex within a run").
+ *
+ * Derived here from `neighbours` and `classifications` for the same reason
+ * `unresolvedContradictions` is: both channels are already in state, and a
+ * value derived on the spot cannot drift from what it was derived from.
+ */
+export function pendingNeighbourTargets(state: ExtractionState): Set<string> {
+  const targets = new Set<string>();
+  for (const [tempId, classification] of Object.entries(state.classifications)) {
+    // NOVEL needs no special case: it carries no relatedId, and no signpost id
+    // is undefined, so the lookup finds nothing.
+    const named = state.neighbours[tempId]?.find(
+      (neighbour) => neighbour.id === classification.relatedId,
+    );
+    if (named?.pending === true) {
+      targets.add(tempId);
+    }
+  }
+  return targets;
+}
+
 export function makeConfidenceGateNode(ports: GraphPorts) {
   return async function confidenceGateNode(state: ExtractionState): Promise<ExtractionUpdate> {
     const isBootstrap = await ports.index.isBootstrap(state.repo);
@@ -43,6 +67,7 @@ export function makeConfidenceGateNode(ports: GraphPorts) {
         built: state.validated,
         isBootstrap,
         unresolvedContradictions: unresolvedContradictions(state),
+        pendingNeighbourTargets: pendingNeighbourTargets(state),
       }),
     };
   };

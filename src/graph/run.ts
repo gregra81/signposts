@@ -128,6 +128,13 @@ export async function startRun(
  * has still proposed; its operations are indexed as pending like any other,
  * because a review that takes three days must not make a claim invisible for
  * three days.
+ *
+ * The run starts by clearing whatever the last run left pending. Those rows
+ * describe proposals that have since either merged — in which case `signpost
+ * index` has mirrored them as ordinary rows — or been rejected, and a rejected
+ * proposal that stayed in the index would be retrieved by every later run as
+ * though a person had approved it. Nothing else deletes them; see
+ * PendingIndexPort.
  */
 export async function runSessions(
   graph: ExtractionGraph,
@@ -136,6 +143,10 @@ export async function runSessions(
   inputs: readonly RunInput[],
 ): Promise<RunResult[]> {
   const results: RunResult[] = [];
+
+  for (const repo of new Set(inputs.map((input) => input.repo))) {
+    await ports.pendingIndex.clear(repo);
+  }
 
   for (const input of inputs) {
     const result = await startRun(graph, checkpointer, input);

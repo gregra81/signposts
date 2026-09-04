@@ -7,13 +7,22 @@
 // visible, since a person may sit on it for days while later sessions keep
 // proposing against a corpus that pretends it does not exist.
 //
-// Only the operations that introduce a signpost yield one: `add` and the
-// replacement on `supersede`. The others are deliberately absent, and not by
-// oversight — `reinforce` only appends provenance to a row the index already
-// has, `retire` removes one, and `refine` carries a patch rather than a
-// signpost, so the merged text it would index is not on the operation. A
-// refined claim therefore stays retrievable as the text it currently has,
-// which is what is on disk and still true until the PR lands.
+// Only `add` yields one, and every other operation is deliberately absent.
+//
+// `reinforce` only appends provenance to a row the index already has, `retire`
+// removes one, and `refine` carries a patch rather than a signpost, so the
+// merged text it would index is not on the operation. A refined claim
+// therefore stays retrievable as the text it currently has, which is what is
+// on disk and still true until the PR lands.
+//
+// `supersede` is the interesting exclusion. Indexing its replacement would put
+// both halves of a contradiction in front of the next session: the replacement
+// as pending, and the claim it replaces still active and unchanged until the
+// PR merges. The two contradict each other by construction — that is what
+// `supersede` means — so `classify` would return CONTRADICTION and spend a
+// tool-using `resolve_conflict` call re-adjudicating a conflict this same run
+// has already settled. Leaving the replacement out leaves the old claim
+// retrievable on its own, which is what the disk still says.
 //
 // PURE.
 
@@ -28,8 +37,6 @@ export function pendingSignposts(gated: GatedOperations): Signpost[] {
   for (const operation of proposed) {
     if (operation.op === OPERATION_TAGS.add) {
       signposts.push(operation.signpost);
-    } else if (operation.op === OPERATION_TAGS.supersede) {
-      signposts.push(operation.replacement);
     }
   }
 

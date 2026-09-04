@@ -34,18 +34,26 @@ export interface PartitionInput {
    * never reaches `commit` without a human decision."
    */
   unresolvedContradictions: ReadonlySet<string>;
+  /**
+   * tempIds whose classification named a neighbour that is still pending —
+   * proposed by an earlier session in this same run and not yet approved.
+   * Their operations inherit that neighbour's review (06-review-and-pr.md).
+   */
+  pendingNeighbourTargets: ReadonlySet<string>;
 }
 
 export function partitionOperations({
   built,
   isBootstrap,
   unresolvedContradictions,
+  pendingNeighbourTargets,
 }: PartitionInput): GatedOperations {
   const auto: Operation[] = [];
   const needsHuman: { operation: Operation; reason: GateReason }[] = [];
 
   for (const candidate of built) {
     const unresolved = unresolvedContradictions.has(candidate.tempId);
+    const targetsPending = pendingNeighbourTargets.has(candidate.tempId);
 
     // Judged as one package, not operation by operation. `both_scoped` emits a
     // `refine` of the old signpost plus an `add` of the new one, and the two
@@ -55,7 +63,14 @@ export function partitionOperations({
     // prevent. So if any operation a candidate produced needs a human, all of
     // them do, under that operation's reason.
     const held = candidate.operations
-      .map((operation) => holdReason(operation, candidate.confidence, isBootstrap, unresolved))
+      .map((operation) =>
+        holdReason(operation, {
+          confidence: candidate.confidence,
+          isBootstrap,
+          unresolved,
+          targetsPending,
+        }),
+      )
       .find((reason) => reason !== undefined);
 
     if (held !== undefined) {
@@ -71,26 +86,40 @@ export function partitionOperations({
   return { auto, needsHuman };
 }
 
+interface HoldInput {
+  confidence: number;
+  isBootstrap: boolean;
+  unresolved: boolean;
+  /** The classification named a neighbour this run proposed and nobody has approved. */
+  targetsPending: boolean;
+}
+
 /**
  * Why this operation must wait for a person, or undefined if it may auto-publish.
  *
  * An unresolved contradiction bypasses the confidence test entirely: a
  * high-confidence claim that contradicts recorded knowledge is exactly the
  * case that must not auto-publish.
+ *
+ * A pending target bypasses it for a related reason. `reinforce` is
+ * provenance-only and gate() sends it straight to `auto`, which is right when
+ * it names a signpost that exists on disk. Against a proposal from earlier in
+ * this same run it is not: the person holding that proposal may reject it, and
+ * the reinforce would then have auto-published a reference to a signpost that
+ * never existed. Whatever a person decides about the proposal, they should be
+ * deciding about this too.
  */
-function holdReason(
-  operation: Operation,
-  confidence: number,
-  isBootstrap: boolean,
-  unresolved: boolean,
-): GateReason | undefined {
-  if (unresolved) {
+function holdReason(operation: Operation, input: HoldInput): GateReason | undefined {
+  if (input.unresolved) {
     return GATE_REASONS.unresolved_contradiction;
   }
-  if (gate(operation, confidence, isBootstrap) === "auto") {
+  if (input.targetsPending) {
+    return GATE_REASONS.pending_neighbour;
+  }
+  if (gate(operation, input.confidence, input.isBootstrap) === "auto") {
     return undefined;
   }
-  return reasonFor(operation, isBootstrap);
+  return reasonFor(operation, input.isBootstrap);
 }
 
 /**

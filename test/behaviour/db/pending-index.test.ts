@@ -17,7 +17,7 @@ import { contentHashFor } from "../../../src/core/signpost/content-hash.js";
 import type { Signpost } from "../../../src/core/signpost/schema.js";
 import { createEmbedder, type Embedder } from "../../../src/io/embed/embedder.js";
 import { openDb } from "../../../src/io/db/migrate.js";
-import { indexPending } from "../../../src/io/db/pending-index.js";
+import { clearPending, indexPending } from "../../../src/io/db/pending-index.js";
 import { findNeighbours } from "../../../src/io/db/neighbours.js";
 import { rebuildIndex } from "../../../src/io/db/vector-index.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
@@ -76,7 +76,7 @@ describe("indexPending", () => {
     "a proposal from one session is retrievable, and marked pending, in the next",
     async () => {
       const signpost = proposed();
-      await indexPending(db, { modelCacheDir: modelCacheRoot, retrieval, repo: REPO, signposts: [signpost] });
+      await indexPending(db, { embedder, repo: REPO, signposts: [signpost] });
 
       const claim = "Staging DB is read-only, migrations must target dev.";
       const neighbours = findNeighbours(db, REPO, { claim, embedding: await embedCandidate(claim) }, 6);
@@ -91,7 +91,7 @@ describe("indexPending", () => {
     "writes the mirror row a rebuild would, apart from the pending flag",
     async () => {
       const signpost = proposed();
-      await indexPending(db, { modelCacheDir: modelCacheRoot, retrieval, repo: REPO, signposts: [signpost] });
+      await indexPending(db, { embedder, repo: REPO, signposts: [signpost] });
 
       const row = db.prepare("SELECT * FROM signposts WHERE repo = ? AND id = ?").get(REPO, signpost.id) as {
         is_pending: number;
@@ -115,7 +115,7 @@ describe("indexPending", () => {
   it(
     "re-proposing the same signpost leaves one vector, not two",
     async () => {
-      const options = { modelCacheDir: modelCacheRoot, retrieval, repo: REPO, signposts: [proposed()] };
+      const options = { embedder, repo: REPO, signposts: [proposed()] };
       await indexPending(db, options);
       await indexPending(db, options);
 
@@ -140,7 +140,7 @@ describe("indexPending", () => {
       });
       const before = db.prepare("SELECT corpus_hash FROM index_meta WHERE repo = ?").get(REPO);
 
-      await indexPending(db, { modelCacheDir: modelCacheRoot, retrieval, repo: REPO, signposts: [proposed()] });
+      await indexPending(db, { embedder, repo: REPO, signposts: [proposed()] });
 
       expect(db.prepare("SELECT corpus_hash FROM index_meta WHERE repo = ?").get(REPO)).toEqual(before);
     },
@@ -150,10 +150,87 @@ describe("indexPending", () => {
   it(
     "a session that proposed nothing writes nothing",
     async () => {
-      await indexPending(db, { modelCacheDir: modelCacheRoot, retrieval, repo: REPO, signposts: [] });
+      await indexPending(db, { embedder, repo: REPO, signposts: [] });
 
       const count = db.prepare("SELECT count(*) AS n FROM signposts").get() as { n: number };
       expect(count.n).toBe(0);
+    },
+    120_000,
+  );
+});
+
+describe("clearPending", () => {
+  let dir: string;
+  let db: Database.Database;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "signposts-clear-pending-db-"));
+    db = openDb(path.join(dir, "signposts.db"));
+    embedder ??= await createEmbedder({
+      modelCacheDir: modelCacheRoot,
+      allowRemoteModels: retrieval.allow_remote_models,
+      localModelPath: retrieval.local_model_path,
+      embeddingModel: EMBEDDING_MODEL,
+    });
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // A proposal nobody accepted changes neither the merged corpus nor its hash,
+  // so no rebuild is ever triggered to remove it. This is the only thing that
+  // does, and a run calls it before it starts.
+  it(
+    "removes a proposal nobody merged, along with its vector and FTS rows",
+    async () => {
+      await indexPending(db, { embedder, repo: REPO, signposts: [proposed()] });
+
+      clearPending(db, REPO);
+
+      const claim = "Staging DB is read-only, migrations must target dev.";
+      expect(findNeighbours(db, REPO, { claim, embedding: await embedCandidate(claim) }, 6)).toEqual([]);
+      for (const table of ["signposts", "signpost_vec", "signpost_fts"]) {
+        const count = db.prepare(`SELECT count(*) AS n FROM ${table} WHERE repo = ?`).get(REPO) as { n: number };
+        expect(count.n).toBe(0);
+      }
+    },
+    120_000,
+  );
+
+  it(
+    "leaves merged rows alone",
+    async () => {
+      db.prepare(
+        `INSERT INTO signposts
+          (id, repo, claim, category, evidence, scope_json, confidence, status, provenance_json, is_pending, content_hash, embedding_model, embedding_dim)
+         VALUES ('prisma-schema-path', ?, 'The Prisma schema lives at prisma/schema.prisma.', 'gotcha', '', '{}', 0.9, 'active', '{}', 0, 'hash-2', '', 0)`,
+      ).run(REPO);
+      await indexPending(db, { embedder, repo: REPO, signposts: [proposed()] });
+
+      clearPending(db, REPO);
+
+      const ids = (db.prepare("SELECT id FROM signposts WHERE repo = ?").all(REPO) as { id: string }[]).map(
+        (row) => row.id,
+      );
+      expect(ids).toEqual(["prisma-schema-path"]);
+    },
+    120_000,
+  );
+
+  it(
+    "leaves another repo's pending rows alone",
+    async () => {
+      await indexPending(db, { embedder, repo: REPO, signposts: [proposed()] });
+      await indexPending(db, { embedder, repo: "acme/api", signposts: [proposed()] });
+
+      clearPending(db, REPO);
+
+      const count = db.prepare("SELECT count(*) AS n FROM signposts WHERE repo = ?").get("acme/api") as {
+        n: number;
+      };
+      expect(count.n).toBe(1);
     },
     120_000,
   );

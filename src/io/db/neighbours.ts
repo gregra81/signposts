@@ -36,12 +36,19 @@ export interface Neighbour {
   evidence: string;
   scope: Scope;
   /**
-   * Proposed by an earlier session in this run and not yet merged
-   * (./pending-index.ts). Retrieved like any other neighbour — pending is a
-   * review state, not a lifecycle state — but carried out of here so
-   * `classify` can be shown it (06-review-and-pr.md).
+   * Present, and always `true`, when this neighbour was proposed by an
+   * earlier session in this run and is not yet merged (./pending-index.ts).
+   * Retrieved like any other neighbour — pending is a review state, not a
+   * lifecycle state — but carried out of here so `classify` can be shown it
+   * (06-review-and-pr.md).
+   *
+   * Absent rather than `false` for a merged neighbour, which is the contract
+   * ../../core/contracts/graph.ts's neighbourSignpostSchema states and the
+   * reason for it: the classify user turn for an ordinary corpus has to stay
+   * byte-for-byte what it was, because a recorded fixture keys on those bytes
+   * (../../core/prompts/user-turns.ts).
    */
-  pending: boolean;
+  pending?: true;
 }
 
 interface SignpostIdRow {
@@ -124,12 +131,12 @@ export function findNeighbours(
       const scope = scopeSchema.parse(JSON.parse(row.scope_json));
       const boost = pathOverlapBoost(candidate.paths, scope.paths);
       const combined = combineScore(entry.score, boost);
-      const neighbour = {
+      const neighbour: Neighbour = {
         id: row.id,
         claim: row.claim,
         evidence: row.evidence,
         scope,
-        pending: row.is_pending === 1,
+        ...(row.is_pending === 1 ? { pending: true as const } : {}),
       };
       return { neighbour, combined };
     })

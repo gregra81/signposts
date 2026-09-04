@@ -46,10 +46,18 @@ export interface NeighbourPort {
  * rejected — so the rows are marked pending (12-wire-contracts.md's
  * `signposts.is_pending`), which is how `classify` gets to see that a
  * neighbour is not yet approved.
+ *
+ * Pending rows belong to the run that wrote them, which is what `clear` is
+ * for. Nothing downstream ever removes them: a proposal that was rejected
+ * changes neither the merged corpus nor its hash, so no rebuild is triggered
+ * and none would delete the row anyway. Left in place it would be retrieved by
+ * every future run as though someone had approved it.
  */
 export interface PendingIndexPort {
   /** Index these proposals for `repo`, so later sessions retrieve them as pending. */
   indexPending(repo: string, signposts: readonly Signpost[]): Promise<void>;
+  /** Drop every pending row for `repo`, whatever run left it there. */
+  clear(repo: string): Promise<void>;
 }
 
 /** Facts about what is already recorded for a repo, read once per run. */

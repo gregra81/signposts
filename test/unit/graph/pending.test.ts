@@ -45,18 +45,16 @@ describe("pendingSignposts", () => {
     expect(pendingSignposts(gated({ auto: [ADD] }))).toEqual([signpost("staging-read-only")]);
   });
 
-  it("indexes a supersede's replacement, not the claim it replaces", () => {
-    expect(pendingSignposts(gated({ auto: [SUPERSEDE] }))).toEqual([
-      signpost("staging-read-only-now"),
-    ]);
-  });
-
-  // These three touch a signpost the index already has, or remove one; none
-  // of them carries a signpost to index. See the module comment.
+  // reinforce, refine and retire touch a signpost the index already has or
+  // remove one; none carries a signpost to index. A supersede's replacement is
+  // left out for a different reason — indexing it alongside the still-active
+  // claim it replaces shows the next session both halves of a contradiction.
+  // See the module comment.
   it.each([
     ["reinforce", REINFORCE],
     ["refine", REFINE],
     ["retire", RETIRE],
+    ["supersede", SUPERSEDE],
   ])("indexes nothing for a %s", (_name, operation) => {
     expect(pendingSignposts(gated({ auto: [operation] }))).toEqual([]);
   });
@@ -65,14 +63,15 @@ describe("pendingSignposts", () => {
   // the claim invisible to every later session in the run, which is the
   // duplicate this exists to prevent.
   it("indexes what a human has yet to approve as well as what auto-published", () => {
+    const held: Operation = { op: "add", signpost: signpost("etl-window") };
     const partition = gated({
       auto: [ADD],
-      needsHuman: [{ operation: SUPERSEDE, reason: "edits_existing" }],
+      needsHuman: [{ operation: held, reason: "low_confidence" }],
     });
 
     expect(pendingSignposts(partition).map((entry) => entry.id)).toEqual([
       "staging-read-only",
-      "staging-read-only-now",
+      "etl-window",
     ]);
   });
 

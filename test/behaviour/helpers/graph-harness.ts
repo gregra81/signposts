@@ -148,9 +148,19 @@ export class FakeGutterPort implements GutterPort {
  */
 export class FakePendingIndexPort implements PendingIndexPort {
   readonly indexed: { repo: string; signposts: Signpost[] }[] = [];
+  readonly cleared: string[] = [];
 
   async indexPending(repo: string, signposts: readonly Signpost[]): Promise<void> {
     this.indexed.push({ repo, signposts: [...signposts] });
+  }
+
+  async clear(repo: string): Promise<void> {
+    this.cleared.push(repo);
+    for (let i = this.indexed.length - 1; i >= 0; i -= 1) {
+      if (this.indexed[i]?.repo === repo) {
+        this.indexed.splice(i, 1);
+      }
+    }
   }
 
   /** Everything proposed for `repo` so far in this run. */
@@ -195,7 +205,9 @@ export class FakeIndexPort implements SignpostIndexPort {
 
   // Pending rows count as existing, exactly as they do in SQLite: they are
   // rows in the same `signposts` table. Without this, `validate` would reject
-  // a `reinforce` of a claim the previous session in this run proposed.
+  // a `reinforce` of a claim the previous session in this run proposed. What
+  // stops that reinforce from auto-publishing against a signpost nobody has
+  // merged is the gate, not this — see partition.ts's `pending_neighbour`.
   private all(repo: string): Signpost[] {
     return [...this.signposts, ...this.pendingIndex.forRepo(repo)];
   }

@@ -124,6 +124,10 @@ contradiction, but may both be true of different access paths or time periods. I
 coexist under narrower scopes, that is still CONTRADICTION — resolution happens downstream, and
 the resolver needs to see it.
 
+A neighbour marked "pending": true was proposed earlier in this same run and nobody has reviewed
+it yet. Judge it exactly as you would a recorded one — a duplicate of a pending claim is still a
+duplicate — and say in your rationale when the neighbour you matched is pending.
+
 If no neighbour is genuinely about the same claim, return NOVEL even when the subject overlaps.
 
 Return: kind, relatedId (required unless NOVEL), rationale (one sentence).`;

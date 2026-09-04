@@ -53,8 +53,11 @@ export type Candidate = z.infer<typeof candidateSchema>;
  * A retrieved neighbour: a recorded signpost, plus whether it is still only
  * *proposed* — indexed by an earlier session in this same run and not yet
  * merged (06-review-and-pr.md, "Reindex within a run, not only at commit").
- * `classify` is shown the flag so it can tell a merged claim from one that is
- * still waiting on a review.
+ * `classify` is shown the flag, and CLASSIFY_SYSTEM (../prompts/system.ts,
+ * transcribed from 14-prompts.md) tells the model what it means: judge a
+ * pending neighbour like any other, and say in the rationale when the one it
+ * matched is pending. The gate reads it too — an operation targeting a pending
+ * neighbour inherits that neighbour's review, under `pending_neighbour`.
  *
  * The flag lives here rather than on ../signpost/schema.ts's signpostSchema
  * because that schema is the on-disk file, and nothing pending is ever
@@ -198,10 +201,19 @@ export const gateReasonSchema = z.enum([
   "deletes_existing",
   "unresolved_contradiction",
   "bootstrap_run",
+  // The operation targets a signpost an earlier session in this same run
+  // proposed and nobody has approved yet (06-review-and-pr.md, "Reindex within
+  // a run"). Sixth reason, added with the within-run reindex: before it, a
+  // pending id was absent from `existingIds` and `validate` dropped the
+  // candidate, so an operation could never target one. Now that it can, the
+  // operation has to inherit the neighbour's review — otherwise a `reinforce`
+  // of a proposal a person has yet to accept auto-publishes against a signpost
+  // that may never exist.
+  "pending_neighbour",
 ]);
 export type GateReason = z.infer<typeof gateReasonSchema>;
 
-/** Single source of truth for the five gate-reason literals. */
+/** Single source of truth for the six gate-reason literals. */
 export const GATE_REASONS = gateReasonSchema.enum;
 
 /**

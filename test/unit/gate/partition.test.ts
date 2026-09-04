@@ -42,6 +42,7 @@ describe("partitionOperations", () => {
       built: [group([ADD], ABOVE)],
       isBootstrap: false,
       unresolvedContradictions: NONE,
+      pendingNeighbourTargets: NONE,
     });
     expect(result).toEqual({ auto: [ADD], needsHuman: [] });
   });
@@ -51,6 +52,7 @@ describe("partitionOperations", () => {
       built: [group([ADD], BELOW)],
       isBootstrap: false,
       unresolvedContradictions: NONE,
+      pendingNeighbourTargets: NONE,
     });
     expect(result.auto).toEqual([]);
     expect(result.needsHuman).toEqual([{ operation: ADD, reason: "low_confidence" }]);
@@ -61,6 +63,7 @@ describe("partitionOperations", () => {
       built: [group([ADD, REINFORCE], ABOVE)],
       isBootstrap: true,
       unresolvedContradictions: NONE,
+      pendingNeighbourTargets: NONE,
     });
     expect(result.auto).toEqual([]);
     expect(result.needsHuman.map((entry) => entry.reason)).toEqual([
@@ -74,6 +77,7 @@ describe("partitionOperations", () => {
       built: [group([REINFORCE], BELOW)],
       isBootstrap: false,
       unresolvedContradictions: NONE,
+      pendingNeighbourTargets: NONE,
     });
     expect(result.auto).toEqual([REINFORCE]);
   });
@@ -87,6 +91,7 @@ describe("partitionOperations", () => {
       built: [group([operation], ABOVE)],
       isBootstrap: false,
       unresolvedContradictions: NONE,
+      pendingNeighbourTargets: NONE,
     });
     expect(result.auto).toEqual([]);
     expect(result.needsHuman).toEqual([{ operation, reason }]);
@@ -99,6 +104,7 @@ describe("partitionOperations", () => {
       built: [group([ADD], ABOVE, "t1")],
       isBootstrap: false,
       unresolvedContradictions: new Set(["t1"]),
+      pendingNeighbourTargets: NONE,
     });
     expect(result.auto).toEqual([]);
     expect(result.needsHuman).toEqual([
@@ -111,6 +117,7 @@ describe("partitionOperations", () => {
       built: [group([ADD], ABOVE, "t1"), group([REINFORCE], ABOVE, "t2")],
       isBootstrap: false,
       unresolvedContradictions: new Set(["t1"]),
+      pendingNeighbourTargets: NONE,
     });
     expect(result.auto).toEqual([REINFORCE]);
     expect(result.needsHuman).toHaveLength(1);
@@ -125,6 +132,7 @@ describe("partitionOperations", () => {
       built: [group([REFINE, ADD], ABOVE)],
       isBootstrap: false,
       unresolvedContradictions: NONE,
+      pendingNeighbourTargets: NONE,
     });
     expect(result.auto).toEqual([]);
     expect(result.needsHuman).toEqual([
@@ -138,6 +146,7 @@ describe("partitionOperations", () => {
       built: [group([ADD, REFINE], ABOVE)],
       isBootstrap: false,
       unresolvedContradictions: NONE,
+      pendingNeighbourTargets: NONE,
     });
     expect(result.auto).toEqual([]);
     expect(result.needsHuman).toHaveLength(2);
@@ -148,14 +157,57 @@ describe("partitionOperations", () => {
       built: [group([ADD, REINFORCE], ABOVE)],
       isBootstrap: false,
       unresolvedContradictions: NONE,
+      pendingNeighbourTargets: NONE,
     });
     expect(result.auto).toEqual([ADD, REINFORCE]);
     expect(result.needsHuman).toEqual([]);
   });
 
+  // A reinforce is provenance-only and normally auto-publishes. Against a
+  // proposal from earlier in this same run it must not: the person holding
+  // that proposal may reject it, and the reinforce would have published a
+  // reference to a signpost that never existed.
+  it("holds back an operation targeting a neighbour this run only proposed", () => {
+    const result = partitionOperations({
+      built: [group([REINFORCE], ABOVE)],
+      isBootstrap: false,
+      unresolvedContradictions: NONE,
+      pendingNeighbourTargets: new Set(["t1"]),
+    });
+    expect(result.auto).toEqual([]);
+    expect(result.needsHuman).toEqual([{ operation: REINFORCE, reason: "pending_neighbour" }]);
+  });
+
+  it("reports an unresolved contradiction ahead of a pending target", () => {
+    const result = partitionOperations({
+      built: [group([ADD], ABOVE)],
+      isBootstrap: false,
+      unresolvedContradictions: new Set(["t1"]),
+      pendingNeighbourTargets: new Set(["t1"]),
+    });
+    expect(result.needsHuman).toEqual([
+      { operation: ADD, reason: "unresolved_contradiction" },
+    ]);
+  });
+
+  it("leaves an operation against a merged neighbour alone", () => {
+    const result = partitionOperations({
+      built: [group([REINFORCE], ABOVE)],
+      isBootstrap: false,
+      unresolvedContradictions: NONE,
+      pendingNeighbourTargets: new Set(["t2"]),
+    });
+    expect(result.auto).toEqual([REINFORCE]);
+  });
+
   it("produces an empty partition for an empty batch", () => {
     expect(
-      partitionOperations({ built: [], isBootstrap: false, unresolvedContradictions: NONE }),
+      partitionOperations({
+        built: [],
+        isBootstrap: false,
+        unresolvedContradictions: NONE,
+        pendingNeighbourTargets: NONE,
+      }),
     ).toEqual({ auto: [], needsHuman: [] });
   });
 });

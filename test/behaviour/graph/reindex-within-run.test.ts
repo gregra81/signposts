@@ -16,6 +16,8 @@
 
 import { describe, expect, it } from "vitest";
 import { runSessions } from "../../../src/graph/index.js";
+import type { Operation } from "../../../src/core/contracts/graph.js";
+import type { RunResult } from "../../../src/graph/index.js";
 import {
   candidate,
   gutteredSession,
@@ -75,13 +77,18 @@ function twoSessions(script: Script = SCRIPT) {
   return makeGraph({ script, session: gutteredSession() });
 }
 
+/** Everything a session proposed, both halves of the gate's partition. */
+function proposals(result: RunResult): Operation[] {
+  return [...result.state.gated.auto, ...result.state.gated.needsHuman.map((entry) => entry.operation)];
+}
+
 describe("reindexing between the sessions of one run", () => {
   it("proposes one add and one reinforce, never two adds", async () => {
     const { ports, checkpointer, graph } = twoSessions();
 
-    await runSessions(graph, checkpointer, ports, [SESSION_ONE, SESSION_TWO]);
+    const results = await runSessions(graph, checkpointer, ports, [SESSION_ONE, SESSION_TWO]);
 
-    const operations = ports.commit.operations;
+    const operations = results.flatMap(proposals);
     expect(operations.map((operation) => operation.op)).toEqual(["add", "reinforce"]);
 
     const [added, reinforced] = operations;
@@ -90,6 +97,16 @@ describe("reindexing between the sessions of one run", () => {
       id: added?.op === "add" ? added.signpost.id : "",
       sessionId: SESSION_TWO.sessionId,
     });
+  });
+
+  // The add auto-published in session one; the reinforce did not, because it
+  // names a signpost nobody has merged yet. See the pending_neighbour gate.
+  it("commits the add and holds the reinforce for a person", async () => {
+    const { ports, checkpointer, graph } = twoSessions();
+
+    await runSessions(graph, checkpointer, ports, [SESSION_ONE, SESSION_TWO]);
+
+    expect(ports.commit.operations.map((operation) => operation.op)).toEqual(["add"]);
   });
 
   it("indexes the first session's proposal before the second is processed", async () => {
@@ -104,6 +121,29 @@ describe("reindexing between the sessions of one run", () => {
     expect(ports.pendingIndex.indexed[0]).toMatchObject({ repo: SESSION_ONE.repo });
     expect(ports.pendingIndex.indexed[0]?.signposts.map((signpost) => signpost.claim)).toEqual([
       FIRST.claim,
+    ]);
+  });
+
+  it("clears whatever the previous run left pending before it starts", async () => {
+    const { ports, checkpointer, graph } = twoSessions();
+
+    await runSessions(graph, checkpointer, ports, [SESSION_ONE, SESSION_TWO]);
+
+    expect(ports.pendingIndex.cleared).toEqual([RUN_INPUT.repo]);
+  });
+
+  // The laundering case. A reinforce is provenance-only and normally
+  // auto-publishes; against a proposal from earlier in this same run it must
+  // not, because the person holding that proposal may reject it and the
+  // reinforce would then name a signpost that never existed.
+  it("holds back an operation against a proposal nobody has merged", async () => {
+    const { ports, checkpointer, graph } = twoSessions();
+
+    const [, second] = await runSessions(graph, checkpointer, ports, [SESSION_ONE, SESSION_TWO]);
+
+    expect(second?.state.gated.auto).toEqual([]);
+    expect(second?.state.gated.needsHuman).toEqual([
+      { operation: expect.objectContaining({ op: "reinforce" }), reason: "pending_neighbour" },
     ]);
   });
 
@@ -123,10 +163,8 @@ describe("reindexing between the sessions of one run", () => {
   it("would produce two adds without it", async () => {
     const { ports, checkpointer, graph } = twoSessions();
 
-    await runSessions(graph, checkpointer, { pendingIndex: { async indexPending() {} } }, [
-      SESSION_ONE,
-      SESSION_TWO,
-    ]);
+    const noReindex = { pendingIndex: { async indexPending() {}, async clear() {} } };
+    await runSessions(graph, checkpointer, noReindex, [SESSION_ONE, SESSION_TWO]);
 
     expect(ports.commit.operations.map((operation) => operation.op)).toEqual(["add", "add"]);
   });
