@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { confine } from "../../../src/core/paths/confine.js";
+import { nodePathFacts } from "../../../src/io/paths/node-path-facts.js";
 
 describe("confine", () => {
   let repoRoot: string;
@@ -19,12 +20,12 @@ describe("confine", () => {
   });
 
   it("rejects .. traversal that escapes repoRoot", () => {
-    const result = confine(repoRoot, "../../etc/passwd");
+    const result = confine(repoRoot, "../../etc/passwd", nodePathFacts);
     expect(result.ok).toBe(false);
   });
 
   it("rejects .. traversal buried mid-path (a/../../b)", () => {
-    const result = confine(repoRoot, "a/../../b");
+    const result = confine(repoRoot, "a/../../b", nodePathFacts);
     expect(result.ok).toBe(false);
   });
 
@@ -33,7 +34,7 @@ describe("confine", () => {
     writeFileSync(path.join(outside, "secret.txt"), "top secret");
     symlinkSync(outside, path.join(repoRoot, "escape-link"));
 
-    const result = confine(repoRoot, "escape-link/secret.txt");
+    const result = confine(repoRoot, "escape-link/secret.txt", nodePathFacts);
 
     expect(result.ok).toBe(false);
     rmSync(outside, { recursive: true, force: true });
@@ -43,7 +44,7 @@ describe("confine", () => {
     const outsideTarget = path.join(mkdtempSync(path.join(tmpdir(), "signposts-confine-outside-")), "not-yet.txt");
     symlinkSync(outsideTarget, path.join(repoRoot, "dangling"));
 
-    const result = confine(repoRoot, "dangling");
+    const result = confine(repoRoot, "dangling", nodePathFacts);
 
     expect(result.ok).toBe(false);
   });
@@ -52,13 +53,13 @@ describe("confine", () => {
     const insideTarget = path.join(repoRoot, "not-yet.txt");
     symlinkSync(insideTarget, path.join(repoRoot, "dangling-inside"));
 
-    const result = confine(repoRoot, "dangling-inside");
+    const result = confine(repoRoot, "dangling-inside", nodePathFacts);
 
     expect(result).toEqual({ ok: true, path: insideTarget });
   });
 
   it("rejects an absolute path outside repoRoot", () => {
-    const result = confine(repoRoot, "/etc/passwd");
+    const result = confine(repoRoot, "/etc/passwd", nodePathFacts);
     expect(result.ok).toBe(false);
   });
 
@@ -66,13 +67,13 @@ describe("confine", () => {
     const target = path.join(repoRoot, "file.txt");
     writeFileSync(target, "hi");
 
-    const result = confine(repoRoot, target);
+    const result = confine(repoRoot, target, nodePathFacts);
 
     expect(result).toEqual({ ok: true, path: target });
   });
 
   it("rejects percent-encoded traversal (%2e%2e)", () => {
-    const result = confine(repoRoot, "%2e%2e/%2e%2e/etc/passwd");
+    const result = confine(repoRoot, "%2e%2e/%2e%2e/etc/passwd", nodePathFacts);
     expect(result.ok).toBe(false);
   });
 
@@ -80,7 +81,7 @@ describe("confine", () => {
     const sibling = `${repoRoot}-evil`;
     mkdirSync(sibling, { recursive: true });
 
-    const result = confine(repoRoot, sibling);
+    const result = confine(repoRoot, sibling, nodePathFacts);
 
     expect(result.ok).toBe(false);
     rmSync(sibling, { recursive: true, force: true });
@@ -90,23 +91,23 @@ describe("confine", () => {
     const target = path.join(repoRoot, "..foo");
     writeFileSync(target, "not a traversal");
 
-    const result = confine(repoRoot, "..foo");
+    const result = confine(repoRoot, "..foo", nodePathFacts);
 
     expect(result).toEqual({ ok: true, path: target });
   });
 
   it("accepts a not-yet-existing file resolved lexically inside repoRoot", () => {
-    const result = confine(repoRoot, "new-file.txt");
+    const result = confine(repoRoot, "new-file.txt", nodePathFacts);
     expect(result).toEqual({ ok: true, path: path.join(repoRoot, "new-file.txt") });
   });
 
   it("rejects an empty candidatePath", () => {
-    expect(confine(repoRoot, "").ok).toBe(false);
-    expect(confine(repoRoot, "   ").ok).toBe(false);
+    expect(confine(repoRoot, "", nodePathFacts).ok).toBe(false);
+    expect(confine(repoRoot, "   ", nodePathFacts).ok).toBe(false);
   });
 
   it("never throws", () => {
-    expect(() => confine(repoRoot, "\0bad")).not.toThrow();
+    expect(() => confine(repoRoot, "\0bad", nodePathFacts)).not.toThrow();
   });
 
   it("accepts an absolute path inside repoRoot when repoRoot itself is a non-canonical symlink hop", () => {
@@ -123,10 +124,10 @@ describe("confine", () => {
     const linkedRoot = path.join(base, "link-to-root");
     symlinkSync(realRoot, linkedRoot);
 
-    const fileResult = confine(linkedRoot, path.join(linkedRoot, "ok.txt"));
+    const fileResult = confine(linkedRoot, path.join(linkedRoot, "ok.txt"), nodePathFacts);
     expect(fileResult).toEqual({ ok: true, path: path.join(realRoot, "ok.txt") });
 
-    const rootResult = confine(linkedRoot, linkedRoot);
+    const rootResult = confine(linkedRoot, linkedRoot, nodePathFacts);
     expect(rootResult).toEqual({ ok: true, path: realRoot });
 
     rmSync(base, { recursive: true, force: true });
@@ -135,7 +136,7 @@ describe("confine", () => {
   it("rejects repoRoot's own parent directory", () => {
     const parent = path.dirname(repoRoot);
 
-    const result = confine(repoRoot, parent);
+    const result = confine(repoRoot, parent, nodePathFacts);
 
     expect(result).toEqual({ ok: false, reason: `path escapes repoRoot: ${parent}` });
   });
@@ -145,7 +146,7 @@ describe("confine", () => {
     symlinkSync(repoRoot, path.join(sibling, "back"));
     const candidate = `../${path.basename(sibling)}/back/file.txt`;
 
-    const result = confine(repoRoot, candidate);
+    const result = confine(repoRoot, candidate, nodePathFacts);
 
     expect(result).toEqual({ ok: false, reason: `path escapes repoRoot: ${candidate}` });
     rmSync(sibling, { recursive: true, force: true });
@@ -155,7 +156,7 @@ describe("confine", () => {
     const outside = mkdtempSync(path.join(tmpdir(), "signposts-confine-outside-"));
     symlinkSync(outside, path.join(repoRoot, "escape-link"));
 
-    const result = confine(repoRoot, "escape-link/secret.txt");
+    const result = confine(repoRoot, "escape-link/secret.txt", nodePathFacts);
 
     expect(result).toEqual({
       ok: false,
@@ -167,7 +168,7 @@ describe("confine", () => {
   it("rejects a candidate routed through a regular file (ENOTDIR), rather than treating it as not-yet-created", () => {
     writeFileSync(path.join(repoRoot, "file.txt"), "hi");
 
-    const result = confine(repoRoot, "file.txt/child.txt");
+    const result = confine(repoRoot, "file.txt/child.txt", nodePathFacts);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -177,7 +178,7 @@ describe("confine", () => {
   it("rejects a single percent-encoded dot, even naming a file that really exists", () => {
     writeFileSync(path.join(repoRoot, "%2e"), "literally named %2e");
 
-    const result = confine(repoRoot, "%2e");
+    const result = confine(repoRoot, "%2e", nodePathFacts);
 
     expect(result).toEqual({
       ok: false,
@@ -186,17 +187,17 @@ describe("confine", () => {
   });
 
   it("decodes a percent escape that is not a dot or separator", () => {
-    const result = confine(repoRoot, "%41.txt");
+    const result = confine(repoRoot, "%41.txt", nodePathFacts);
 
     expect(result).toEqual({ ok: true, path: path.join(repoRoot, "A.txt") });
   });
 
   it("names the empty candidatePath in the reason", () => {
-    expect(confine(repoRoot, "  ")).toEqual({ ok: false, reason: "candidatePath is empty" });
+    expect(confine(repoRoot, "  ", nodePathFacts)).toEqual({ ok: false, reason: "candidatePath is empty" });
   });
 
   it("reports the underlying failure when the fs call throws", () => {
-    const result = confine(repoRoot, "\0bad");
+    const result = confine(repoRoot, "\0bad", nodePathFacts);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -206,7 +207,7 @@ describe("confine", () => {
     symlinkSync(path.join(repoRoot, "b"), path.join(repoRoot, "a"));
     symlinkSync(path.join(repoRoot, "a"), path.join(repoRoot, "b"));
 
-    const result = confine(repoRoot, "a");
+    const result = confine(repoRoot, "a", nodePathFacts);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -216,7 +217,7 @@ describe("confine", () => {
   it("rejects a symlink pointing at itself", () => {
     symlinkSync(path.join(repoRoot, "self"), path.join(repoRoot, "self"));
 
-    const result = confine(repoRoot, "self");
+    const result = confine(repoRoot, "self", nodePathFacts);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -239,7 +240,7 @@ describe("confine", () => {
   it("resolves a symlink chain exactly at the hop limit", () => {
     const head = chainOf(repoRoot, 40);
 
-    const result = confine(repoRoot, head);
+    const result = confine(repoRoot, head, nodePathFacts);
 
     expect(result).toEqual({ ok: true, path: path.join(repoRoot, "chain-target.txt") });
   });
@@ -247,7 +248,7 @@ describe("confine", () => {
   it("rejects a symlink chain one hop past the limit", () => {
     const head = chainOf(repoRoot, 41);
 
-    const result = confine(repoRoot, head);
+    const result = confine(repoRoot, head, nodePathFacts);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;

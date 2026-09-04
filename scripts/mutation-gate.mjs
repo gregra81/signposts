@@ -29,6 +29,11 @@ const THRESHOLDS = [
   // handles a live access token.
   { module: "src/core/credentials", break: 95 },
   { module: "src/core/paths", break: 95 },
+  // The resolver's tool logic: caps, argv, exit-status semantics, parsing.
+  // Held at paths' floor rather than the default because a surviving mutant
+  // here is a tool that reports the wrong thing to a model deciding whether
+  // to overwrite recorded knowledge.
+  { module: "src/core/tools", break: 95 },
   { module: "src/core/gate", break: 95 },
   { module: "src/core/graph", break: 95 },
   { module: "src/core/eligibility", break: 95 },

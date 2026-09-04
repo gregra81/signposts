@@ -1,9 +1,11 @@
-// The three read-only tools `resolve_conflict` actually runs
-// (12-wire-contracts.md, "Tools (Phase 4.5)").
+// The effects half of the resolver's three read-only tools: `confine()`, one
+// `statSync`/`readFileSync`, and one `spawnSync("git", …)`. Everything that
+// decides anything — the caps, the argv, the exit-status semantics, the line
+// slicing, the parsing — is in src/core/tools/repo-tools.ts.
 //
-// **The whole point of this module is the confinement check.** Every argument
-// that reaches it was written by a model reasoning about a contradiction, and
-// a model that has been told a claim is about `../../etc` will happily ask to
+// **The confinement check is the point of this file.** Every argument that
+// reaches it was written by a model reasoning about a contradiction, and a
+// model that has been told a claim is about `../../etc` will happily ask to
 // read it. RESOLVE_SYSTEM says the tools are read-only and confined, but a
 // prompt is a request, not a boundary: the boundary is confine(), called here
 // on every path — the file, the git pathspec, the grep pathspec, and the
@@ -20,30 +22,24 @@
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import path from "node:path";
 import { confine } from "../../core/paths/confine.ts";
+import { nodePathFacts } from "../paths/node-path-facts.ts";
+import {
+  MAX_TOOL_RESULT_CHARS,
+  failed,
+  gitLogArgs,
+  grepArgs,
+  parseGitLog,
+  parseGrep,
+  pathspecFor,
+  sliceLines,
+} from "../../core/tools/repo-tools.ts";
 import {
   RESOLVE_TOOL_INPUT_SCHEMAS,
   RESOLVE_TOOL_NAMES,
 } from "../../core/graph/resolve-tools.ts";
-import { JSON_INDENT } from "../../core/config/constants.ts";
 import type { ResolveToolName } from "../../core/graph/resolve-tools.ts";
 import type { ToolResult, ToolRunner } from "../../core/model/types.ts";
-
-/**
- * Ceiling on what one tool result may add to the conversation. A resolve turn
- * carries two claims and up to MAX_RESOLVE_TOOL_ITERATIONS results; an
- * unbounded `read_file` on a lockfile would crowd out the claims it was
- * fetched to adjudicate, and the model pays for every token of it.
- */
-const MAX_TOOL_RESULT_CHARS = 20_000;
-
-/** `git log` when the model names no limit, and the ceiling when it names one. */
-const DEFAULT_GIT_LOG_LIMIT = 25;
-const MAX_GIT_LOG_LIMIT = 250;
-
-/** Matches beyond this are dropped. */
-const MAX_GREP_MATCHES = 150;
 
 /**
  * Wall-clock cap on one `git` invocation, so a pathological pattern or a
@@ -52,32 +48,11 @@ const MAX_GREP_MATCHES = 150;
 const GIT_TIMEOUT_MS = 15_000;
 
 /**
- * Field separator inside `git log --pretty`. ASCII unit separator: it cannot
- * occur in a commit subject, so splitting on it can never be fooled by a
- * subject line that contains whatever delimiter looked safe.
- */
-const FIELD_SEP = "\u001F";
-
-function ok(content: string): ToolResult {
-  return {
-    content:
-      content.length > MAX_TOOL_RESULT_CHARS
-        ? `${content.slice(0, MAX_TOOL_RESULT_CHARS)}\n…truncated at ${MAX_TOOL_RESULT_CHARS} characters.`
-        : content,
-    isError: false,
-  };
-}
-
-function failed(reason: string): ToolResult {
-  return { content: reason, isError: true };
-}
-
-/**
  * The confined absolute path for one model-supplied argument, or the failure
  * to hand back. Every filesystem-touching branch below starts here.
  */
 function confined(repoRoot: string, candidate: string): { path: string } | ToolResult {
-  const result = confine(repoRoot, candidate);
+  const result = confine(repoRoot, candidate, nodePathFacts);
   return result.ok ? { path: result.path } : failed(`rejected: ${result.reason}`);
 }
 
@@ -116,27 +91,21 @@ function git(
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-/**
- * git's own complaint, appended to a failure so the model can correct it.
- *
- * Found by running this against a live model: it opened with the PCRE
- * pattern `(?i)(read[-_ ]?only|...)`, which POSIX ERE rejects, and the reply
- * was the bare `git grep exited 128`. Nothing in that says the regex dialect
- * was the problem, so the recovery was a guess and it cost an iteration of a
- * budget that only has six.
- */
-function withStderr(message: string, stderr: string): string {
-  const detail = stderr.trim();
-  return detail === "" ? message : `${message}: ${detail}`;
-}
-
-/**
- * A pathspec argument for git, derived from the *resolved* path rather than
- * from the model's string, and relative to the confined root because that is
- * where git runs. An argument naming the root itself becomes `.`.
- */
-function pathspecFor(root: string, target: string): string[] {
-  return ["--", path.relative(root, target) || "."];
+/** The confined root, plus the pathspec for an optional model-supplied path. */
+function rootAndPathspec(
+  repoRoot: string,
+  candidate: string | undefined,
+): { root: string; pathspec: string[] } | ToolResult {
+  // The root is confined even when the model named no path: git still runs
+  // somewhere, and that somewhere must be the real root.
+  const root = confined(repoRoot, ".");
+  if (isFailure(root)) return root;
+  if (candidate === undefined) {
+    return { root: root.path, pathspec: [] };
+  }
+  const target = confined(repoRoot, candidate);
+  if (isFailure(target)) return target;
+  return { root: root.path, pathspec: pathspecFor(root.path, target.path) };
 }
 
 function readFileTool(repoRoot: string, input: unknown): ToolResult {
@@ -149,36 +118,14 @@ function readFileTool(repoRoot: string, input: unknown): ToolResult {
   const target = confined(repoRoot, candidate);
   if (isFailure(target)) return target;
 
-  let contents: string;
   try {
     if (fs.statSync(target.path).isDirectory()) {
       return failed(`read_file: ${candidate} is a directory`);
     }
-    contents = fs.readFileSync(target.path, "utf8");
+    return sliceLines(fs.readFileSync(target.path, "utf8"), startLine, endLine);
   } catch (err) {
     return failed(`read_file: ${candidate}: ${(err as Error).message}`);
   }
-
-  if (startLine === undefined && endLine === undefined) {
-    return ok(contents);
-  }
-
-  // 1-based and inclusive, so the numbers in the result are the numbers a
-  // person would cite back. An endLine past the end of the file is a clamp,
-  // not an error: the model is guessing at a range, and half a slice answers
-  // its question better than a rejection does.
-  const lines = contents.split("\n");
-  const from = startLine ?? 1;
-  const to = endLine ?? lines.length;
-  if (to < from) {
-    return failed(`read_file: endLine ${to} is before startLine ${from}`);
-  }
-  return ok(
-    lines
-      .slice(from - 1, to)
-      .map((line, offset) => `${from + offset}: ${line}`)
-      .join("\n"),
-  );
 }
 
 function gitLogTool(repoRoot: string, input: unknown): ToolResult {
@@ -188,38 +135,12 @@ function gitLogTool(repoRoot: string, input: unknown): ToolResult {
   }
   const { path: candidate, limit } = parsed.data;
 
-  // The root is confined even when the model named no path: `git log` with no
-  // pathspec still runs somewhere, and that somewhere must be the real root.
-  const root = confined(repoRoot, ".");
-  if (isFailure(root)) return root;
+  const where = rootAndPathspec(repoRoot, candidate);
+  if (isFailure(where)) return where;
 
-  let pathspec: string[] = [];
-  if (candidate !== undefined) {
-    const target = confined(repoRoot, candidate);
-    if (isFailure(target)) return target;
-    pathspec = pathspecFor(root.path, target.path);
-  }
-
-  const count = Math.min(limit ?? DEFAULT_GIT_LOG_LIMIT, MAX_GIT_LOG_LIMIT);
-  const result = git(root.path, [
-    "log",
-    `--max-count=${count}`,
-    `--pretty=format:%H${FIELD_SEP}%an${FIELD_SEP}%aI${FIELD_SEP}%s`,
-    ...pathspec,
-  ]);
+  const result = git(where.root, gitLogArgs(limit, where.pathspec));
   if (isFailure(result)) return result;
-  if (result.status !== 0) {
-    return failed(withStderr(`git_log: git log exited ${result.status}`, result.stderr));
-  }
-
-  const commits = result.stdout
-    .split("\n")
-    .filter((line) => line !== "")
-    .map((line) => {
-      const [hash, author, date, ...subject] = line.split(FIELD_SEP);
-      return { hash, author, date, subject: subject.join(FIELD_SEP) };
-    });
-  return ok(JSON.stringify(commits, null, JSON_INDENT));
+  return parseGitLog(result.status, result.stdout, result.stderr);
 }
 
 function grepRepoTool(repoRoot: string, input: unknown): ToolResult {
@@ -229,45 +150,16 @@ function grepRepoTool(repoRoot: string, input: unknown): ToolResult {
   }
   const { pattern, glob } = parsed.data;
 
-  const root = confined(repoRoot, ".");
-  if (isFailure(root)) return root;
+  // A glob is a path too. `src/config/*.ts` resolves to a non-existent leaf
+  // under the root, which confine() accepts by resolving its longest existing
+  // ancestor; `../other/*` escapes and is rejected here rather than being
+  // handed to git as a pathspec.
+  const where = rootAndPathspec(repoRoot, glob);
+  if (isFailure(where)) return where;
 
-  let pathspec: string[] = [];
-  if (glob !== undefined) {
-    // A glob is a path too. `src/config/*.ts` resolves to a non-existent leaf
-    // under the root, which confine() accepts by resolving its longest
-    // existing ancestor; `../other/*` escapes and is rejected here rather
-    // than being handed to git as a pathspec.
-    const target = confined(repoRoot, glob);
-    if (isFailure(target)) return target;
-    pathspec = pathspecFor(root.path, target.path);
-  }
-
-  const result = git(root.path, [
-    "grep",
-    "--line-number",
-    "--no-color",
-    "-I",
-    "--extended-regexp",
-    `--max-count=${MAX_GREP_MATCHES}`,
-    "-e",
-    pattern,
-    ...pathspec,
-  ]);
+  const result = git(where.root, grepArgs(pattern, where.pathspec));
   if (isFailure(result)) return result;
-
-  // git grep exits 1 for "no matches", which is an answer, not a failure —
-  // often the answer that settles the contradiction. Anything above 1 is git
-  // itself objecting (a bad regex, a pathspec matching nothing tracked).
-  if (result.status > 1) {
-    return failed(withStderr(`grep_repo: git grep exited ${result.status}`, result.stderr));
-  }
-
-  const matches = result.stdout.split("\n").filter((line) => line !== "");
-  if (matches.length === 0) {
-    return ok(`no matches for ${pattern}`);
-  }
-  return ok(matches.slice(0, MAX_GREP_MATCHES).join("\n"));
+  return parseGrep(pattern, result.status, result.stdout, result.stderr);
 }
 
 const TOOLS: Readonly<
