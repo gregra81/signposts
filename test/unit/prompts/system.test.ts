@@ -24,9 +24,13 @@ const DIGESTS: Record<NodeName, { sha256: string; bytes: number }> = {
     sha256: "0f1accd724348b7d9c09f43757025fd959786a112e1f82a951678102eff6dfe1",
     bytes: 1635,
   },
+  // Updated when the within-run reindex gave classify a `pending` flag on its
+  // neighbours: 14-prompts.md gained the paragraph telling the model what the
+  // flag means, and this is that paragraph's digest. The golden set needs a
+  // re-run against the new prompt (09-evaluation.md).
   classify: {
-    sha256: "40af11e49170d76b85f290dddb1f1439052ef2d2c7e8703a99adf42b7d4875c7",
-    bytes: 1325,
+    sha256: "85d540c5cbbe48f27e0c1a91c9a7965281d63f5ff26a81b8f8273313be25f0d1",
+    bytes: 1746,
   },
   resolve: {
     sha256: "962026769fc12d997cab97aaac51b621310d3cd577f5cf21f1911de79e24ded9",

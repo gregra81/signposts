@@ -26,14 +26,13 @@ import { CLASSIFICATION_KINDS } from "../../core/contracts/graph.ts";
 import { classifyUserTurn } from "../../core/prompts/user-turns.ts";
 import { callStructured } from "../llm.ts";
 import { NODE_IDS } from "../node-ids.ts";
-import type { Candidate } from "../../core/contracts/graph.ts";
+import type { Candidate, NeighbourSignpost } from "../../core/contracts/graph.ts";
 import type { GraphPorts } from "../ports.ts";
-import type { Signpost } from "../../core/signpost/schema.ts";
 
 export interface ClassifyPayload {
   repo: string;
   candidate: Candidate;
-  neighbours: Signpost[];
+  neighbours: NeighbourSignpost[];
 }
 
 export function makeClassifyNode(ports: GraphPorts) {

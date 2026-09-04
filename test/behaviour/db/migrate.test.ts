@@ -72,13 +72,14 @@ describe("openDb", () => {
       "content_hash",
       "embedding_model",
       "embedding_dim",
+      "pending_review",
     ]);
     expect(columnNames(db, "signpost_vec")).toEqual(["id", "repo", "signpost_id", "claim_embedding"]);
     expect(columnNames(db, "signpost_fts")).toEqual(["repo", "signpost_id", "claim", "evidence"]);
     expect(columnNames(db, "index_meta")).toEqual(["repo", "corpus_hash", "embedding_model", "updated_at"]);
 
     const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(8);
+    expect(user_version).toBe(9);
 
     db.close();
   });
@@ -117,7 +118,7 @@ describe("openDb", () => {
       expect.arrayContaining(["sessions", "signposts", "signpost_vec", "signpost_fts", "index_meta"]),
     );
     const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(8);
+    expect(user_version).toBe(9);
 
     const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("s1");
     expect(row).toEqual({
@@ -163,7 +164,7 @@ describe("openDb", () => {
     const second = openDb(dbPath);
 
     const { user_version } = second.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(8);
+    expect(user_version).toBe(9);
     expect(tableNames(second)).toEqual(
       expect.arrayContaining(["sessions", "signposts", "signpost_vec", "signpost_fts", "index_meta"]),
     );
@@ -177,7 +178,8 @@ describe("openDb", () => {
   it("migrating repo_state to nullable columns preserves an existing bootstrap_completed_at row", () => {
     // Pre-seed a db at "version 7": repo_state as it existed before the
     // consented_at migration (bootstrap_completed_at NOT NULL, no
-    // consented_at column at all), with one real row.
+    // consented_at column at all), with one real row. `signposts` is seeded
+    // too, empty — a real v7 database has it, and migration 9 ALTERs it.
     const seed = new Database(dbPath);
     seed.exec(`
       CREATE TABLE repo_state (
@@ -185,6 +187,7 @@ describe("openDb", () => {
         bootstrap_completed_at TEXT NOT NULL
       )
     `);
+    seed.exec(`CREATE TABLE signposts (id TEXT NOT NULL, repo TEXT NOT NULL, PRIMARY KEY (repo, id))`);
     seed
       .prepare(`INSERT INTO repo_state (repo, bootstrap_completed_at) VALUES (?, ?)`)
       .run("acme/platform", "2026-08-01T00:00:00Z");

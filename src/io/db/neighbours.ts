@@ -15,6 +15,7 @@ import { ftsQuery } from "../../core/retrieval/fts-query.ts";
 import { pathOverlapBoost } from "../../core/retrieval/path-overlap.ts";
 import { fuseRrf } from "../../core/retrieval/rrf.ts";
 import { vectorToBlob } from "../../core/retrieval/vector-codec.ts";
+import { PENDING_STATES, type PendingState } from "../../core/contracts/graph.ts";
 import { ACTIVE_STATUS, scopeSchema, type Scope } from "../../core/signpost/schema.ts";
 
 // Shared by both queries below — the "hard filter" half of the "Hard
@@ -35,6 +36,21 @@ export interface Neighbour {
   claim: string;
   evidence: string;
   scope: Scope;
+  /**
+   * Present when this neighbour was proposed by an earlier session in this run
+   * and is not merged (./pending-index.ts): `awaiting_review` when a person is
+   * still holding it, `in_pr` when it cleared the gate and is already in the
+   * branch. Retrieved like any other neighbour — pending is a review state,
+   * not a lifecycle state — but carried out of here because both `classify`
+   * and the gate act on it (06-review-and-pr.md).
+   *
+   * Absent, not `null`, for a merged neighbour, which is the contract
+   * ../../core/contracts/graph.ts's neighbourSignpostSchema states and the
+   * reason for it: the classify user turn for an ordinary corpus has to stay
+   * byte-for-byte what it was, because a recorded fixture keys on those bytes
+   * (../../core/prompts/user-turns.ts).
+   */
+  pending?: PendingState;
 }
 
 interface SignpostIdRow {
@@ -46,6 +62,13 @@ interface SignpostRow {
   claim: string;
   evidence: string;
   scope_json: string;
+  is_pending: number;
+  pending_review: number;
+}
+
+/** Which of the two pending states a proposed row is in — see Neighbour.pending. */
+function pendingStateOf(row: SignpostRow): PendingState {
+  return row.pending_review === 1 ? PENDING_STATES.awaiting_review : PENDING_STATES.in_pr;
 }
 
 /**
@@ -101,7 +124,9 @@ export function findNeighbours(
   const ids = fused.map((entry) => entry.id);
   const placeholders = ids.map(() => "?").join(", ");
   const signpostRows = db
-    .prepare(`SELECT id, claim, evidence, scope_json FROM signposts WHERE repo = ? AND id IN (${placeholders})`)
+    .prepare(
+      `SELECT id, claim, evidence, scope_json, is_pending, pending_review FROM signposts WHERE repo = ? AND id IN (${placeholders})`,
+    )
     .all(repo, ...ids) as SignpostRow[];
   const rowsById = new Map(signpostRows.map((row) => [row.id, row]));
 
@@ -114,7 +139,14 @@ export function findNeighbours(
       const scope = scopeSchema.parse(JSON.parse(row.scope_json));
       const boost = pathOverlapBoost(candidate.paths, scope.paths);
       const combined = combineScore(entry.score, boost);
-      return { neighbour: { id: row.id, claim: row.claim, evidence: row.evidence, scope }, combined };
+      const neighbour: Neighbour = {
+        id: row.id,
+        claim: row.claim,
+        evidence: row.evidence,
+        scope,
+        ...(row.is_pending === 1 ? { pending: pendingStateOf(row) } : {}),
+      };
+      return { neighbour, combined };
     })
     .filter((entry): entry is { neighbour: Neighbour; combined: number } => entry !== null)
     .sort((a, b) => b.combined - a.combined)

@@ -10,7 +10,7 @@
 // from.
 
 import { partitionOperations } from "../../core/gate/partition.ts";
-import { CLASSIFICATION_KINDS, RESOLUTION_OUTCOMES } from "../../core/contracts/graph.ts";
+import { CLASSIFICATION_KINDS, PENDING_STATES, RESOLUTION_OUTCOMES } from "../../core/contracts/graph.ts";
 import type { ExtractionState, ExtractionUpdate } from "../state.ts";
 import type { GraphPorts } from "../ports.ts";
 
@@ -34,6 +34,35 @@ export function unresolvedContradictions(state: ExtractionState): Set<string> {
   return unresolved;
 }
 
+/**
+ * tempIds whose classification named a neighbour a person is still holding —
+ * proposed by an earlier session in this run and gated for review
+ * (06-review-and-pr.md, "Reindex within a run").
+ *
+ * A neighbour pending as `in_pr` is not one of them. That proposal cleared the
+ * gate and this session's predecessor has already committed it, so an
+ * operation against it lands in the same pull request and needs no second
+ * opinion. Only `awaiting_review` can still be rejected out from under it.
+ *
+ * Derived here from `neighbours` and `classifications` for the same reason
+ * `unresolvedContradictions` is: both channels are already in state, and a
+ * value derived on the spot cannot drift from what it was derived from.
+ */
+export function pendingNeighbourTargets(state: ExtractionState): Set<string> {
+  const targets = new Set<string>();
+  for (const [tempId, classification] of Object.entries(state.classifications)) {
+    // NOVEL needs no special case: it carries no relatedId, and no signpost id
+    // is undefined, so the lookup finds nothing.
+    const named = state.neighbours[tempId]?.find(
+      (neighbour) => neighbour.id === classification.relatedId,
+    );
+    if (named?.pending === PENDING_STATES.awaiting_review) {
+      targets.add(tempId);
+    }
+  }
+  return targets;
+}
+
 export function makeConfidenceGateNode(ports: GraphPorts) {
   return async function confidenceGateNode(state: ExtractionState): Promise<ExtractionUpdate> {
     const isBootstrap = await ports.index.isBootstrap(state.repo);
@@ -43,6 +72,7 @@ export function makeConfidenceGateNode(ports: GraphPorts) {
         built: state.validated,
         isBootstrap,
         unresolvedContradictions: unresolvedContradictions(state),
+        pendingNeighbourTargets: pendingNeighbourTargets(state),
       }),
     };
   };

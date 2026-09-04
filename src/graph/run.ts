@@ -25,7 +25,9 @@ import type { BaseCheckpointSaver, LangGraphRunnableConfig } from "@langchain/la
 import { STATE_VERSION, THREAD_EXPIRY_DAYS } from "../core/config/constants.ts";
 import { buildThreadId, type ThreadIdParts } from "../core/graph/thread-id.ts";
 import { decideCheckpoint, type CheckpointDecision } from "../core/graph/state-version.ts";
+import { pendingProposals } from "../core/graph/pending.ts";
 import type { ExtractionGraph } from "./graph.ts";
+import type { GraphPorts } from "./ports.ts";
 import type { ExtractionState } from "./state.ts";
 import type { ReviewResponse } from "./nodes/human-review.ts";
 
@@ -109,6 +111,54 @@ export async function startRun(
 
   const state = await graph.invoke(initialState(input), config);
   return { threadId, disposition: "fresh", state };
+}
+
+/**
+ * Runs every session in one run, reindexing after each one.
+ *
+ * The loop is sequential, and that is the whole point rather than an
+ * oversight: session N+1 must retrieve against what session N proposed. Run
+ * them concurrently and both see the corpus as it stood when the run began,
+ * both classify the same lesson NOVEL, and the PR carries two near-identical
+ * `add`s that no classifier ever compared (06-review-and-pr.md, "Reindex
+ * within a run, not only at commit").
+ *
+ * Reindexing happens as soon as a session's operations are proposed — the
+ * gate's partition — not when they merge. A session halted at `human_review`
+ * has still proposed; its operations are indexed as pending like any other,
+ * because a review that takes three days must not make a claim invisible for
+ * three days.
+ *
+ * The run starts by clearing whatever the last run left pending. Those rows
+ * describe proposals that have since either merged — in which case `signpost
+ * index` has mirrored them as ordinary rows — or been rejected, and a rejected
+ * proposal that stayed in the index would be retrieved by every later run as
+ * though a person had approved it. Nothing else deletes them; see
+ * PendingIndexPort.
+ */
+export async function runSessions(
+  graph: ExtractionGraph,
+  checkpointer: BaseCheckpointSaver,
+  ports: Pick<GraphPorts, "pendingIndex">,
+  inputs: readonly RunInput[],
+): Promise<RunResult[]> {
+  const results: RunResult[] = [];
+
+  for (const repo of new Set(inputs.map((input) => input.repo))) {
+    await ports.pendingIndex.clear(repo);
+  }
+
+  for (const input of inputs) {
+    const result = await startRun(graph, checkpointer, input);
+    results.push(result);
+
+    const proposals = pendingProposals(result.state.gated);
+    if (proposals.length > 0) {
+      await ports.pendingIndex.indexPending(input.repo, proposals);
+    }
+  }
+
+  return results;
 }
 
 /** The checkpoint for a thread, judged on both its version and its age. */

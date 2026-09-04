@@ -124,6 +124,12 @@ contradiction, but may both be true of different access paths or time periods. I
 coexist under narrower scopes, that is still CONTRADICTION — resolution happens downstream, and
 the resolver needs to see it.
 
+A neighbour with a "pending" field was proposed earlier in this same run and is not part of the
+recorded knowledge base yet: "in_pr" means it is already in the pull request, "awaiting_review"
+means a person has not accepted it and may reject it. Judge it exactly as you would a recorded
+one — a duplicate of a pending claim is still a duplicate — and say in your rationale when the
+neighbour you matched is pending.
+
 If no neighbour is genuinely about the same claim, return NOVEL even when the subject overlaps.
 
 Return: kind, relatedId (required unless NOVEL), rationale (one sentence).`;

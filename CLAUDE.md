@@ -88,9 +88,10 @@ wired.
 ## The graph is not wired yet
 
 `buildExtractionGraph` and `startRun` are referenced nowhere outside `src/graph/`.
-`production-app.ts` builds a `FixtureModelProvider` with an empty map and no `neighbours`, `index`,
-`commit` or `tools` ports. `src/io/db/neighbours.ts` implements RRF retrieval, has tests, and nothing calls
-it. The CLI has three commands: `doctor`, `init`, `index`.
+`production-app.ts` builds a `FixtureModelProvider` with an empty map and no `neighbours`, `pendingIndex`,
+`index`, `commit` or `tools` ports. `src/io/db/neighbours.ts` implements RRF retrieval,
+`src/io/db/pending-index.ts` implements the between-sessions reindex, both have tests, and nothing calls
+either. The CLI has three commands: `doctor`, `init`, `index`.
 
 So a change can be correct, tested, and still unreachable by a user. Say so when that is true of
 what you just wrote.

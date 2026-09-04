@@ -21,7 +21,8 @@ import type {
   Usage,
 } from "../../../src/core/model/types.ts";
 import type { GutteredSession } from "../../../src/core/gutter/types.ts";
-import type { Candidate, Operation } from "../../../src/core/contracts/graph.ts";
+import type { Candidate, NeighbourSignpost, Operation } from "../../../src/core/contracts/graph.ts";
+import type { PendingProposal } from "../../../src/core/graph/pending.ts";
 import type { Signpost } from "../../../src/core/signpost/schema.ts";
 import type { ExtractionState } from "../../../src/graph/state.ts";
 import type {
@@ -30,6 +31,7 @@ import type {
   GraphPorts,
   GutterPort,
   NeighbourPort,
+  PendingIndexPort,
   RepoToolsPort,
   SignpostIndexPort,
 } from "../../../src/graph/index.ts";
@@ -53,7 +55,14 @@ export interface RecordedCall {
   hasRunTool: boolean;
 }
 
-/** Replies per node, consumed in order. The last reply repeats if exhausted. */
+/**
+ * Replies per node, consumed in order. The last reply repeats if exhausted.
+ *
+ * A reply may be a function of the call instead of a literal, for the tests
+ * where what the model says has to depend on what the node showed it — a
+ * classification that turns on whether any neighbour came back, say. A
+ * literal reply cannot express that without deciding the outcome in advance.
+ */
 export type Script = Partial<Record<NodeName, unknown[]>>;
 
 export class ScriptedModelProvider implements ModelProvider {
@@ -79,14 +88,15 @@ export class ScriptedModelProvider implements ModelProvider {
     tools?: ToolDef[];
     runTool?: ToolRunner;
   }): Promise<{ value: T; usage: Usage }> {
-    this.calls.push({
+    const call: RecordedCall = {
       node: req.node,
       system: req.system,
       user: req.user,
       schema: req.schema,
       ...(req.tools === undefined ? {} : { tools: req.tools }),
       hasRunTool: req.runTool !== undefined,
-    });
+    };
+    this.calls.push(call);
 
     const queue = this.queues[req.node];
     if (queue === undefined || queue.length === 0) {
@@ -106,7 +116,8 @@ export class ScriptedModelProvider implements ModelProvider {
 
     // The last reply is reused rather than consumed, so a node called N times
     // needs one entry unless the test wants the answers to differ.
-    const value = queue.length === 1 ? queue[0] : queue.shift();
+    const reply = queue.length === 1 ? queue[0] : queue.shift();
+    const value = typeof reply === "function" ? (reply as (call: RecordedCall) => unknown)(call) : reply;
     return { value: value as T, usage: USAGE };
   }
 }
@@ -131,17 +142,54 @@ export class FakeGutterPort implements GutterPort {
   }
 }
 
+/**
+ * Records what each session proposed, and hands it back through the neighbour
+ * and index ports — the in-memory stand-in for src/io/db/pending-index.ts,
+ * which does the same three writes against SQLite.
+ */
+export class FakePendingIndexPort implements PendingIndexPort {
+  readonly indexed: { repo: string; proposals: PendingProposal[] }[] = [];
+  readonly cleared: string[] = [];
+
+  async indexPending(repo: string, proposals: readonly PendingProposal[]): Promise<void> {
+    this.indexed.push({ repo, proposals: [...proposals] });
+  }
+
+  async clear(repo: string): Promise<void> {
+    this.cleared.push(repo);
+    for (let i = this.indexed.length - 1; i >= 0; i -= 1) {
+      if (this.indexed[i]?.repo === repo) {
+        this.indexed.splice(i, 1);
+      }
+    }
+  }
+
+  /** Everything proposed for `repo` so far in this run, each with its state. */
+  forRepo(repo: string): PendingProposal[] {
+    return this.indexed.filter((entry) => entry.repo === repo).flatMap((entry) => entry.proposals);
+  }
+}
+
 export class FakeNeighbourPort implements NeighbourPort {
   calls: string[] = [];
   private readonly byTempId: Record<string, Signpost[]>;
+  private readonly pendingIndex: FakePendingIndexPort;
 
-  constructor(byTempId: Record<string, Signpost[]> = {}) {
+  constructor(byTempId: Record<string, Signpost[]> = {}, pendingIndex = new FakePendingIndexPort()) {
     this.byTempId = byTempId;
+    this.pendingIndex = pendingIndex;
   }
 
-  async find(_repo: string, candidate: Candidate): Promise<Signpost[]> {
+  // Whatever the test scripted for this tempId, plus everything an earlier
+  // session in the run proposed. Real retrieval ranks and truncates; this
+  // returns the lot, because the tests using it are about whether a proposal
+  // is visible at all, not about ranking.
+  async find(repo: string, candidate: Candidate): Promise<NeighbourSignpost[]> {
     this.calls.push(candidate.tempId);
-    return this.byTempId[candidate.tempId] ?? [];
+    const merged = this.pendingIndex
+      .forRepo(repo)
+      .map(({ signpost, state }) => ({ ...signpost, pending: state }));
+    return [...(this.byTempId[candidate.tempId] ?? []), ...merged];
   }
 }
 
@@ -150,23 +198,34 @@ export class FakeIndexPort implements SignpostIndexPort {
   readonly byIdCalls: string[] = [];
   private readonly signposts: Signpost[];
   private readonly bootstrap: boolean;
+  private readonly pendingIndex: FakePendingIndexPort;
 
-  constructor(signposts: Signpost[] = [], bootstrap = false) {
+  constructor(signposts: Signpost[] = [], bootstrap = false, pendingIndex = new FakePendingIndexPort()) {
     this.signposts = signposts;
     this.bootstrap = bootstrap;
+    this.pendingIndex = pendingIndex;
   }
 
-  async existingIds(): Promise<Set<string>> {
-    return new Set(this.signposts.map((signpost) => signpost.id));
+  // Pending rows count as existing, exactly as they do in SQLite: they are
+  // rows in the same `signposts` table. Without this, `validate` would reject
+  // a `reinforce` of a claim the previous session in this run proposed. What
+  // stops that reinforce from auto-publishing against a signpost nobody has
+  // merged is the gate, not this — see partition.ts's `pending_neighbour`.
+  private all(repo: string): Signpost[] {
+    return [...this.signposts, ...this.pendingIndex.forRepo(repo).map(({ signpost }) => signpost)];
+  }
+
+  async existingIds(repo: string): Promise<Set<string>> {
+    return new Set(this.all(repo).map((signpost) => signpost.id));
   }
 
   async isBootstrap(): Promise<boolean> {
     return this.bootstrap;
   }
 
-  async byId(_repo: string, id: string): Promise<Signpost | undefined> {
+  async byId(repo: string, id: string): Promise<Signpost | undefined> {
     this.byIdCalls.push(id);
-    return this.signposts.find((signpost) => signpost.id === id);
+    return this.all(repo).find((signpost) => signpost.id === id);
   }
 }
 
@@ -214,6 +273,7 @@ export interface Harness extends GraphPorts {
   model: ScriptedModelProvider;
   gutter: FakeGutterPort;
   neighbours: FakeNeighbourPort;
+  pendingIndex: FakePendingIndexPort;
   index: FakeIndexPort;
   commit: FakeCommitPort;
   tools: FakeRepoToolsPort;
@@ -223,11 +283,16 @@ export const AUTHOR = "dev@acme.example";
 
 export function makeHarness(options: HarnessOptions): Harness {
   const now = options.now ?? new Date("2026-08-27T09:00:00.000Z");
+  // One pending index, shared by the two ports that read it — the same object
+  // the run loop writes to, so a proposal made by session N is visible to
+  // session N+1 through retrieval and through the id check.
+  const pendingIndex = new FakePendingIndexPort();
   return {
     model: new ScriptedModelProvider(options.script),
     gutter: new FakeGutterPort(options.session),
-    neighbours: new FakeNeighbourPort(options.neighbours ?? {}),
-    index: new FakeIndexPort(options.existing ?? [], options.bootstrap ?? false),
+    neighbours: new FakeNeighbourPort(options.neighbours ?? {}, pendingIndex),
+    pendingIndex,
+    index: new FakeIndexPort(options.existing ?? [], options.bootstrap ?? false, pendingIndex),
     commit: new FakeCommitPort(),
     tools: new FakeRepoToolsPort(),
     author: AUTHOR,

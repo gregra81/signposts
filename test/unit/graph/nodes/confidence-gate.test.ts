@@ -4,9 +4,15 @@
 import { describe, expect, it } from "vitest";
 import {
   makeConfidenceGateNode,
+  pendingNeighbourTargets,
   unresolvedContradictions,
 } from "../../../../src/graph/nodes/confidence-gate.js";
-import { gutteredSession, makeHarness, graphState } from "../../../behaviour/helpers/graph-harness.js";
+import {
+  existingSignpost,
+  gutteredSession,
+  makeHarness,
+  graphState,
+} from "../../../behaviour/helpers/graph-harness.js";
 import type { Classification, Resolution } from "../../../../src/core/contracts/graph.js";
 
 const contradiction = (tempId: string): Classification => ({
@@ -59,6 +65,68 @@ describe("unresolvedContradictions", () => {
     });
 
     expect([...unresolvedContradictions(state)]).toEqual([]);
+  });
+});
+
+// The gate's other derived input: which candidates were classified against a
+// neighbour this run only proposed. Their operations inherit that neighbour's
+// review — see src/core/gate/partition.ts's `pending_neighbour`.
+describe("pendingNeighbourTargets", () => {
+  const duplicate = (relatedId: string): Classification => ({
+    tempId: "t1",
+    kind: "DUPLICATE",
+    relatedId,
+    rationale: "The same claim.",
+  });
+
+  const merged = existingSignpost({ id: "staging-writable" });
+  const held = { ...existingSignpost({ id: "staging-read-only" }), pending: "awaiting_review" as const };
+  const committed = { ...existingSignpost({ id: "etl-window" }), pending: "in_pr" as const };
+
+  it("includes a candidate matched against a proposal a person is holding", () => {
+    const state = graphState({
+      classifications: { t1: duplicate(held.id) },
+      neighbours: { t1: [merged, held] },
+    });
+
+    expect([...pendingNeighbourTargets(state)]).toEqual(["t1"]);
+  });
+
+  // That proposal cleared the gate and is already in the branch, so an
+  // operation against it lands in the same pull request.
+  it("excludes one matched against a proposal that auto-published", () => {
+    const state = graphState({
+      classifications: { t1: duplicate(committed.id) },
+      neighbours: { t1: [committed] },
+    });
+
+    expect([...pendingNeighbourTargets(state)]).toEqual([]);
+  });
+
+  it("excludes one matched against a merged neighbour", () => {
+    const state = graphState({
+      classifications: { t1: duplicate(merged.id) },
+      neighbours: { t1: [merged, held] },
+    });
+
+    expect([...pendingNeighbourTargets(state)]).toEqual([]);
+  });
+
+  // A NOVEL classification names nothing, so it targets nothing — even when a
+  // pending neighbour was retrieved and rejected as unrelated.
+  it("excludes a NOVEL candidate", () => {
+    const state = graphState({
+      classifications: { t1: { tempId: "t1", kind: "NOVEL", rationale: "New." } },
+      neighbours: { t1: [held] },
+    });
+
+    expect([...pendingNeighbourTargets(state)]).toEqual([]);
+  });
+
+  it("excludes a candidate whose neighbours were never retrieved", () => {
+    const state = graphState({ classifications: { t1: duplicate(held.id) } });
+
+    expect([...pendingNeighbourTargets(state)]).toEqual([]);
   });
 });
 
