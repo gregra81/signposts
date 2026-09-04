@@ -184,6 +184,31 @@ describe("indexPending", () => {
     120_000,
   );
 
+  // The upsert keys on (repo, id) and replaces every column, so a collision
+  // would overwrite recorded knowledge with a proposal and flag it pending —
+  // and the next run's clearPending would then delete it. generateSlug makes
+  // this unreachable; reaching it means that guarantee broke.
+  it(
+    "refuses to overwrite a merged signpost with a proposal of the same id",
+    async () => {
+      db.prepare(
+        `INSERT INTO signposts
+          (id, repo, claim, category, evidence, scope_json, confidence, status, provenance_json, is_pending, pending_review, content_hash, embedding_model, embedding_dim)
+         VALUES (?, ?, 'The recorded claim.', 'gotcha', 'From the repo.', '{}', 0.9, 'active', '{}', 0, 0, 'hash-1', '', 0)`,
+      ).run(proposed().id, REPO);
+
+      await expect(
+        indexPending(db, { embedder, repo: REPO, proposals: [{ signpost: proposed(), state: "in_pr" }] }),
+      ).rejects.toThrow(/already exist as merged signposts/);
+
+      const row = db.prepare("SELECT claim FROM signposts WHERE repo = ? AND id = ?").get(REPO, proposed().id) as {
+        claim: string;
+      };
+      expect(row.claim).toBe("The recorded claim.");
+    },
+    120_000,
+  );
+
   it(
     "a session that proposed nothing writes nothing",
     async () => {

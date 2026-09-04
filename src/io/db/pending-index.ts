@@ -64,10 +64,30 @@ export interface IndexPendingOptions {
  * Indexes `signposts` for `repo` as pending, in one transaction: the mirror
  * row, the vector row and the FTS row, exactly as a rebuild would write them
  * apart from the pending flag.
+ *
+ * Throws rather than writing if any proposal names an id a merged row already
+ * holds. The upsert below keys on (repo, id) and replaces every column, so
+ * such a write would overwrite recorded knowledge with a proposal and flag it
+ * pending, and the next run's `clearPending` would then delete it. The row
+ * itself would come back on the next `signpost index`, but its vector and FTS
+ * rows would not: rebuildIndex is gated on the merged corpus hash, which none
+ * of this changes, so retrieval for that signpost would stay dead until the
+ * corpus or the embedding model moved. `generateSlug` already avoids ids in
+ * `existingIds`, which makes this unreachable — and worth a loud failure
+ * exactly because reaching it means that guarantee broke.
  */
 export async function indexPending(db: Database.Database, options: IndexPendingOptions): Promise<void> {
   if (options.proposals.length === 0) {
     return;
+  }
+
+  const merged = mergedIdsAmong(db, options.repo, options.proposals);
+  if (merged.length > 0) {
+    throw new Error(
+      `indexPending: ${merged.join(", ")} already exist as merged signposts in ${options.repo}. ` +
+        "A proposal must never overwrite recorded knowledge; the slug generator is supposed to " +
+        "make this impossible.",
+    );
   }
 
   const vectors = await options.embedder.embed(
@@ -129,6 +149,22 @@ export async function indexPending(db: Database.Database, options: IndexPendingO
   });
 
   write();
+}
+
+/** Which of these proposal ids are already recorded (merged) rows in `repo`. */
+function mergedIdsAmong(
+  db: Database.Database,
+  repo: string,
+  proposals: readonly PendingProposal[],
+): string[] {
+  const ids = proposals.map(({ signpost }) => signpost.id);
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = db
+    .prepare(
+      `SELECT id FROM signposts WHERE repo = ? AND is_pending = 0 AND id IN (${placeholders}) ORDER BY id`,
+    )
+    .all(repo, ...ids) as { id: string }[];
+  return rows.map((row) => row.id);
 }
 
 /**
