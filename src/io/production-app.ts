@@ -35,6 +35,7 @@ export function buildProductionApp(): App {
     repoFileContents: readRepoConfigFile(repoRoot),
     userFileContents: readUserConfigFile(homeDir),
     env: process.env,
+    claudeConfigDir: process.env["CLAUDE_CONFIG_DIR"],
   });
 
   return createApp({ config, openRun });

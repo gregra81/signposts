@@ -66,7 +66,20 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
   const alreadyConsented = isConsented(dbFileExists, rowConsented);
 
   if (!needsConsentPrompt(alreadyConsented)) {
-    stdio.output.write("signposts: already initialised for this repo.\n");
+    // Rewrite the skill on the way out. `init` is the only thing that writes
+    // it, and CLAUDE.md, the PR prose and skill-file.ts all promise it is
+    // rewritten on every accepted init "so it cannot drift from the CLI it
+    // describes" — which was not true of the second init onwards, the only
+    // kind that happens after an upgrade. A repo that consented a year ago
+    // was still being driven by the SKILL.md of whatever build ran first.
+    //
+    // It is safe here for the reason the guarantee is worth having: consent
+    // has already been given, and the skill is a repo-local file this command
+    // owns, not state a decline could leave behind.
+    const rewritten = writeSkill(repoRoot);
+    stdio.output.write(
+      `signposts: already initialised for this repo. Refreshed ${rewritten}.\n`,
+    );
     return 0;
   }
 

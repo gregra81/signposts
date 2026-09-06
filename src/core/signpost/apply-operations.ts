@@ -7,11 +7,25 @@
 // without a filesystem, and so the write itself is all-or-nothing: everything
 // is computed before anything is written.
 //
-// An operation naming an id no file carries throws rather than being skipped.
-// It means the corpus moved under the run (a file deleted while it was
-// halted, a merge that removed one), and applying the rest would write a
-// partial result nobody asked for. An `add` naming an id the corpus *does*
-// carry throws for the mirror-image reason — see below.
+// An operation that cannot be applied is reported in `skipped` and the rest
+// are applied. It used to throw, which reads as the safer choice and is not:
+// this runs in the last node, so the exception escaped `commit`, escaped
+// `graph.invoke`, and lost a session the developer had answered call by call
+// — and the checkpoint survived, so the next run resumed straight back into
+// the same throw with no way out but deleting the branch.
+//
+// Both ways it happens are ordinary rather than corrupt. The corpus this is
+// applied to is the *branch's*, while the ids the graph proposes come from the
+// mirror of the *base* branch, and nothing merges the base into the branch —
+// so a teammate's merged signpost is an id `reinforce` can name and the branch
+// does not carry. In the other direction `--first` clears the pending rows, so
+// an id proposed on the branch by an earlier run drops out of `existingIds`
+// and `generateSlug` can mint it again.
+//
+// What must not happen is an `add` writing over a claim that is already there,
+// replacing its evidence and provenance while the pull request still calls the
+// row an `add` (src/io/db/pending-index.ts refuses the same thing). Skipping
+// refuses that just as firmly as throwing did, and keeps the session.
 
 import { OPERATION_TAGS, type Operation } from "../contracts/graph.ts";
 import { statusSchema, type Signpost } from "./schema.ts";
@@ -21,11 +35,20 @@ export function signpostPath(signpost: Signpost): string {
   return `${signpost.category}/${signpost.id}.md`;
 }
 
+/** An operation that could not be applied, and why — for the caller to report. */
+export interface SkippedOperation {
+  op: string;
+  id: string;
+  reason: string;
+}
+
 export interface AppliedOperations {
   /** The corpus as it should now be on disk, in the order the input had it. */
   corpus: Signpost[];
   /** Ids whose file must be rewritten — everything else is untouched. */
   changed: string[];
+  /** Operations left unapplied. Empty on the ordinary path. */
+  skipped: SkippedOperation[];
 }
 
 export interface ApplyOperationsInput {
@@ -39,6 +62,7 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
   const byId = new Map(input.corpus.map((signpost) => [signpost.id, signpost]));
   const order = input.corpus.map((signpost) => signpost.id);
   const changed = new Set<string>();
+  const skipped: SkippedOperation[] = [];
 
   const replace = (signpost: Signpost): void => {
     if (!byId.has(signpost.id)) {
@@ -48,29 +72,25 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
     changed.add(signpost.id);
   };
 
-  const existing = (id: string, op: string): Signpost => {
+  const existing = (id: string, op: string): Signpost | undefined => {
     const signpost = byId.get(id);
     if (signpost === undefined) {
-      throw new Error(`${op} names ${id}, which is not in .signposts/`);
+      skipped.push({ op, id, reason: `${id} is not in .signposts/ on this branch` });
     }
     return signpost;
   };
 
   for (const operation of input.operations) {
     switch (operation.op) {
-      // Never over an id that is already there. Slug generation avoids the
-      // ids in `existingIds`, which comes from the local mirror — and a run
-      // clears the repo's pending rows before it starts, so an id proposed on
-      // the branch by an earlier run and not yet merged is absent from that
-      // set and can be reminted. Writing it would replace a claim, its
-      // evidence and its provenance while the pull request still describes
-      // the row as an `add`. src/io/db/pending-index.ts refuses the same
-      // thing for the same reason.
+      // Never over an id that is already there — see the header.
       case OPERATION_TAGS.add:
         if (byId.has(operation.signpost.id)) {
-          throw new Error(
-            `add names ${operation.signpost.id}, which .signposts/ already carries`,
-          );
+          skipped.push({
+            op: operation.op,
+            id: operation.signpost.id,
+            reason: `.signposts/ already carries ${operation.signpost.id} on this branch`,
+          });
+          break;
         }
         replace(operation.signpost);
         break;
@@ -80,6 +100,9 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
       // whole reason reinforce is not a no-op (03-memory-model.md).
       case OPERATION_TAGS.reinforce: {
         const target = existing(operation.id, operation.op);
+        if (target === undefined) {
+          break;
+        }
         replace({
           ...target,
           provenance: {
@@ -97,6 +120,9 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
       // overwriting the claim with an absent one would erase it.
       case OPERATION_TAGS.refine: {
         const target = existing(operation.id, operation.op);
+        if (target === undefined) {
+          break;
+        }
         replace({
           ...target,
           ...(operation.claim === undefined ? {} : { claim: operation.claim }),
@@ -110,6 +136,9 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
       // deletes it would lose why the team believed it.
       case OPERATION_TAGS.supersede: {
         const target = existing(operation.id, operation.op);
+        if (target === undefined) {
+          break;
+        }
         replace({ ...target, status: statusSchema.enum.superseded });
         replace(operation.replacement);
         break;
@@ -126,6 +155,7 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
   return {
     corpus: order.map((id) => byId.get(id)!),
     changed: order.filter((id) => changed.has(id)),
+    skipped,
   };
 }
 

@@ -77,6 +77,16 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
         now: input.today(),
       });
 
+      // Reported, not thrown: an operation that could not be applied is one
+      // proposal, and losing the whole session over it costs every model call
+      // the developer answered by hand. The branch and the PR carry the rest.
+      for (const skip of applied.skipped) {
+        input.warn(
+          `signposts: skipped ${skip.op} ${skip.id} on ${branch} — ${skip.reason}. ` +
+            "Re-run `signpost index` if the base branch has moved.",
+        );
+      }
+
       const written = writeCorpus(knowledgeDir, applied.corpus, applied.changed);
       const committed = commitAll({
         worktreeDir: input.worktreeDir,

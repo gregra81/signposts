@@ -24,7 +24,13 @@ import { pendingProposals } from "../../core/graph/pending.ts";
 import { OPERATION_TAGS } from "../../core/contracts/graph.ts";
 import { resumeRun, startRun, type RunResult } from "../../graph/index.ts";
 import type { RunOutput, SessionRef, SessionsOutput } from "../protocol.ts";
-import { isUnavailable, type OpenRun, type RunHandle, type RunSession } from "../run-port.ts";
+import {
+  isUnavailable,
+  type OpenedRun,
+  type OpenRun,
+  type RunHandle,
+  type RunSession,
+} from "../run-port.ts";
 
 export interface RunCommandInput {
   config: ResolvedConfig;
@@ -72,11 +78,22 @@ async function withRun(
   input: RunCommandInput,
   body: (handle: RunHandle) => Promise<ExitCode>,
 ): Promise<ExitCode> {
-  const opened = await input.openRun({
-    config: input.config,
-    repoRoot: input.repoRoot,
-    warn: (message) => input.stderr.write(`${message}\n`),
-  });
+  // Opening is inside the guard too, not only the body. `openRun` builds the
+  // database handle, the checkpointer and an embedder that loads an ONNX
+  // pipeline, and re-throws after closing what it had already opened — so a
+  // corrupt `signposts.db`, a model that cannot load offline, or a
+  // `user.email` the slug rule rejects all throw from this one statement.
+  // Catching only the body left the loudest failures as the ones that escaped.
+  let opened: OpenedRun;
+  try {
+    opened = await input.openRun({
+      config: input.config,
+      repoRoot: input.repoRoot,
+      warn: (message) => input.stderr.write(`${message}\n`),
+    });
+  } catch (error) {
+    return fail(input, error instanceof Error ? error.message : String(error));
+  }
   if (isUnavailable(opened)) {
     return fail(input, opened.reason);
   }
@@ -135,7 +152,7 @@ export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
 /** Answers what a halted session asked for and continues it. */
 export function runResume(input: RunCommandInput): Promise<ExitCode> {
   return withRun(input, async (handle) => {
-    const session = resuming(input) ?? pick(input, handle);
+    const session = resuming(input, handle) ?? pick(input, handle);
     if (session === undefined) {
       return fail(
         input,
@@ -181,18 +198,35 @@ function pick(input: RunCommandInput, handle: RunHandle): RunSession | undefined
  * be resumed by this build"), and the fresh mtime fails the idle gate, so a
  * caller who passed `--session` is told there is no session to resume. What
  * the halt reported is what identifies it.
+ *
+ * The listing is still consulted, but only for the two fields the flags do not
+ * carry, and only when it agrees about the hash. A matching hash means the
+ * file has not changed since the halt, so its recorded activity is the real
+ * one. When it does not match — the developer carried on in that session —
+ * the identity above still stands and these fall back.
+ *
+ * `lastActivityAt` matters because a resume can be the invocation that
+ * finishes the session, and `report` hands it to `finish`, which writes it to
+ * `sessions.last_activity_at`. Filling it with the current time recorded the
+ * moment the developer answered the last halt, which for a review answered
+ * three days later is three days out. Nothing reads the column yet, and that
+ * is the reason to keep it honest rather than to leave it wrong.
  */
-function resuming(input: RunCommandInput): RunSession | undefined {
+function resuming(input: RunCommandInput, handle: RunHandle): RunSession | undefined {
   if (input.sessionId === undefined || input.contentHash === undefined) {
     return undefined;
   }
+  const listed = handle
+    .eligible(new Date())
+    .find(
+      (session) =>
+        session.sessionId === input.sessionId && session.contentHash === input.contentHash,
+    );
   return {
     sessionId: input.sessionId,
     contentHash: input.contentHash,
-    // Neither is used by a resume: the transcript was read when the run
-    // started, and the session is recorded as finished only when it is.
-    transcriptPath: "",
-    lastActivityAt: new Date(),
+    transcriptPath: listed?.transcriptPath ?? "",
+    lastActivityAt: listed?.lastActivityAt ?? new Date(),
   };
 }
 
@@ -233,6 +267,7 @@ async function report(
 
   const output: RunOutput = {
     sessionId: session.sessionId,
+    contentHash: session.contentHash,
     status: waiting ? "waiting" : "finished",
     pending: result.pending,
     proposed: waiting ? [] : result.state.operations.map(describe),

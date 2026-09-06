@@ -308,6 +308,83 @@ describe("the commit port", () => {
     expect(warning).not.toContain("gh pr create");
   });
 
+  it("recovers a worktree whose directory was deleted but is still registered", async () => {
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+    // What clearing ~/.signposts looks like. Git keeps the registration in the
+    // parent repo's .git/worktrees and does not prune on its own, so both
+    // `worktree add` and `worktree add -b` refuse — permanently, until pruned.
+    rmSync(worktreeDir, { recursive: true, force: true });
+
+    await apply("sess-2", [
+      { op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR },
+    ]);
+
+    expect(git(worktreeDir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(BRANCH);
+    expect(warnings).toEqual([]);
+  });
+
+  it("catches a rebuilt worktree up to the remote instead of committing on a stale local ref", async () => {
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    // Another machine pushes to the same branch, then this one loses its
+    // worktree directory. `refs/heads/signposts/greg` survives here at the old
+    // commit, so `worktree add <dir> <branch>` would check that out and every
+    // push from then on would be rejected non-fast-forward.
+    const elsewhere = path.join(root, "elsewhere");
+    execFileSync("git", ["clone", "--branch", BRANCH, remote, elsewhere]);
+    git(elsewhere, "config", "user.email", "someone@example.com");
+    git(elsewhere, "config", "commit.gpgsign", "false");
+    writeFileSync(path.join(elsewhere, "other.md"), "from another machine\n", "utf8");
+    git(elsewhere, "add", "other.md");
+    git(elsewhere, "commit", "-m", "from another machine");
+    git(elsewhere, "push");
+    const ahead = git(elsewhere, "rev-parse", "HEAD");
+
+    rmSync(worktreeDir, { recursive: true, force: true });
+    await apply("sess-2", [
+      { op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR },
+    ]);
+
+    expect(git(worktreeDir, "rev-parse", "HEAD~1")).toBe(ahead);
+    expect(git(remote, "rev-parse", "--verify", BRANCH)).toBe(git(worktreeDir, "rev-parse", "HEAD"));
+    expect(warnings).toEqual([]);
+  });
+
+  it("moves an existing worktree onto the branch when the author's slug changes", async () => {
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    // branchFor slugs the address's local part, so a new address is a new
+    // branch over a worktree still checked out on the old. Committing there
+    // put the commit on the old branch and pushed a branch that had nothing.
+    const moved = makeCommitPort({
+      repoRoot,
+      worktreeDir,
+      branchPattern: BRANCH_PATTERN,
+      author: "greg.rashkevitch@example.com",
+      forge,
+      warn: (message) => warnings.push(message),
+      today: () => TODAY,
+    });
+
+    await moved.apply({
+      repo: "acme/api",
+      repoRoot,
+      sessionId: "sess-2",
+      operations: [{ op: "add", signpost: signpost({ id: "second", claim: "Second claim" }) }],
+    });
+
+    expect(git(worktreeDir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(
+      "signposts/greg-rashkevitch",
+    );
+    expect(git(remote, "rev-parse", "--verify", "signposts/greg-rashkevitch")).toBe(
+      git(worktreeDir, "rev-parse", "HEAD"),
+    );
+    // The first branch keeps its own commit rather than being moved to the tip
+    // of the second.
+    expect(git(repoRoot, "rev-parse", BRANCH)).not.toBe(git(worktreeDir, "rev-parse", "HEAD"));
+    expect(warnings).toEqual([]);
+  });
+
   it("writes nothing at all for a session that proposed nothing", async () => {
     await apply("sess-1", []);
 

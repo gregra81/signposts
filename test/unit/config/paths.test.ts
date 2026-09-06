@@ -38,6 +38,21 @@ describe("derivePaths", () => {
     expect(paths.transcriptRoot).toBe(`${homeDir}/.claude/projects`);
   });
 
+  // Claude Code moves its whole config directory, transcripts included, when
+  // CLAUDE_CONFIG_DIR is set. Looking under ~/.claude anyway found an empty
+  // directory, which discovery reports as "no eligible sessions".
+  it("takes the transcript root from the Claude config directory when one is set", () => {
+    const paths = derivePaths(repoRoot, homeDir, "/opt/claude-config");
+
+    expect(paths.transcriptRoot).toBe("/opt/claude-config/projects");
+  });
+
+  it.each([undefined, ""])("falls back to the home-relative root for %j", (override) => {
+    expect(derivePaths(repoRoot, homeDir, override).transcriptRoot).toBe(
+      `${homeDir}/.claude/projects`,
+    );
+  });
+
   it("puts the worktree under this repo's state directory", () => {
     const paths = derivePaths(repoRoot, homeDir);
 

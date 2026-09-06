@@ -256,8 +256,11 @@ export const ERROR_EXCERPT_CHARS = 300;
 // Paths
 // ---------------------------------------------------------------------------
 
-/** Global, home-relative — where Claude Code writes session transcripts. */
-export const TRANSCRIPT_ROOT = "~/.claude/projects";
+/** Global, home-relative — Claude Code's config directory, absent an override. */
+export const CLAUDE_CONFIG_ROOT = "~/.claude";
+
+/** The subdirectory of the Claude Code config directory holding transcripts. */
+export const TRANSCRIPT_DIRNAME = "projects";
 
 /**
  * Directory name used both for the global root under the home directory

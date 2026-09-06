@@ -53,12 +53,50 @@ function baseBranch(repoRoot: string): string {
   return git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).output;
 }
 
+/** Where a branch this repository does not have yet should start from. */
+function startPointFor(repoRoot: string, branch: string): string {
+  return git(repoRoot, ["rev-parse", "--verify", `refs/remotes/origin/${branch}`]).ok
+    ? `origin/${branch}`
+    : baseBranch(repoRoot);
+}
+
+/**
+ * Puts an existing worktree on `branch` when it is on something else.
+ *
+ * `branch` is derived, not fixed — `branchFor(config.git.branch_pattern,
+ * authorEmail(repoRoot))` — so a repo-local `user.email` override, a new work
+ * address, or an edited `branch_pattern` changes it while the worktree stays
+ * checked out on the old one. Everything downstream then ran against the wrong
+ * HEAD: the commit landed on the old branch, the push failed with "src refspec
+ * does not match any", and the warning named a branch that had nothing on it.
+ * Where `origin/<branch>` did exist, the reset in `refresh` moved the *old*
+ * branch to the new branch's tip.
+ */
+function ensureOnBranch(repoRoot: string, worktreeDir: string, branch: string): GitResult {
+  const head = git(worktreeDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (head.ok && head.output === branch) {
+    return { ok: true, output: worktreeDir };
+  }
+  return git(worktreeDir, ["rev-parse", "--verify", `refs/heads/${branch}`]).ok
+    ? git(worktreeDir, ["checkout", branch])
+    : git(worktreeDir, ["checkout", "-b", branch, startPointFor(repoRoot, branch)]);
+}
+
 /**
  * A checkout of `repoRoot` at `worktreeDir`, on `branch`, created if absent.
  *
  * The branch is created from the remote copy where one exists, so a run on a
  * second machine — or after the state directory was cleared — continues the
  * developer's existing branch instead of starting a rival one from local HEAD.
+ *
+ * Every path ends in `refresh`, including the one that has just created the
+ * worktree. `git worktree add <dir> <branch>` checks out `refs/heads/<branch>`
+ * wherever it currently points, which is not necessarily where the remote has
+ * it: clear `~/.signposts` on one machine after pushing from another and the
+ * local ref is behind, so the worktree was built on a stale commit and every
+ * push from then on was rejected non-fast-forward. `refresh` is already the
+ * guarded catch-up, so it does that job here too rather than a second copy of
+ * it living on this arm.
  *
  * The absent case prunes first. Whether the worktree exists is asked of the
  * directory, but git records it in the *parent* repository
@@ -78,31 +116,33 @@ export function ensureWorktree(input: {
 }): GitResult {
   const { repoRoot, worktreeDir, branch } = input;
 
+  // One fetch for the whole operation. A worktree shares its parent's object
+  // store and refs, so fetching here is what every step below reads. Offline
+  // is not fatal: it is the ordinary reason a previous push failed, and the
+  // worktree as it stands is still the right place to commit.
+  const fetched = git(repoRoot, ["fetch", "origin", branch]).ok;
+
   if (existsSync(path.join(worktreeDir, ".git"))) {
-    return refresh(worktreeDir, branch);
+    const onBranch = ensureOnBranch(repoRoot, worktreeDir, branch);
+    return onBranch.ok ? refresh(worktreeDir, branch, fetched) : onBranch;
   }
 
   mkdirSync(path.dirname(worktreeDir), { recursive: true });
   git(repoRoot, ["worktree", "prune"]);
-  git(repoRoot, ["fetch", "origin", branch]);
-
-  const startPoint = git(repoRoot, ["rev-parse", "--verify", `refs/remotes/origin/${branch}`]).ok
-    ? `origin/${branch}`
-    : baseBranch(repoRoot);
 
   const existingBranch = git(repoRoot, ["rev-parse", "--verify", `refs/heads/${branch}`]).ok;
   const args = existingBranch
     ? ["worktree", "add", worktreeDir, branch]
-    : ["worktree", "add", "-b", branch, worktreeDir, startPoint];
+    : ["worktree", "add", "-b", branch, worktreeDir, startPointFor(repoRoot, branch)];
 
   const added = git(repoRoot, args);
-  return added.ok ? { ok: true, output: worktreeDir } : added;
+  return added.ok ? refresh(worktreeDir, branch, fetched) : added;
 }
 
 /**
- * Brings an existing worktree up to date with the branch as the remote has
- * it, so a commit lands on top of what is in the pull request rather than
- * forking from a stale local copy.
+ * Brings a worktree up to date with the branch as the remote has it, so a
+ * commit lands on top of what is in the pull request rather than forking from
+ * a stale local copy.
  *
  * The reset only happens when the local branch is an ancestor of the remote
  * one — when everything here is already pushed. Otherwise it would discard a
@@ -111,15 +151,12 @@ export function ensureWorktree(input: {
  * expensive part, and it would be lost silently, on a later run, with nothing
  * said. Unpushed work is left where it is and the next commit stacks on it.
  *
- * A fetch that fails is not fatal either — offline is the ordinary reason a
- * push failed in the first place, and the worktree as it stands is still the
- * right place to commit.
+ * A fetch that did not happen is not fatal either, for the same reason.
  */
-function refresh(worktreeDir: string, branch: string): GitResult {
+function refresh(worktreeDir: string, branch: string, fetched: boolean): GitResult {
   const remoteRef = `origin/${branch}`;
 
-  const fetched = git(worktreeDir, ["fetch", "origin", branch]);
-  if (!fetched.ok) {
+  if (!fetched) {
     return { ok: true, output: worktreeDir };
   }
   if (!git(worktreeDir, ["rev-parse", "--verify", remoteRef]).ok) {

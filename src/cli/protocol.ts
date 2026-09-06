@@ -24,6 +24,14 @@ export type RunStatus = "waiting" | "finished";
 
 export interface RunOutput {
   sessionId: string;
+  /**
+   * Half of the thread id, and the half that cannot be re-derived safely: the
+   * transcript grows while the halt is unanswered. It travels with every halt
+   * for the rule above — the subagent driving the loop is given a session id
+   * and nothing else, so a `--content-hash` it had to fetch from an earlier
+   * `sessions` listing is one it does not have.
+   */
+  contentHash: string;
   status: RunStatus;
   /** Non-empty exactly when `status` is "waiting": answer every one of these. */
   pending: PendingRequest[];

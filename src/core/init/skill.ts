@@ -36,8 +36,7 @@ reasoning of its own: it pauses and asks *you* for each judgement, then carries 
 Every command prints one JSON object. A run advances one halt at a time.
 
 1. \`signpost sessions\` lists what is eligible (idle 24h+, not already processed).
-   Stop here and say so if the list is empty. Keep each session's
-   \`contentHash\` — it is half of the thread id, and every resume needs it.
+   Stop here and say so if the list is empty.
 2. **Delegate the rest to a subagent, one per session.** The prompts below are
    thousands of tokens each and belong in a subagent's context, not the user's.
    Give the subagent this file and the session id.
@@ -46,9 +45,11 @@ Every command prints one JSON object. A run advances one halt at a time.
 4. Read \`status\`:
    - \`waiting\` — answer every entry in \`pending\` (below), then
      \`signpost resume --session <id> --content-hash <hash> --replies <file>\`
-     and read \`status\` again. Pass the hash the listing gave you rather than
-     letting it be re-derived: the transcript may have grown since the halt,
-     and a session identified by a different hash is a different thread.
+     and read \`status\` again. Take \`<hash>\` from \`contentHash\` in the very
+     output you are answering. It is half of the thread id, and passing it back
+     is what stops it being re-derived from the transcript: the developer may
+     have carried on in that Claude Code session since the halt, and a session
+     identified by a different hash is a different thread.
    - \`finished\` — \`proposed\` lists what went into the branch and PR. Move to
      the next session.
 
@@ -75,8 +76,12 @@ subagent answer it. Return to the main session, show the developer each entry in
 \`needsHuman\` (the operation and why it was gated), and ask them to accept, reject
 or edit each one. Then resume with
 \`{ "<id>": { "<operation key>": { "decision": "accept", "decidedAt": "<ISO 8601>" } } }\`,
-one entry per operation, using the same keys the request used. A rejected operation
-is simply left out of the accept — nothing merges without them.
+using the same keys the request used.
+
+**Every operation in \`needsHuman\` needs an entry.** A rejected one is
+\`"decision": "reject"\`, not an omission — an operation you leave out has not been
+decided, so the review halts again on it and the session cannot reach the commit.
+Rejected operations are dropped; nothing merges without a decision on each.
 
 ## What to tell the user at the end
 

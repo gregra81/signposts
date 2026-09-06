@@ -61,19 +61,36 @@ describe("add", () => {
 });
 
 describe("an add naming an id the corpus already carries", () => {
-  it("throws rather than writing over the signpost it names", () => {
-    // Reachable: `existingIds` comes from the local mirror, and a run clears
-    // the repo's pending rows before it starts — so an id proposed on the
-    // branch by an earlier run and not yet merged can be reminted.
-    expect(() =>
-      apply([signpost()], [{ op: "add", signpost: signpost({ claim: "Something else entirely" }) }]),
-    ).toThrow(/add names staging-read-only, which \.signposts\/ already carries/);
+  // Reachable: `existingIds` comes from the local mirror, and a run clears the
+  // repo's pending rows before it starts — so an id proposed on the branch by
+  // an earlier run and not yet merged can be reminted.
+  const collision: Operation = {
+    op: "add",
+    signpost: signpost({ claim: "Something else entirely" }),
+  };
+
+  it("does not write over the signpost it names", () => {
+    const result = apply([signpost()], [collision]);
+
+    expect(result.corpus).toEqual([signpost()]);
+    expect(result.changed).toEqual([]);
   });
 
-  it("leaves the corpus as it was", () => {
+  it("reports it as skipped rather than failing the run", () => {
+    expect(apply([signpost()], [collision]).skipped).toEqual([
+      {
+        op: "add",
+        id: "staging-read-only",
+        reason: ".signposts/ already carries staging-read-only on this branch",
+      },
+    ]);
+  });
+
+  it("leaves the corpus it was given as it was", () => {
     const corpus = [signpost()];
 
-    expect(() => apply(corpus, [{ op: "add", signpost: signpost() }])).toThrow();
+    apply(corpus, [{ op: "add", signpost: signpost() }]);
+
     expect(corpus).toEqual([signpost()]);
   });
 });
@@ -88,6 +105,9 @@ describe("reinforce", () => {
 
   it("adds the session and author, and dates the reinforcement", () => {
     const result = apply([signpost()], [reinforce]);
+
+    // An operation that applied is not also reported as skipped.
+    expect(result.skipped).toEqual([]);
 
     expect(result.corpus[0]?.provenance).toEqual({
       session_ids: ["sess-1", "sess-2"],
@@ -174,14 +194,37 @@ describe("supersede", () => {
 });
 
 describe("an operation naming something that is not there", () => {
+  // The branch's corpus and the mirror the graph proposes from are different
+  // corpora: the mirror is built from the base branch, and nothing merges the
+  // base into the signposts branch. A teammate's merged signpost is therefore
+  // an id `reinforce` can name and the branch does not carry — ordinary, and
+  // no reason to lose a session the developer answered call by call.
   it.each([
     ["reinforce", { op: "reinforce", id: "gone", sessionId: "s", author: "a" }],
     ["refine", { op: "refine", id: "gone", claim: "x" }],
     ["supersede", { op: "supersede", id: "gone", replacement: signpost({ id: "new" }) }],
-  ] as const)("throws for %s rather than writing the rest", (_label, operation) => {
-    expect(() => apply([signpost()], [operation as Operation])).toThrow(
-      /names gone, which is not in \.signposts\//,
+  ] as const)("reports %s as skipped and writes nothing for it", (label, operation) => {
+    const result = apply([signpost()], [operation as Operation]);
+
+    expect(result.skipped).toEqual([
+      { op: label, id: "gone", reason: "gone is not in .signposts/ on this branch" },
+    ]);
+    expect(result.corpus).toEqual([signpost()]);
+    expect(result.changed).toEqual([]);
+  });
+
+  it("still applies the operations either side of it", () => {
+    const result = apply(
+      [signpost()],
+      [
+        { op: "reinforce", id: "gone", sessionId: "sess-2", author: "other@acme.example" },
+        { op: "add", signpost: signpost({ id: "second", claim: "A second claim" }) },
+      ],
     );
+
+    expect(result.changed).toEqual(["second"]);
+    expect(result.corpus.map((entry) => entry.id)).toEqual(["staging-read-only", "second"]);
+    expect(result.skipped).toHaveLength(1);
   });
 });
 
