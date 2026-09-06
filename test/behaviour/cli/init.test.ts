@@ -14,7 +14,6 @@ import { openDb } from "../../../src/io/db/migrate.js";
 import { hasConsented } from "../../../src/io/db/repo-state.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createEofStdio, createFakeStdio } from "../helpers/fake-stdio.js";
-import { fakePorts } from "../helpers/fake-ports.js";
 
 describe("signpost init", () => {
   let homeDir: string;
@@ -40,7 +39,7 @@ describe("signpost init", () => {
   it("fresh init: creates .signposts/, appends the CLAUDE.md pointer, persists consent on accept", async () => {
     const stdio = createFakeStdio("y");
 
-    const exitCode = await runCli(["init"], { config, ports: fakePorts(), stdio });
+    const exitCode = await runCli(["init"], { config, stdio });
 
     expect(exitCode).toBe(0);
     expect(existsSync(config.paths.knowledgeDir)).toBe(true);
@@ -57,14 +56,14 @@ describe("signpost init", () => {
   it("re-running init on an already-consented repo is a no-op reporting already-initialised", async () => {
     await runCli(["init"], {
       config,
-      ports: fakePorts(),
+     
       stdio: createFakeStdio("y"),
     });
 
     const secondStdio = createFakeStdio();
     const exitCode = await runCli(["init"], {
       config,
-      ports: fakePorts(),
+     
       stdio: secondStdio,
     });
 
@@ -75,7 +74,7 @@ describe("signpost init", () => {
   it("declining consent exits 1 and persists no state", async () => {
     const stdio = createFakeStdio("n");
 
-    const exitCode = await runCli(["init"], { config, ports: fakePorts(), stdio });
+    const exitCode = await runCli(["init"], { config, stdio });
 
     expect(exitCode).toBe(1);
     expect(existsSync(config.paths.knowledgeDir)).toBe(false);
@@ -88,7 +87,7 @@ describe("signpost init", () => {
   it("empty stdin (EOF, non-interactive) is treated as decline, not a hang", async () => {
     const stdio = createEofStdio();
 
-    const exitCode = await runCli(["init"], { config, ports: fakePorts(), stdio });
+    const exitCode = await runCli(["init"], { config, stdio });
 
     expect(exitCode).toBe(1);
     expect(existsSync(config.paths.dbPath)).toBe(false);
@@ -97,12 +96,12 @@ describe("signpost init", () => {
   it("running init twice, accepting both times, is idempotent — the CLAUDE.md pointer is written once", async () => {
     await runCli(["init"], {
       config,
-      ports: fakePorts(),
+     
       stdio: createFakeStdio("y"),
     });
     const exitCode = await runCli(["init"], {
       config,
-      ports: fakePorts(),
+     
       stdio: createFakeStdio("y"),
     });
 

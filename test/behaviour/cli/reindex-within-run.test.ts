@@ -24,7 +24,6 @@ import { projectDirName } from "../../../src/core/transcript/project-dir.js";
 import { operationKey } from "../../../src/core/graph/decisions.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
-import { fakePorts } from "../helpers/fake-ports.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 import { isModelRequest, type PendingRequest } from "../../../src/graph/index.js";
 
@@ -150,7 +149,7 @@ describe("two sessions in one run", () => {
 
   async function invoke(argv: string[]): Promise<RunOutput> {
     const stdio = createFakeStdio();
-    const exitCode = await runCli(argv, { config, ports: fakePorts(), stdio });
+    const exitCode = await runCli(argv, { config, stdio });
     expect(exitCode, stdio.writtenError()).toBe(0);
     return JSON.parse(stdio.writtenOutput()) as RunOutput;
   }

@@ -3,7 +3,7 @@
 // written, no mocking framework — records every call so a test can assert
 // on what reached the forge, per 15-spec.md's "What a good test is here".
 
-import type { Forge } from "../../app.ts";
+import type { Forge } from "./forge.ts";
 
 export interface OpenPrCall {
   branch: string;

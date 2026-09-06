@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
-import { fakePorts } from "../helpers/fake-ports.js";
 
 describe("signpost doctor", () => {
   let homeDir: string;
@@ -35,7 +34,7 @@ describe("signpost doctor", () => {
 
     const exitCode = await runCli(["doctor"], {
       config,
-      ports: fakePorts(),
+     
       stdio,
     });
 
@@ -54,14 +53,14 @@ describe("signpost doctor", () => {
 
     await runCli(["init"], {
       config,
-      ports: fakePorts(),
+     
       stdio: createFakeStdio("y"),
     });
 
     const stdio = createFakeStdio();
     const exitCode = await runCli(["doctor"], {
       config,
-      ports: fakePorts(),
+     
       stdio,
     });
 
@@ -80,7 +79,7 @@ describe("signpost doctor", () => {
     );
 
     const stdio = createFakeStdio();
-    await runCli(["doctor"], { config, ports: fakePorts(), stdio });
+    await runCli(["doctor"], { config, stdio });
 
     expect(stdio.writtenOutput()).toContain("session-start hook: installed");
   });

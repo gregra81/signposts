@@ -21,7 +21,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ZodError } from "zod";
-import type { Forge } from "../../app.ts";
+import type { Forge } from "../forge/forge.ts";
 import type { CommitInput, CommitPort } from "../../graph/ports.ts";
 import { formatZodError } from "../../core/errors/format-zod-error.ts";
 import { INDEX_FILENAME, SIGNPOSTS_DIRNAME } from "../../core/config/constants.ts";

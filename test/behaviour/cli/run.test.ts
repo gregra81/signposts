@@ -16,7 +16,6 @@ import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/res
 import { projectDirName } from "../../../src/core/transcript/project-dir.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
-import { fakePorts } from "../helpers/fake-ports.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 import { MODEL_REQUEST_KIND } from "../../../src/graph/index.js";
 
@@ -139,7 +138,7 @@ describe("the run loop", () => {
   it("lists the eligible session", async () => {
     const stdio = createFakeStdio();
 
-    const exitCode = await runCli(["sessions"], { config, ports: fakePorts(), stdio });
+    const exitCode = await runCli(["sessions"], { config, stdio });
 
     expect(exitCode).toBe(0);
     const output = firstJson(stdio.writtenOutput()) as { sessions: { sessionId: string }[] };
@@ -149,7 +148,7 @@ describe("the run loop", () => {
   it("halts on the first model call, carrying everything needed to answer it", async () => {
     const stdio = createFakeStdio();
 
-    const exitCode = await runCli(["run", "--first"], { config, ports: fakePorts(), stdio });
+    const exitCode = await runCli(["run", "--first"], { config, stdio });
 
     expect(exitCode).toBe(0);
     const output = firstJson(stdio.writtenOutput()) as {
@@ -172,7 +171,7 @@ describe("the run loop", () => {
 
   it("takes the answer and halts on the next question", async () => {
     const started = createFakeStdio();
-    await runCli(["run", "--first"], { config, ports: fakePorts(), stdio: started });
+    await runCli(["run", "--first"], { config, stdio: started });
     const { pending } = firstJson(started.writtenOutput()) as { pending: { id: string }[] };
 
     writeFileSync(
@@ -200,7 +199,7 @@ describe("the run loop", () => {
     const stdio = createFakeStdio();
     const exitCode = await runCli(
       ["resume", "--session", SESSION_ID, "--replies", repliesPath],
-      { config, ports: fakePorts(), stdio },
+      { config, stdio },
     );
 
     expect(exitCode).toBe(0);
@@ -214,7 +213,7 @@ describe("the run loop", () => {
 
   it("refuses an answer of the wrong shape rather than carrying it into the graph", async () => {
     const started = createFakeStdio();
-    await runCli(["run", "--first"], { config, ports: fakePorts(), stdio: started });
+    await runCli(["run", "--first"], { config, stdio: started });
     const { pending } = firstJson(started.writtenOutput()) as { pending: { id: string }[] };
     writeFileSync(repliesPath, JSON.stringify({ replies: { [pending[0]!.id]: { candidates: [{}] } } }), "utf8");
 
@@ -222,7 +221,7 @@ describe("the run loop", () => {
     await expect(
       runCli(["resume", "--session", SESSION_ID, "--replies", repliesPath], {
         config,
-        ports: fakePorts(),
+       
         stdio,
       }),
     ).rejects.toThrow(/extract: structured output did not satisfy its schema/);

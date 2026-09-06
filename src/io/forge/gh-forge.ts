@@ -10,7 +10,7 @@
 // here is the command to open the PR yourself".
 
 import { spawnSync } from "node:child_process";
-import type { Forge } from "../../app.ts";
+import type { Forge } from "./forge.ts";
 
 const OPEN_STATE = "open";
 

@@ -1,9 +1,14 @@
 // Composition root (15-spec.md D1, 16-build-plan.md step 15): the single
-// factory that assembles the application from a resolved config plus the
-// three injected ports and returns an object whose only public entry point
-// is `run(argv)`. Nothing else in the codebase constructs a port (R2) —
-// bin/signpost.js calls this with production ports and process.argv;
-// tests call it with fakes and a temp config.
+// factory that assembles the application from a resolved config plus what it
+// needs injected, and returns an object whose only public entry point is
+// `run(argv)`. Nothing else in the codebase constructs a port (R2) —
+// bin/signpost.js calls this with the production `openRun` and process.argv;
+// tests call it at the same seam with a temp config.
+//
+// `openRun` rather than a bag of built ports: a run's resources — a database
+// handle, a checkpointer, an embedder — live for one invocation, and opening
+// them here would open a database for `doctor` and one for `init` before
+// consent. See src/cli/run-port.ts.
 //
 // `repo` (the "owner/name" key used across repo_state/signposts) is NOT
 // resolved here:
@@ -17,39 +22,15 @@
 // doesn't have to wire it explicitly; tests substitute their own streams
 // the same way they substitute ports.
 
-import type { ModelProvider } from "./core/model/types.ts";
 import type { ResolvedConfig } from "./core/config/resolve.ts";
 import { parseCommand } from "./core/cli/dispatch.ts";
 import { runInit } from "./cli/commands/init.ts";
 import { runIndex } from "./cli/commands/index.ts";
 import { runDoctor } from "./cli/commands/doctor.ts";
 import { runExtraction, runResume, runSessionsList } from "./cli/commands/run.ts";
+import type { OpenRun } from "./cli/run-port.ts";
 
 export type ExitCode = 0 | 1;
-
-export interface Clock {
-  now(): Date;
-}
-
-/** Hosted-PR surface only (15-spec.md D1) — git itself (branch/commit/push) is real git, not behind this port. */
-export interface Forge {
-  /** The open PR number for `branch`, or null if none exists. */
-  hasOpenPr(branch: string): Promise<number | null>;
-  openPr(input: { branch: string; title: string; body: string }): Promise<number>;
-  /**
-   * The body of an open PR. A session appends its own section to what earlier
-   * sessions wrote, so it has to read before it writes.
-   */
-  readPrBody(prNumber: number): Promise<string>;
-  updatePr(prNumber: number, body: string): Promise<void>;
-  setLabels(prNumber: number, labels: readonly string[]): Promise<void>;
-}
-
-export interface Ports {
-  model: ModelProvider;
-  clock: Clock;
-  forge: Forge;
-}
 
 export interface Stdio {
   input: NodeJS.ReadableStream;
@@ -59,7 +40,8 @@ export interface Stdio {
 
 export interface CreateAppInput {
   config: ResolvedConfig;
-  ports: Ports;
+  /** Opens what a run command needs, for one invocation — see src/cli/run-port.ts. */
+  openRun: OpenRun;
   /** Defaults to the real process streams — see module comment. */
   stdio?: Stdio;
 }
@@ -74,7 +56,7 @@ function defaultStdio(): Stdio {
   return { input: process.stdin, output: process.stdout, error: process.stderr };
 }
 
-export function createApp({ config, ports, stdio }: CreateAppInput): App {
+export function createApp({ config, openRun, stdio }: CreateAppInput): App {
   const io = stdio ?? defaultStdio();
   const repoRoot = config.paths.repoRoot;
 
@@ -91,6 +73,7 @@ export function createApp({ config, ports, stdio }: CreateAppInput): App {
       const runInput = {
         config,
         repoRoot,
+        openRun,
         stdout: io.output,
         stderr: io.error,
         ...(command.options.sessionId === undefined ? {} : { sessionId: command.options.sessionId }),

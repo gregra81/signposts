@@ -4,10 +4,11 @@
 // itself — is the only place any port is constructed; every command
 // downstream receives ports already built, never builds its own (R2).
 //
-// The model port is `hostModel`: a model call halts the run and is answered
-// by the Claude Code session that started it (src/graph/host-model.ts).
-// `init`, `index` and `doctor` never call it, and a command that did would
-// halt rather than reach anything.
+// What a run needs is opened by `openRun` (./open-run.ts) rather than here:
+// its resources live for one invocation, and `doctor` has to run in a repo
+// with no database at all. The model port inside it is `hostModel` — a model
+// call halts the run and is answered by the Claude Code session that started
+// it (src/graph/host-model.ts).
 //
 // `repo` (the "owner/name" git-origin key) is NOT resolved here: `doctor`
 // must run in any repo, including one with no GitHub origin, so eagerly
@@ -21,10 +22,8 @@ import process from "node:process";
 import type { App } from "../app.ts";
 import { createApp } from "../app.ts";
 import { resolveConfig } from "../core/config/resolve.ts";
-import { hostModel } from "../graph/host-model.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
-import { systemClock } from "./clock/system-clock.ts";
-import { ghForge } from "./forge/gh-forge.ts";
+import { openRun } from "./open-run.ts";
 
 export function buildProductionApp(): App {
   const repoRoot = process.cwd();
@@ -38,12 +37,5 @@ export function buildProductionApp(): App {
     env: process.env,
   });
 
-  return createApp({
-    config,
-    ports: {
-      model: hostModel,
-      clock: systemClock,
-      forge: ghForge(config.paths.worktreeDir),
-    },
-  });
+  return createApp({ config, openRun });
 }

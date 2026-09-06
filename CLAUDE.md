@@ -9,9 +9,14 @@ authority and this repo is the transcription. Read the one a change touches befo
 `src/core/` is pure. No filesystem, no network, no clock, no `process.env`. `src/io/` is where
 those live. A function that needs the time or the environment takes it as an argument.
 
-Ports are interfaces (`src/graph/ports.ts`, `src/app.ts`) constructed in exactly one place, the
-composition root at `src/io/production-app.ts`. Nothing else builds a port (R2). Nothing below the
-composition root reads the environment (R7). Tests pass fakes into the same seams.
+Ports are interfaces (`src/graph/ports.ts`, `src/cli/run-port.ts`) constructed in exactly one
+place: the composition root, which is `src/io/production-app.ts` and the `openRun` it hands down
+(`src/io/open-run.ts`). Nothing else builds a port (R2). Nothing below the composition root reads
+the environment (R7). Tests pass fakes into the same seams.
+
+A run's resources — a database handle, a checkpointer, an embedder that loads an ONNX pipeline —
+live for one invocation, so `openRun` is a function rather than a built object: `doctor` has to
+run in a repo with no database, and `init` must not create one before consent.
 
 The extraction graph is a LangGraph state machine in `src/graph/`, ten nodes, four of which call a
 model: `extract`, `critic`, `classify`, `resolve_conflict`.
