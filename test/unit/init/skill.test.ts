@@ -19,7 +19,14 @@ describe("the installed skill", () => {
     expect(SKILL_DOC).toContain("description:");
   });
 
-  it.each(["signpost sessions", "signpost run --session", "signpost resume --session", "--replies", "--first"])(
+  it.each([
+    "signpost sessions",
+    "signpost run --session",
+    "signpost resume --session",
+    "--content-hash",
+    "--replies",
+    "--first",
+  ])(
     "names %s",
     (fragment) => {
       expect(SKILL_DOC).toContain(fragment);

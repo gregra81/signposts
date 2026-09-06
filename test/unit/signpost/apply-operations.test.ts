@@ -60,6 +60,24 @@ describe("add", () => {
   });
 });
 
+describe("an add naming an id the corpus already carries", () => {
+  it("throws rather than writing over the signpost it names", () => {
+    // Reachable: `existingIds` comes from the local mirror, and a run clears
+    // the repo's pending rows before it starts — so an id proposed on the
+    // branch by an earlier run and not yet merged can be reminted.
+    expect(() =>
+      apply([signpost()], [{ op: "add", signpost: signpost({ claim: "Something else entirely" }) }]),
+    ).toThrow(/add names staging-read-only, which \.signposts\/ already carries/);
+  });
+
+  it("leaves the corpus as it was", () => {
+    const corpus = [signpost()];
+
+    expect(() => apply(corpus, [{ op: "add", signpost: signpost() }])).toThrow();
+    expect(corpus).toEqual([signpost()]);
+  });
+});
+
 describe("reinforce", () => {
   const reinforce: Operation = {
     op: "reinforce",

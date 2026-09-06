@@ -36,7 +36,8 @@ reasoning of its own: it pauses and asks *you* for each judgement, then carries 
 Every command prints one JSON object. A run advances one halt at a time.
 
 1. \`signpost sessions\` lists what is eligible (idle 24h+, not already processed).
-   Stop here and say so if the list is empty.
+   Stop here and say so if the list is empty. Keep each session's
+   \`contentHash\` — it is half of the thread id, and every resume needs it.
 2. **Delegate the rest to a subagent, one per session.** The prompts below are
    thousands of tokens each and belong in a subagent's context, not the user's.
    Give the subagent this file and the session id.
@@ -44,7 +45,10 @@ Every command prints one JSON object. A run advances one halt at a time.
    run only. It clears what the previous run left pending.
 4. Read \`status\`:
    - \`waiting\` — answer every entry in \`pending\` (below), then
-     \`signpost resume --session <id> --replies <file>\` and read \`status\` again.
+     \`signpost resume --session <id> --content-hash <hash> --replies <file>\`
+     and read \`status\` again. Pass the hash the listing gave you rather than
+     letting it be re-derived: the transcript may have grown since the halt,
+     and a session identified by a different hash is a different thread.
    - \`finished\` — \`proposed\` lists what went into the branch and PR. Move to
      the next session.
 
@@ -54,7 +58,7 @@ Each \`pending\` entry is \`{ "id": "...", "request": { ... } }\`. Write your an
 to a JSON file as \`{ "replies": { "<id>": <answer>, ... } }\` — keyed by id, because
 several may be pending at once and they are not interchangeable.
 
-**\`"kind": "model_call\`"** — the request carries \`node\`, \`system\`, \`user\` and
+**\`"kind": "model_call"\`** — the request carries \`node\`, \`system\`, \`user\` and
 \`schema\`. Follow \`system\` as the instructions, \`user\` as the input, and reply with
 JSON that satisfies \`schema\` exactly. Nothing else validates it: a reply of the
 wrong shape fails the resume.
@@ -66,7 +70,7 @@ wrong shape fails the resume.
   code, \`git log\`, whatever the claim is about. \`undecidable\` is a real answer
   and routes to the developer, so use it rather than guessing.
 
-**\`"kind": "human_review\`"** — do not answer this yourself, and do not let a
+**\`"kind": "human_review"\`** — do not answer this yourself, and do not let a
 subagent answer it. Return to the main session, show the developer each entry in
 \`needsHuman\` (the operation and why it was gated), and ask them to accept, reject
 or edit each one. Then resume with

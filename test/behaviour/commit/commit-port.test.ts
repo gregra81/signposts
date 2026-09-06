@@ -222,6 +222,92 @@ describe("the commit port", () => {
     expect(warnings.join("\n")).toContain("gh pr create --head signposts/greg");
   });
 
+  it("keeps a commit whose push failed, rather than resetting over it on the next run", async () => {
+    // The push-failure path keeps the commit deliberately, on the grounds
+    // that a lost extraction is gone. A later run that reset the worktree to
+    // the remote branch would throw it away silently, one run after the
+    // failure, with nothing said anywhere.
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    git(repoRoot, "remote", "set-url", "origin", path.join(root, "no-such-remote.git"));
+    await apply("sess-2", [
+      { op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR },
+    ]);
+    expect(warnings.join("\n")).toContain("could not push");
+    const unpushed = git(worktreeDir, "rev-parse", "HEAD");
+
+    git(repoRoot, "remote", "set-url", "origin", remote);
+    await apply("sess-3", [
+      { op: "reinforce", id: "staging-read-only", sessionId: "sess-3", author: AUTHOR },
+    ]);
+
+    expect(git(worktreeDir, "log", "--pretty=%H")).toContain(unpushed);
+    expect(git(worktreeDir, "log", "--pretty=%s", "-3").split("\n")).toEqual([
+      "signposts: 1 from session sess-3",
+      "signposts: 1 from session sess-2",
+      "signposts: 1 from session sess-1",
+    ]);
+  });
+
+  it("catches up with the branch when everything here is already pushed", async () => {
+    // Someone merged, or a second machine pushed: the worktree has nothing of
+    // its own, so it takes the remote's version rather than committing onto a
+    // stale copy.
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    const elsewhere = path.join(root, "elsewhere");
+    execFileSync("git", ["clone", "--branch", BRANCH, remote, elsewhere]);
+    git(elsewhere, "config", "user.email", AUTHOR);
+    git(elsewhere, "config", "user.name", "Someone");
+    git(elsewhere, "config", "commit.gpgsign", "false");
+    writeFileSync(path.join(elsewhere, "NOTE.md"), "from another machine\n", "utf8");
+    git(elsewhere, "add", "NOTE.md");
+    git(elsewhere, "commit", "-m", "from another machine");
+    git(elsewhere, "push");
+
+    await apply("sess-2", [
+      { op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR },
+    ]);
+
+    expect(git(worktreeDir, "log", "--pretty=%s", "-2").split("\n")).toEqual([
+      "signposts: 1 from session sess-2",
+      "from another machine",
+    ]);
+  });
+
+  it("names the open pull request when it is the update that failed, not `gh pr create`", async () => {
+    // Sending someone to open a pull request that is already open is either
+    // an error or, on a fork, a second PR.
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    const failingUpdate = makeCommitPort({
+      repoRoot,
+      worktreeDir,
+      branchPattern: BRANCH_PATTERN,
+      author: AUTHOR,
+      forge: {
+        hasOpenPr: (branch) => forge.hasOpenPr(branch),
+        openPr: (input) => forge.openPr(input),
+        readPrBody: (prNumber) => forge.readPrBody(prNumber),
+        updatePr: () => Promise.reject(new Error("gh: label not found")),
+        setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
+      },
+      warn: (message) => warnings.push(message),
+      today: () => TODAY,
+    });
+
+    await failingUpdate.apply({
+      repo: "acme/api",
+      repoRoot,
+      sessionId: "sess-2",
+      operations: [{ op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR }],
+    });
+
+    const warning = warnings.join("\n");
+    expect(warning).toContain("pull request #1");
+    expect(warning).not.toContain("gh pr create");
+  });
+
   it("writes nothing at all for a session that proposed nothing", async () => {
     await apply("sess-1", []);
 

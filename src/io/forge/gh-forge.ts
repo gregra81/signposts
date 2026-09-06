@@ -62,8 +62,11 @@ export function ghForge(cwd: string): Forge {
         input.body,
       ]).trim();
       // `gh pr create` prints the URL, and the number is its last segment.
+      // `Number("")` is 0, and an integer — so the emptiness of a `gh` that
+      // exited 0 without printing a URL has to be caught by the range, not by
+      // the integer check.
       const number = Number(url.split("/").at(-1));
-      if (!Number.isInteger(number)) {
+      if (!Number.isInteger(number) || number <= 0) {
         throw new GhCliError(`gh pr create did not return a pull request URL: ${url}`);
       }
       return number;

@@ -23,6 +23,7 @@ import type { RunOutput, SessionRef, SessionsOutput } from "../protocol.ts";
 import { openCheckpointer } from "../../io/db/checkpointer.ts";
 import { openDb } from "../../io/db/migrate.ts";
 import { markProcessed, processedKeys } from "../../io/db/sessions.ts";
+import { markBootstrapComplete } from "../../io/db/repo-state.ts";
 import { createEmbedder } from "../../io/embed/embedder.ts";
 import { makeCommitPort } from "../../io/commit/commit-port.ts";
 import { ghForge } from "../../io/forge/gh-forge.ts";
@@ -37,6 +38,12 @@ export interface RunCommandInput {
   repoRoot: string;
   /** The session to act on; `run` defaults to the oldest eligible one. */
   sessionId?: string;
+  /**
+   * The session's content hash, as `sessions`/`run` reported it. Half of the
+   * thread id, so `resume` takes it back rather than re-deriving it from a
+   * file that may have moved since the halt.
+   */
+  contentHash?: string;
   /** `signpost resume --replies <path>`; `-` reads stdin. */
   repliesPath?: string;
   /** First session of a fresh run: drop what the last run left pending. */
@@ -99,9 +106,12 @@ export async function runExtraction(input: RunCommandInput): Promise<ExitCode> {
 /** Answers what a halted session asked for and continues it. */
 export async function runResume(input: RunCommandInput): Promise<ExitCode> {
   return withRun(input, async (context) => {
-    const session = await pick(input, context);
+    const session = resuming(input, context) ?? (await pick(input, context));
     if (session === undefined) {
-      return fail(input, "no session to resume — pass --session <id>");
+      return fail(
+        input,
+        "no session to resume — pass --session <id> --content-hash <hash>, as the halt reported them",
+      );
     }
     if (input.repliesPath === undefined) {
       return fail(input, "resume needs --replies <path> (or - for stdin)");
@@ -215,7 +225,7 @@ async function pick(
     transcriptRoot: input.config.paths.transcriptRoot,
     repoRoot: input.repoRoot,
     // A session halted mid-run is not "processed", so it is still discovered
-    // here and `resume` can find it by id.
+    // here and `run` can find it by id.
     processedKeys: processedKeys(context.db, context.repo),
     now: new Date(),
   });
@@ -225,11 +235,47 @@ async function pick(
 }
 
 /**
- * Prints what happened, and records a finished session.
+ * The session a resume is about, from what the caller was told rather than
+ * from the file.
  *
- * A session is only marked processed and its proposals indexed once it
- * finishes: a halted one has proposed nothing yet, and marking it would make
- * the next run skip a thread nobody answered.
+ * The thread id is the repo, the session id and the content hash, so
+ * re-deriving the hash makes a resume depend on the transcript not having
+ * moved since the halt. It moves easily: the developer carries on in that
+ * Claude Code session, or resumes it, and the file grows. Both halves of the
+ * failure are misleading — the recomputed thread id does not exist ("cannot
+ * be resumed by this build"), and the fresh mtime fails the idle gate, so a
+ * caller who passed `--session` is told there is no session to resume. What
+ * the halt reported is what identifies it.
+ */
+function resuming(
+  input: RunCommandInput,
+  context: RunContext,
+): DiscoveredSession | undefined {
+  if (input.sessionId === undefined || input.contentHash === undefined) {
+    return undefined;
+  }
+  return {
+    sessionId: input.sessionId,
+    contentHash: input.contentHash,
+    // Neither is used by a resume: the transcript was read when the run
+    // started, and the session is recorded as processed only once it finishes.
+    transcriptPath: "",
+    lastActivityAt: new Date(),
+  };
+}
+
+/**
+ * Prints what happened, indexes whatever the session has proposed so far, and
+ * records it as processed once it is done.
+ *
+ * The two are deliberately not the same moment. Proposals are indexed as soon
+ * as they exist — including while the session sits at a review — because the
+ * next session must retrieve against them: a review that takes three days
+ * must not make a claim invisible for three days, and without this the run
+ * produces two near-identical `add`s that no classifier ever compared
+ * (06-review-and-pr.md, "Reindex within a run, not only at commit"). Being
+ * marked processed is the opposite: it happens only when the session is
+ * finished, since a session recorded as done is one no later run will pick up.
  */
 async function report(
   input: RunCommandInput,
@@ -239,11 +285,19 @@ async function report(
 ): Promise<ExitCode> {
   const waiting = result.pending.length > 0;
 
+  const proposals = pendingProposals(result.state.gated);
+  if (proposals.length > 0) {
+    await context.ports.pendingIndex.indexPending(context.repo, proposals);
+  }
+
   if (!waiting) {
-    const proposals = pendingProposals(result.state.gated);
-    if (proposals.length > 0) {
-      await context.ports.pendingIndex.indexPending(context.repo, proposals);
-    }
+    // The first run in a repo gates everything to a person, whatever its
+    // confidence, because the gate has never been checked by anyone
+    // (06-review-and-pr.md, "The bootstrap run"). It stops being the first
+    // run when a session of it finishes — without this nothing ever records
+    // that, and every later run keeps sending auto-publishable additions to
+    // review.
+    markBootstrapComplete(context.db, context.repo);
     markProcessed(context.db, {
       sessionId: session.sessionId,
       contentHash: session.contentHash,

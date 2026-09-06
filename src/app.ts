@@ -94,6 +94,7 @@ export function createApp({ config, ports, stdio }: CreateAppInput): App {
         stdout: io.output,
         stderr: io.error,
         ...(command.options.sessionId === undefined ? {} : { sessionId: command.options.sessionId }),
+        ...(command.options.contentHash === undefined ? {} : { contentHash: command.options.contentHash }),
         ...(command.options.repliesPath === undefined ? {} : { repliesPath: command.options.repliesPath }),
         isFirst: command.options.isFirst,
       };

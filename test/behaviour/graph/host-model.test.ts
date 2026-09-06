@@ -121,6 +121,61 @@ describe("a model call halts the run", () => {
     );
   });
 
+  it("says what the thread is waiting on when the answer is keyed by something else", async () => {
+    const { graph, checkpointer } = hostRun();
+    const first = await startRun(graph, checkpointer, RUN_INPUT);
+    const { id } = onlyModelRequest(first);
+
+    await expect(
+      resumeRun(graph, checkpointer, RUN_INPUT, { extract: { candidates: [] } }),
+    ).rejects.toThrow(`is not waiting on extract — it is waiting on ${id}`);
+  });
+
+  it("lists every id it is waiting on, and every key it was given", async () => {
+    // Both lists are read by whoever has to correct the call, so both have to
+    // survive being more than one item long.
+    const { graph, checkpointer } = hostRun();
+    const extract = await startRun(graph, checkpointer, RUN_INPUT);
+    const critic = await resumeRun(graph, checkpointer, RUN_INPUT, {
+      [onlyModelRequest(extract).id]: { candidates: [FIRST, SECOND] },
+    });
+    const classify = await resumeRun(graph, checkpointer, RUN_INPUT, {
+      [onlyModelRequest(critic).id]: keepAll([FIRST, SECOND]),
+    });
+    expect(classify.pending).toHaveLength(2);
+
+    const waitingOn = classify.pending.map((pending) => pending.id);
+    await expect(
+      resumeRun(graph, checkpointer, RUN_INPUT, { t1: {}, t2: {} }),
+    ).rejects.toThrow(`is not waiting on t1, t2 — it is waiting on ${waitingOn.join(", ")}`);
+  });
+
+  it("says so when the thread is waiting on nothing at all", async () => {
+    const { graph, checkpointer } = hostRun();
+    const extract = await startRun(graph, checkpointer, RUN_INPUT);
+    const critic = await resumeRun(graph, checkpointer, RUN_INPUT, {
+      [onlyModelRequest(extract).id]: { candidates: [FIRST] },
+    });
+    const classify = await resumeRun(graph, checkpointer, RUN_INPUT, {
+      [onlyModelRequest(critic).id]: keepAll([FIRST]),
+    });
+    const done = await resumeRun(
+      graph,
+      checkpointer,
+      RUN_INPUT,
+      answerAll(classify, () => ({
+        tempId: "t1",
+        kind: "NOVEL",
+        rationale: "nothing recorded is about this",
+      })),
+    );
+    expect(done.pending).toEqual([]);
+
+    await expect(
+      resumeRun(graph, checkpointer, RUN_INPUT, { "946c846c6ce4ed3e935172b3434f1b95": {} }),
+    ).rejects.toThrow(/is not waiting on 946c846c6ce4ed3e935172b3434f1b95 — it is waiting on nothing/);
+  });
+
   it("rejects an answer that does not satisfy the schema it was given", async () => {
     const { graph, checkpointer } = hostRun();
     const first = await startRun(graph, checkpointer, RUN_INPUT);
@@ -132,6 +187,26 @@ describe("a model call halts the run", () => {
         [onlyModelRequest(first).id]: { candidates: [{ tempId: "t1" }] },
       }),
     ).rejects.toThrow(/extract: structured output did not satisfy its schema/);
+  });
+});
+
+describe("a halt with no id to answer it under", () => {
+  it("fails loudly rather than reading as a finished run", async () => {
+    // LangGraph derives an interrupt's id from the checkpoint namespace, so
+    // this should not happen — but dropping such a halt would report the run
+    // as finished, and the caller would record the session as processed while
+    // the thread sits at an interrupt nothing will ever return to.
+    const checkpointer = new MemorySaver();
+    const graph = {
+      invoke: () =>
+        Promise.resolve({
+          __interrupt__: [{ value: { kind: MODEL_REQUEST_KIND, node: "extract" } }],
+        }),
+    } as unknown as Parameters<typeof startRun>[0];
+
+    await expect(startRun(graph, checkpointer, RUN_INPUT)).rejects.toThrow(
+      /halted on an interrupt with no id/,
+    );
   });
 });
 

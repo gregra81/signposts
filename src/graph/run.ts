@@ -32,7 +32,6 @@ import type { BaseCheckpointSaver, LangGraphRunnableConfig } from "@langchain/la
 import { STATE_VERSION, THREAD_EXPIRY_DAYS } from "../core/config/constants.ts";
 import { buildThreadId, type ThreadIdParts } from "../core/graph/thread-id.ts";
 import { decideCheckpoint, type CheckpointDecision } from "../core/graph/state-version.ts";
-import { pendingProposals } from "../core/graph/pending.ts";
 import type { ExtractionGraph } from "./graph.ts";
 import type { GraphPorts } from "./ports.ts";
 import type { ExtractionState } from "./state.ts";
@@ -74,18 +73,37 @@ export interface RunResult {
 /**
  * What the run halted on, read off the value `invoke` returned.
  *
- * An interrupt with no id is dropped rather than reported: it cannot be
- * answered, since a reply is filed under that id, and reporting it would
- * describe a halt the caller has no way to clear.
+ * An interrupt with no id throws rather than being dropped. A dropped one
+ * would arrive at the caller as an empty `pending`, which is indistinguishable
+ * from a finished run — the session would be recorded as processed and the
+ * thread left parked at a halt nothing ever returns to.
  */
 function pendingOf(state: ExtractionState): PendingRequest[] {
   if (!isInterrupted(state)) {
     return [];
   }
-  return state[INTERRUPT].flatMap((interrupted) =>
-    interrupted.id === undefined
-      ? []
-      : [{ id: interrupted.id, request: interrupted.value as ModelRequest | ReviewRequest }],
+  return state[INTERRUPT].map((interrupted) => {
+    if (interrupted.id === undefined) {
+      throw new Error(
+        "a run halted on an interrupt with no id, so there is no key to answer it under",
+      );
+    }
+    return { id: interrupted.id, request: interrupted.value as ModelRequest | ReviewRequest };
+  });
+}
+
+/** What the thread is halted on right now, according to its checkpoint. */
+async function pendingOnThread(
+  graph: ExtractionGraph,
+  config: LangGraphRunnableConfig,
+): Promise<PendingRequest[]> {
+  const snapshot = await graph.getState(config);
+  return snapshot.tasks.flatMap((task) =>
+    task.interrupts.flatMap((interrupted) =>
+      interrupted.id === undefined
+        ? []
+        : [{ id: interrupted.id, request: interrupted.value as ModelRequest | ReviewRequest }],
+    ),
   );
 }
 
@@ -158,54 +176,6 @@ export async function startRun(
   return { threadId, disposition: "fresh", state, pending: pendingOf(state) };
 }
 
-/**
- * Runs every session in one run, reindexing after each one.
- *
- * The loop is sequential, and that is the whole point rather than an
- * oversight: session N+1 must retrieve against what session N proposed. Run
- * them concurrently and both see the corpus as it stood when the run began,
- * both classify the same lesson NOVEL, and the PR carries two near-identical
- * `add`s that no classifier ever compared (06-review-and-pr.md, "Reindex
- * within a run, not only at commit").
- *
- * Reindexing happens as soon as a session's operations are proposed — the
- * gate's partition — not when they merge. A session halted at `human_review`
- * has still proposed; its operations are indexed as pending like any other,
- * because a review that takes three days must not make a claim invisible for
- * three days.
- *
- * The run starts by clearing whatever the last run left pending. Those rows
- * describe proposals that have since either merged — in which case `signpost
- * index` has mirrored them as ordinary rows — or been rejected, and a rejected
- * proposal that stayed in the index would be retrieved by every later run as
- * though a person had approved it. Nothing else deletes them; see
- * PendingIndexPort.
- */
-export async function runSessions(
-  graph: ExtractionGraph,
-  checkpointer: BaseCheckpointSaver,
-  ports: Pick<GraphPorts, "pendingIndex">,
-  inputs: readonly RunInput[],
-): Promise<RunResult[]> {
-  const results: RunResult[] = [];
-
-  for (const repo of new Set(inputs.map((input) => input.repo))) {
-    await ports.pendingIndex.clear(repo);
-  }
-
-  for (const input of inputs) {
-    const result = await startRun(graph, checkpointer, input);
-    results.push(result);
-
-    const proposals = pendingProposals(result.state.gated);
-    if (proposals.length > 0) {
-      await ports.pendingIndex.indexPending(input.repo, proposals);
-    }
-  }
-
-  return results;
-}
-
 /** The checkpoint for a thread, judged on both its version and its age. */
 async function load(
   checkpointer: BaseCheckpointSaver,
@@ -275,6 +245,23 @@ export async function resumeRun(
 
   if (Object.keys(replies).length === 0) {
     throw new Error(`resumeRun: thread ${threadId} was given no answers to resume with.`);
+  }
+
+  // Every key has to name a halt this thread is actually waiting on. The map
+  // form of `resume` is only recognised when *every* key is an interrupt id
+  // (LangGraph tests them against /^[0-9a-f]{32}$/); one key that is not — a
+  // node name, a truncated id, an id from an earlier halt — silently demotes
+  // the whole object to the bare form, which hands all of it to every halted
+  // task as that task's answer. Checking the keys here is what makes the
+  // "answers are keyed by id" contract true rather than merely intended.
+  const pending = await pendingOnThread(graph, config);
+  const answerable = new Set(pending.map((request) => request.id));
+  const unknown = Object.keys(replies).filter((id) => !answerable.has(id));
+  if (unknown.length > 0) {
+    throw new Error(
+      `resumeRun: thread ${threadId} is not waiting on ${unknown.join(", ")} — ` +
+        `it is waiting on ${pending.length === 0 ? "nothing" : [...answerable].join(", ")}`,
+    );
   }
 
   // The map form of `resume`, not the bare value: LangGraph routes a bare

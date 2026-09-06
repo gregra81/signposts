@@ -68,12 +68,7 @@ export function ensureWorktree(input: {
   const { repoRoot, worktreeDir, branch } = input;
 
   if (existsSync(path.join(worktreeDir, ".git"))) {
-    // Already there from an earlier run. Bring it up to date with the branch
-    // as the remote has it, so a commit lands on top of what is in the PR
-    // rather than forking from a stale local copy.
-    git(worktreeDir, ["fetch", "origin", branch]);
-    git(worktreeDir, ["reset", "--hard", `origin/${branch}`]);
-    return { ok: true, output: worktreeDir };
+    return refresh(worktreeDir, branch);
   }
 
   mkdirSync(path.dirname(worktreeDir), { recursive: true });
@@ -90,6 +85,41 @@ export function ensureWorktree(input: {
 
   const added = git(repoRoot, args);
   return added.ok ? { ok: true, output: worktreeDir } : added;
+}
+
+/**
+ * Brings an existing worktree up to date with the branch as the remote has
+ * it, so a commit lands on top of what is in the pull request rather than
+ * forking from a stale local copy.
+ *
+ * The reset only happens when the local branch is an ancestor of the remote
+ * one — when everything here is already pushed. Otherwise it would discard a
+ * commit whose push failed, which is precisely the case the commit port keeps
+ * on purpose ("wrote N file(s) but could not push"): the extraction is the
+ * expensive part, and it would be lost silently, on a later run, with nothing
+ * said. Unpushed work is left where it is and the next commit stacks on it.
+ *
+ * A fetch that fails is not fatal either — offline is the ordinary reason a
+ * push failed in the first place, and the worktree as it stands is still the
+ * right place to commit.
+ */
+function refresh(worktreeDir: string, branch: string): GitResult {
+  const remoteRef = `origin/${branch}`;
+
+  const fetched = git(worktreeDir, ["fetch", "origin", branch]);
+  if (!fetched.ok) {
+    return { ok: true, output: worktreeDir };
+  }
+  if (!git(worktreeDir, ["rev-parse", "--verify", remoteRef]).ok) {
+    // The branch exists only here — nothing to catch up with.
+    return { ok: true, output: worktreeDir };
+  }
+  if (!git(worktreeDir, ["merge-base", "--is-ancestor", "HEAD", remoteRef]).ok) {
+    return { ok: true, output: worktreeDir };
+  }
+
+  const reset = git(worktreeDir, ["reset", "--hard", remoteRef]);
+  return reset.ok ? { ok: true, output: worktreeDir } : reset;
 }
 
 /**

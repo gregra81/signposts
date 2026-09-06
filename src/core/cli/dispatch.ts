@@ -15,6 +15,8 @@ export type KnownCommand = (typeof KNOWN_COMMANDS)[number];
 export interface CommandOptions {
   /** `--session <id>` — which session to run or resume. */
   sessionId?: string;
+  /** `--content-hash <hash>` — the other half of the thread id, for a resume. */
+  contentHash?: string;
   /** `--replies <path>` — the answers to a halt, or `-` for stdin. */
   repliesPath?: string;
   /** `--first` — this is the first session of a fresh run. */
@@ -24,8 +26,22 @@ export interface CommandOptions {
 export type ParsedCommand = { name: KnownCommand; options: CommandOptions } | { name: "unknown" };
 
 const SESSION_FLAG = "--session";
+const CONTENT_HASH_FLAG = "--content-hash";
 const REPLIES_FLAG = "--replies";
 const FIRST_FLAG = "--first";
+
+/**
+ * A flag's value, or undefined when the next argument is another flag.
+ *
+ * `--replies --session abc` used to read "--session" as the path, which
+ * surfaced as ENOENT on a file called `--session` rather than as the missing
+ * value it was. A machine-assembled command line is exactly where a value
+ * goes missing, which is the case these named flags exist for.
+ */
+function valueAt(argv: readonly string[], index: number): string | undefined {
+  const value = argv[index];
+  return value === undefined || value.startsWith("--") ? undefined : value;
+}
 
 function parseOptions(argv: readonly string[]): CommandOptions {
   const options: CommandOptions = { isFirst: false };
@@ -33,12 +49,17 @@ function parseOptions(argv: readonly string[]): CommandOptions {
     if (argument === FIRST_FLAG) {
       options.isFirst = true;
     } else if (argument === SESSION_FLAG) {
-      const value = argv[index + 1];
+      const value = valueAt(argv, index + 1);
       if (value !== undefined) {
         options.sessionId = value;
       }
+    } else if (argument === CONTENT_HASH_FLAG) {
+      const value = valueAt(argv, index + 1);
+      if (value !== undefined) {
+        options.contentHash = value;
+      }
     } else if (argument === REPLIES_FLAG) {
-      const value = argv[index + 1];
+      const value = valueAt(argv, index + 1);
       if (value !== undefined) {
         options.repliesPath = value;
       }

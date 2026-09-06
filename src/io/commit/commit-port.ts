@@ -14,7 +14,7 @@
 //
 // The local embedding index is deliberately not rebuilt here. What this
 // writes is *proposed*, and proposals reach retrieval through the pending
-// index (src/io/db/pending-index.ts), which `runSessions` maintains. The
+// index (src/io/db/pending-index.ts), which the run commands maintain. The
 // merged corpus has not changed, so the index that mirrors it has not either
 // — it rebuilds on the next run, when the content hash moves.
 
@@ -148,6 +148,9 @@ function writeCorpus(
  *
  * A forge that cannot be reached is reported, not thrown. The branch is
  * pushed by this point, so the work is safe and one command away from review.
+ * What that command is depends on how far this got: telling someone to open a
+ * pull request that is already open sends them to `gh pr create` for a branch
+ * that has one, which errors — or, on a fork, opens a second.
  */
 async function openOrUpdatePr(
   input: CommitPortInput,
@@ -155,9 +158,10 @@ async function openOrUpdatePr(
   operations: CommitInput,
 ): Promise<void> {
   const section = prSection(operations.sessionId, operations.operations);
+  let open: number | null = null;
 
   try {
-    const open = await input.forge.hasOpenPr(branch);
+    open = await input.forge.hasOpenPr(branch);
     const prNumber =
       open ?? (await input.forge.openPr({ branch, title: PR_TITLE, body: prBody("", section) }));
 
@@ -167,10 +171,14 @@ async function openOrUpdatePr(
 
     await input.forge.setLabels(prNumber, prLabels(operations.operations));
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
     input.warn(
-      `signposts: pushed ${branch}, but could not open or update the pull request ` +
-        `(${error instanceof Error ? error.message : String(error)}). ` +
-        `Run: gh pr create --head ${branch} --title ${JSON.stringify(PR_TITLE)}`,
+      open === null
+        ? `signposts: pushed ${branch}, but could not open its pull request (${reason}). ` +
+            `Run: gh pr create --head ${branch} --title ${JSON.stringify(PR_TITLE)}`
+        : `signposts: pushed ${branch} and its commit is on pull request #${String(open)}, ` +
+            `but that pull request could not be updated (${reason}). ` +
+            `The body and labels are stale; the commit is not.`,
     );
   }
 }

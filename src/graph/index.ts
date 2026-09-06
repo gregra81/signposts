@@ -8,7 +8,6 @@ export { buildExtractionGraph, type BuildGraphOptions, type ExtractionGraph } fr
 export {
   startRun,
   resumeRun,
-  runSessions,
   threadConfigFor,
   initialState,
   type RunInput,

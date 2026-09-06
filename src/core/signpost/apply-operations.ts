@@ -10,7 +10,8 @@
 // An operation naming an id no file carries throws rather than being skipped.
 // It means the corpus moved under the run (a file deleted while it was
 // halted, a merge that removed one), and applying the rest would write a
-// partial result nobody asked for.
+// partial result nobody asked for. An `add` naming an id the corpus *does*
+// carry throws for the mirror-image reason — see below.
 
 import { OPERATION_TAGS, type Operation } from "../contracts/graph.ts";
 import { statusSchema, type Signpost } from "./schema.ts";
@@ -57,7 +58,20 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
 
   for (const operation of input.operations) {
     switch (operation.op) {
+      // Never over an id that is already there. Slug generation avoids the
+      // ids in `existingIds`, which comes from the local mirror — and a run
+      // clears the repo's pending rows before it starts, so an id proposed on
+      // the branch by an earlier run and not yet merged is absent from that
+      // set and can be reminted. Writing it would replace a claim, its
+      // evidence and its provenance while the pull request still describes
+      // the row as an `add`. src/io/db/pending-index.ts refuses the same
+      // thing for the same reason.
       case OPERATION_TAGS.add:
+        if (byId.has(operation.signpost.id)) {
+          throw new Error(
+            `add names ${operation.signpost.id}, which .signposts/ already carries`,
+          );
+        }
         replace(operation.signpost);
         break;
 
