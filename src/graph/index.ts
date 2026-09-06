@@ -12,10 +12,14 @@ export {
   threadConfigFor,
   initialState,
   type RunInput,
+  type PendingRequest,
+  type Replies,
   type RunResult,
 } from "./run.ts";
+export { hostModel, isModelRequest, MODEL_REQUEST_KIND, type ModelRequest } from "./host-model.ts";
 export { NODE_IDS, type NodeId } from "./node-ids.ts";
 export { GraphAnnotation, type ExtractionState, type ExtractionUpdate } from "./state.ts";
+export { REVIEW_REQUEST_KIND } from "./nodes/human-review.ts";
 export type { ReviewRequest, ReviewResponse } from "./nodes/human-review.ts";
 export type {
   CommitInput,
@@ -24,6 +28,5 @@ export type {
   GutterPort,
   NeighbourPort,
   PendingIndexPort,
-  RepoToolsPort,
   SignpostIndexPort,
 } from "./ports.ts";

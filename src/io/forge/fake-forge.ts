@@ -27,6 +27,7 @@ export class FakeForge implements Forge {
   readonly setLabelsCalls: SetLabelsCall[] = [];
 
   private readonly openPrsByBranch = new Map<string, number>();
+  private readonly bodies = new Map<number, string>();
   private nextPrNumber = 1;
 
   async hasOpenPr(branch: string): Promise<number | null> {
@@ -38,11 +39,17 @@ export class FakeForge implements Forge {
     const prNumber = this.nextPrNumber;
     this.nextPrNumber += 1;
     this.openPrsByBranch.set(input.branch, prNumber);
+    this.bodies.set(prNumber, input.body);
     return prNumber;
+  }
+
+  async readPrBody(prNumber: number): Promise<string> {
+    return this.bodies.get(prNumber) ?? "";
   }
 
   async updatePr(prNumber: number, body: string): Promise<void> {
     this.updatePrCalls.push({ prNumber, body });
+    this.bodies.set(prNumber, body);
   }
 
   async setLabels(prNumber: number, labels: readonly string[]): Promise<void> {

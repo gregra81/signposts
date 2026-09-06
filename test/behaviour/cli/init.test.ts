@@ -14,7 +14,7 @@ import { openDb } from "../../../src/io/db/migrate.js";
 import { hasConsented } from "../../../src/io/db/repo-state.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createEofStdio, createFakeStdio } from "../helpers/fake-stdio.js";
-import { fakePorts, NO_CREDENTIALS } from "../helpers/fake-ports.js";
+import { fakePorts } from "../helpers/fake-ports.js";
 
 describe("signpost init", () => {
   let homeDir: string;
@@ -40,7 +40,7 @@ describe("signpost init", () => {
   it("fresh init: creates .signposts/, appends the CLAUDE.md pointer, persists consent on accept", async () => {
     const stdio = createFakeStdio("y");
 
-    const exitCode = await runCli(["init"], { config, ports: fakePorts(), credentials: NO_CREDENTIALS, stdio });
+    const exitCode = await runCli(["init"], { config, ports: fakePorts(), stdio });
 
     expect(exitCode).toBe(0);
     expect(existsSync(config.paths.knowledgeDir)).toBe(true);
@@ -58,7 +58,6 @@ describe("signpost init", () => {
     await runCli(["init"], {
       config,
       ports: fakePorts(),
-      credentials: NO_CREDENTIALS,
       stdio: createFakeStdio("y"),
     });
 
@@ -66,7 +65,6 @@ describe("signpost init", () => {
     const exitCode = await runCli(["init"], {
       config,
       ports: fakePorts(),
-      credentials: NO_CREDENTIALS,
       stdio: secondStdio,
     });
 
@@ -77,7 +75,7 @@ describe("signpost init", () => {
   it("declining consent exits 1 and persists no state", async () => {
     const stdio = createFakeStdio("n");
 
-    const exitCode = await runCli(["init"], { config, ports: fakePorts(), credentials: NO_CREDENTIALS, stdio });
+    const exitCode = await runCli(["init"], { config, ports: fakePorts(), stdio });
 
     expect(exitCode).toBe(1);
     expect(existsSync(config.paths.knowledgeDir)).toBe(false);
@@ -90,7 +88,7 @@ describe("signpost init", () => {
   it("empty stdin (EOF, non-interactive) is treated as decline, not a hang", async () => {
     const stdio = createEofStdio();
 
-    const exitCode = await runCli(["init"], { config, ports: fakePorts(), credentials: NO_CREDENTIALS, stdio });
+    const exitCode = await runCli(["init"], { config, ports: fakePorts(), stdio });
 
     expect(exitCode).toBe(1);
     expect(existsSync(config.paths.dbPath)).toBe(false);
@@ -100,13 +98,11 @@ describe("signpost init", () => {
     await runCli(["init"], {
       config,
       ports: fakePorts(),
-      credentials: NO_CREDENTIALS,
       stdio: createFakeStdio("y"),
     });
     const exitCode = await runCli(["init"], {
       config,
       ports: fakePorts(),
-      credentials: NO_CREDENTIALS,
       stdio: createFakeStdio("y"),
     });
 

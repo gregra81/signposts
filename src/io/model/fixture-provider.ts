@@ -1,28 +1,13 @@
-// Fixture-backed ModelProvider: lets the graph run offline against
-// recorded model responses. Never calls a live API — a cache miss is a
-// hard error, not a fallback.
+// Fixture-backed ModelProvider: lets the graph run against recorded replies,
+// with no host and no session behind it. A miss is a hard error, not a
+// fallback — a test that silently answered its own question would prove
+// nothing.
 
-import type {
-  JSONSchema,
-  ModelProvider,
-  NodeName,
-  ToolDef,
-  Usage,
-} from "../../core/model/types.ts";
+import type { JSONSchema, ModelProvider, NodeName } from "../../core/model/types.ts";
 
-export interface FixtureEntry {
-  value: unknown;
-  usage: Usage;
-}
-
-/** Deterministic lookup key: (node, resolved model id, system, user). */
-export function fixtureKey(
-  node: NodeName,
-  modelId: string,
-  system: string,
-  user: string,
-): string {
-  return JSON.stringify([node, modelId, system, user]);
+/** Deterministic lookup key: (node, system, user). */
+export function fixtureKey(node: NodeName, system: string, user: string): string {
+  return JSON.stringify([node, system, user]);
 }
 
 function truncate(text: string, max = 160): string {
@@ -30,15 +15,10 @@ function truncate(text: string, max = 160): string {
 }
 
 export class FixtureModelProvider implements ModelProvider {
-  private readonly fixtures: Record<string, FixtureEntry>;
-  private readonly models: Record<NodeName, string>;
+  private readonly fixtures: Record<string, unknown>;
 
-  constructor(
-    fixtures: Record<string, FixtureEntry>,
-    models: Record<NodeName, string>,
-  ) {
+  constructor(fixtures: Record<string, unknown>) {
     this.fixtures = fixtures;
-    this.models = models;
   }
 
   async structured<T>(req: {
@@ -46,18 +26,14 @@ export class FixtureModelProvider implements ModelProvider {
     system: string;
     user: string;
     schema: JSONSchema;
-    batchable?: boolean;
-    tools?: ToolDef[];
-  }): Promise<{ value: T; usage: Usage }> {
-    const modelId = this.models[req.node];
-    const key = fixtureKey(req.node, modelId, req.system, req.user);
-    const entry = this.fixtures[key];
-    if (!entry) {
+  }): Promise<T> {
+    const key = fixtureKey(req.node, req.system, req.user);
+    if (!(key in this.fixtures)) {
       throw new Error(
-        `FixtureModelProvider: no fixture recorded for node=${req.node} model=${modelId} ` +
+        `FixtureModelProvider: no fixture recorded for node=${req.node} ` +
           `system=${JSON.stringify(truncate(req.system))} user=${JSON.stringify(truncate(req.user))}`,
       );
     }
-    return { value: entry.value as T, usage: entry.usage };
+    return this.fixtures[key] as T;
   }
 }

@@ -10,16 +10,9 @@
 // test to the exact bytes of a prompt it is not testing.
 
 import { MemorySaver } from "@langchain/langgraph";
-import { MODEL_DEFAULT, STATE_VERSION } from "../../../src/core/config/constants.ts";
+import { STATE_VERSION } from "../../../src/core/config/constants.ts";
 import { buildExtractionGraph } from "../../../src/graph/index.ts";
-import type {
-  JSONSchema,
-  ModelProvider,
-  NodeName,
-  ToolDef,
-  ToolRunner,
-  Usage,
-} from "../../../src/core/model/types.ts";
+import type { JSONSchema, ModelProvider, NodeName } from "../../../src/core/model/types.ts";
 import type { GutteredSession } from "../../../src/core/gutter/types.ts";
 import type { Candidate, NeighbourSignpost, Operation } from "../../../src/core/contracts/graph.ts";
 import type { PendingProposal } from "../../../src/core/graph/pending.ts";
@@ -32,27 +25,14 @@ import type {
   GutterPort,
   NeighbourPort,
   PendingIndexPort,
-  RepoToolsPort,
   SignpostIndexPort,
 } from "../../../src/graph/index.ts";
-
-const USAGE: Usage = {
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheCreationTokens: 0,
-  model: MODEL_DEFAULT,
-  costUsd: 0,
-};
 
 export interface RecordedCall {
   node: NodeName;
   system: string;
   user: string;
   schema: JSONSchema;
-  /** Phase 4.5: what the node offered the model, and whether it can be run. */
-  tools?: ToolDef[];
-  hasRunTool: boolean;
 }
 
 /**
@@ -84,17 +64,12 @@ export class ScriptedModelProvider implements ModelProvider {
     system: string;
     user: string;
     schema: JSONSchema;
-    batchable?: boolean;
-    tools?: ToolDef[];
-    runTool?: ToolRunner;
-  }): Promise<{ value: T; usage: Usage }> {
+  }): Promise<T> {
     const call: RecordedCall = {
       node: req.node,
       system: req.system,
       user: req.user,
       schema: req.schema,
-      ...(req.tools === undefined ? {} : { tools: req.tools }),
-      hasRunTool: req.runTool !== undefined,
     };
     this.calls.push(call);
 
@@ -111,14 +86,14 @@ export class ScriptedModelProvider implements ModelProvider {
       (reply) => hasTempId(reply) && req.user.includes(`"tempId":"${reply.tempId}"`),
     );
     if (addressed !== undefined) {
-      return { value: addressed as T, usage: USAGE };
+      return addressed as T;
     }
 
     // The last reply is reused rather than consumed, so a node called N times
     // needs one entry unless the test wants the answers to differ.
     const reply = queue.length === 1 ? queue[0] : queue.shift();
     const value = typeof reply === "function" ? (reply as (call: RecordedCall) => unknown)(call) : reply;
-    return { value: value as T, usage: USAGE };
+    return value as T;
   }
 }
 
@@ -241,25 +216,6 @@ export class FakeCommitPort implements CommitPort {
   }
 }
 
-/**
- * Records which checkout each runner was bound to and every call made through
- * it, so a test can assert the node passed graph state's repoRoot rather than
- * something the model named. The real port is src/io/tools/repo-tools.ts;
- * confinement is tested there, against a real filesystem.
- */
-export class FakeRepoToolsPort implements RepoToolsPort {
-  readonly roots: string[] = [];
-  readonly calls: { repoRoot: string; name: string; input: unknown }[] = [];
-
-  forRepo(repoRoot: string): ToolRunner {
-    this.roots.push(repoRoot);
-    return async (name, input) => {
-      this.calls.push({ repoRoot, name, input });
-      return { content: "nothing recorded", isError: false };
-    };
-  }
-}
-
 export interface HarnessOptions {
   script: Script;
   session: GutteredSession;
@@ -276,7 +232,6 @@ export interface Harness extends GraphPorts {
   pendingIndex: FakePendingIndexPort;
   index: FakeIndexPort;
   commit: FakeCommitPort;
-  tools: FakeRepoToolsPort;
 }
 
 export const AUTHOR = "dev@acme.example";
@@ -294,7 +249,6 @@ export function makeHarness(options: HarnessOptions): Harness {
     pendingIndex,
     index: new FakeIndexPort(options.existing ?? [], options.bootstrap ?? false, pendingIndex),
     commit: new FakeCommitPort(),
-    tools: new FakeRepoToolsPort(),
     author: AUTHOR,
     now: () => now,
   };

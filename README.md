@@ -17,7 +17,7 @@ A signpost is what a previous traveler leaves behind so the next one doesn't tak
 1. Scan `~/.claude/projects/**.jsonl` for sessions that have been idle 24+ hours.
 2. Strip each transcript down to the human turns plus trimmed assistant context. No LLM involved
    at this step — it's cheap and it runs on everything.
-3. An LLM proposes candidate signposts, then a second pass critiques them with a skeptical eye.
+3. Your Claude Code session proposes candidate signposts, then critiques them with a skeptical eye.
 4. For each candidate, retrieve the nearest existing signposts and classify it: new, duplicate,
    refinement, or contradiction.
 5. High-confidence new additions open a PR automatically. Anything low-confidence, anything that
@@ -26,8 +26,9 @@ A signpost is what a previous traveler leaves behind so the next one doesn't tak
 
 ## Decisions that shaped this
 
-**Local-first, no server.** Transcripts are private and sometimes contain secrets that weren't
-meant to leave the machine. Extraction runs locally with your own credentials, and it means
+**Local-first, no server, no API key.** Transcripts are private and sometimes contain secrets that
+weren't meant to leave the machine. Extraction runs inside the Claude Code session you already
+have — signposts pauses and asks it to do the reading — so there is nothing to sign up for and
 install is one command instead of a deployment.
 
 **Git is the store.** Signposts live as markdown under `.signposts/` in the project's own repo.
@@ -45,6 +46,16 @@ isn't really final until enough time has passed.
 **The write path ships first.** Reading signposts back into a session starts as a plain
 `CLAUDE.md` pointer; a proper MCP server comes later. Retrieval-and-inject is already a crowded
 space — the part worth building first is getting the knowledge captured at all.
+
+## Using it
+
+```
+npm i -g signposts
+signpost init          # asks once, writes .signposts/ and the skill
+```
+
+After that you never run it by hand: ask Claude to run signposts, and the skill it installed drives
+the extraction, brings anything that needs your judgement back to you, and opens the PR.
 
 ## Where this stands
 

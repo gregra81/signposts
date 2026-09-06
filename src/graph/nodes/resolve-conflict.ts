@@ -16,7 +16,6 @@
 // The calls inside are still one per contradiction and still concurrent.
 
 import { CLASSIFICATION_KINDS } from "../../core/contracts/graph.ts";
-import { resolveToolDefs } from "../../core/graph/resolve-tools.ts";
 import { resolveUserTurn } from "../../core/prompts/user-turns.ts";
 import { callStructured } from "../llm.ts";
 import type { Candidate, Resolution } from "../../core/contracts/graph.ts";
@@ -65,19 +64,14 @@ async function resolveOne(
     return undefined;
   }
 
-  // The tools go out with every resolve call, and the runner is bound to the
-  // run's own repoRoot rather than to anything the model can name. Whether
-  // they get used is the model's decision; whether a path they are handed is
-  // reachable is not — see src/io/tools/repo-tools.ts. The provider bounds
-  // the back-and-forth at MAX_RESOLVE_TOOL_ITERATIONS and then makes the
-  // model answer, which is why running out of evidence produces an
-  // `undecidable` resolution instead of an exception.
+  // The two claims are all this call carries. Anything else the adjudication
+  // needs — what the code actually does today, when each claim was written —
+  // is in the repository the session is already working in, and reading it is
+  // the answerer's business rather than a lookup signposts brokers.
   const resolution = await callStructured({
     model: ports.model,
     node: "resolve",
     user: resolveUserTurn(state.repo, candidate, existing),
-    tools: resolveToolDefs(),
-    runTool: ports.tools.forRepo(state.repoRoot),
   });
   return { tempId: candidate.tempId, resolution };
 }

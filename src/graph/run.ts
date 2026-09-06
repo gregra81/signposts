@@ -1,7 +1,14 @@
 // Starting and resuming one extraction run.
 //
-// This is where the thread id and the state version meet the checkpointer.
-// Both exist for the same reason: a human may answer `human_review` three
+// A run halts whenever it needs something only the session outside it can
+// give: an answer from the model (src/graph/host-model.ts) or a decision from
+// a person (nodes/human-review.ts). Both are `interrupt()`s, both come back
+// here as pending requests, and both are answered the same way — by interrupt
+// id, through `resumeRun`. A run therefore proceeds in halts: start, answer
+// what came back, resume, repeat until nothing is pending.
+//
+// This is also where the thread id and the state version meet the
+// checkpointer. Both exist for the same reason: an answer may arrive three
 // days later, from a process that never saw this one.
 //
 //   - The thread id is *computed*, never remembered
@@ -20,7 +27,7 @@
 //     partition was computed against neighbours, ids and a bootstrap flag the
 //     repo has long since moved past.
 
-import { Command } from "@langchain/langgraph";
+import { Command, INTERRUPT, isInterrupted } from "@langchain/langgraph";
 import type { BaseCheckpointSaver, LangGraphRunnableConfig } from "@langchain/langgraph";
 import { STATE_VERSION, THREAD_EXPIRY_DAYS } from "../core/config/constants.ts";
 import { buildThreadId, type ThreadIdParts } from "../core/graph/thread-id.ts";
@@ -29,7 +36,8 @@ import { pendingProposals } from "../core/graph/pending.ts";
 import type { ExtractionGraph } from "./graph.ts";
 import type { GraphPorts } from "./ports.ts";
 import type { ExtractionState } from "./state.ts";
-import type { ReviewResponse } from "./nodes/human-review.ts";
+import type { ModelRequest } from "./host-model.ts";
+import type { ReviewRequest } from "./nodes/human-review.ts";
 
 export interface RunInput extends ThreadIdParts {
   repoRoot: string;
@@ -37,11 +45,48 @@ export interface RunInput extends ThreadIdParts {
   transcriptPath: string;
 }
 
+/** What a halted run is waiting for, and the id its answer is filed under. */
+export interface PendingRequest {
+  /**
+   * LangGraph's interrupt id. Answers are keyed by it rather than by position
+   * because `classify` fans out: several tasks can be halted at once, and a
+   * positional answer would hand one candidate's classification to another.
+   */
+  id: string;
+  request: ModelRequest | ReviewRequest;
+}
+
+/** One answer per pending request, keyed by `PendingRequest.id`. */
+export type Replies = Record<string, unknown>;
+
 export interface RunResult {
   threadId: string;
   /** Whether the checkpoint was resumed, started clean, or thrown away first. */
   disposition: "resumed" | "fresh" | "discarded";
   state: ExtractionState;
+  /**
+   * Empty when the run finished. Otherwise what it halted on: answer every
+   * entry and hand the lot back to `resumeRun`.
+   */
+  pending: PendingRequest[];
+}
+
+/**
+ * What the run halted on, read off the value `invoke` returned.
+ *
+ * An interrupt with no id is dropped rather than reported: it cannot be
+ * answered, since a reply is filed under that id, and reporting it would
+ * describe a halt the caller has no way to clear.
+ */
+function pendingOf(state: ExtractionState): PendingRequest[] {
+  if (!isInterrupted(state)) {
+    return [];
+  }
+  return state[INTERRUPT].flatMap((interrupted) =>
+    interrupted.id === undefined
+      ? []
+      : [{ id: interrupted.id, request: interrupted.value as ModelRequest | ReviewRequest }],
+  );
 }
 
 export function threadConfigFor(threadId: string): LangGraphRunnableConfig {
@@ -99,18 +144,18 @@ export async function startRun(
     // deterministic reduction, because no guttered text was ever checkpointed.
     await checkpointer.deleteThread(threadId);
     const state = await graph.invoke(initialState(input), config);
-    return { threadId, disposition: "discarded", state };
+    return { threadId, disposition: "discarded", state, pending: pendingOf(state) };
   }
 
   if (decision.action === "resume") {
     // `null` continues the existing thread from its last checkpoint rather
     // than seeding it again — re-sending the input would replay `extract`.
     const state = await graph.invoke(null, config);
-    return { threadId, disposition: "resumed", state };
+    return { threadId, disposition: "resumed", state, pending: pendingOf(state) };
   }
 
   const state = await graph.invoke(initialState(input), config);
-  return { threadId, disposition: "fresh", state };
+  return { threadId, disposition: "fresh", state, pending: pendingOf(state) };
 }
 
 /**
@@ -174,7 +219,12 @@ async function load(
 }
 
 /**
- * Answers a halted `human_review` and lets the run finish.
+ * Answers what a halted run asked for and lets it carry on.
+ *
+ * `replies` is keyed by `PendingRequest.id`; a model answer and a review
+ * decision travel the same way, because to the graph they are the same thing —
+ * a value an `interrupt()` returns. Answering only some of them is allowed and
+ * ordinary: the run halts again on the rest.
  *
  * The thread id is rebuilt from the same three values that produced it, not
  * carried over from the run that halted — that is the property that makes a
@@ -201,7 +251,7 @@ export async function resumeRun(
   graph: ExtractionGraph,
   checkpointer: BaseCheckpointSaver,
   parts: ThreadIdParts,
-  decisions: ReviewResponse,
+  replies: Replies,
 ): Promise<RunResult> {
   const threadId = buildThreadId(parts);
   const config = threadConfigFor(threadId);
@@ -223,6 +273,13 @@ export async function resumeRun(
     );
   }
 
-  const state = await graph.invoke(new Command({ resume: decisions }), config);
-  return { threadId, disposition: "resumed", state };
+  if (Object.keys(replies).length === 0) {
+    throw new Error(`resumeRun: thread ${threadId} was given no answers to resume with.`);
+  }
+
+  // The map form of `resume`, not the bare value: LangGraph routes a bare
+  // value to whichever task consumes it first, which with a fan-out halted on
+  // several classify tasks means every one of them gets the same answer.
+  const state = await graph.invoke(new Command({ resume: replies }), config);
+  return { threadId, disposition: "resumed", state, pending: pendingOf(state) };
 }

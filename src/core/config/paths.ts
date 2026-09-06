@@ -16,6 +16,8 @@ import {
   MODEL_CACHE_DIRNAME,
   SIGNPOSTS_DIRNAME,
   STATUSLINE_FILENAME,
+  TRANSCRIPT_ROOT,
+  WORKTREE_DIRNAME,
 } from "./constants.ts";
 
 export interface DerivedPaths {
@@ -32,6 +34,17 @@ export interface DerivedPaths {
   modelCacheDir: string;
   knowledgeDir: string;
   indexFile: string;
+  /** Second checkout of this repo, on the signposts branch — see WORKTREE_DIRNAME. */
+  worktreeDir: string;
+  /** Where Claude Code writes transcripts: TRANSCRIPT_ROOT, with `~` resolved. */
+  transcriptRoot: string;
+}
+
+/** The prefix TRANSCRIPT_ROOT is written with — this module supplies the home. */
+const HOME_PREFIX = "~/";
+
+function expandHome(homeRelative: string, homeDir: string): string {
+  return path.join(homeDir, homeRelative.slice(HOME_PREFIX.length));
 }
 
 /** sha256(repoRoot), hex-encoded, first 12 characters — repoRoot taken as given, unnormalised. */
@@ -56,5 +69,7 @@ export function derivePaths(repoRoot: string, homeDir: string): DerivedPaths {
     modelCacheDir: path.join(globalRoot, MODEL_CACHE_DIRNAME),
     knowledgeDir,
     indexFile: path.join(knowledgeDir, INDEX_FILENAME),
+    worktreeDir: path.join(stateDir, WORKTREE_DIRNAME),
+    transcriptRoot: expandHome(TRANSCRIPT_ROOT, homeDir),
   };
 }

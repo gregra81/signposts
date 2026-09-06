@@ -1,5 +1,6 @@
 // `signpost init` (R3): run first-run consent, and only on accept create
-// `.signposts/` and append the CLAUDE.md pointer (idempotent). Consent is
+// `.signposts/`, install the skill and append the CLAUDE.md pointer
+// (idempotent). Consent is
 // asked before anything is written — a decline must leave no trace, per
 // consentExitCode's contract and the message this prints on decline. Thin
 // orchestration only — every decision (already-initialised? accepted?
@@ -17,6 +18,7 @@ import {
   parseConsentAnswer,
 } from "../../core/init/policy.ts";
 import { readClaudeMd, writeClaudeMd } from "../../io/init/claude-md.ts";
+import { writeSkill } from "../../io/init/skill-file.ts";
 import { promptForConsent } from "../../io/init/consent-prompt.ts";
 import { ensureKnowledgeDir } from "../../io/init/signposts-dir.ts";
 import { openDb } from "../../io/db/migrate.ts";
@@ -79,6 +81,10 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
       writeClaudeMd(repoRoot, content);
     }
 
+    // The skill is how signposts is used: it drives the CLI from inside a
+    // Claude Code session, which is where the reasoning happens.
+    const skillPath = writeSkill(repoRoot);
+
     try {
       const db = openDb(config.paths.dbPath);
       try {
@@ -90,7 +96,7 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
       stdio.error.write(`signposts: database at ${config.paths.dbPath} is corrupt or unreadable.\n`);
       return 1;
     }
-    stdio.output.write("signposts: initialised.\n");
+    stdio.output.write(`signposts: initialised. Wrote ${skillPath} — ask Claude to run signposts.\n`);
   } else {
     stdio.output.write("signposts: consent declined — nothing persisted.\n");
   }

@@ -26,7 +26,7 @@
 // deletes every one of them.
 
 import type Database from "better-sqlite3";
-import type { Signpost } from "../../core/signpost/schema.ts";
+import { signpostSchema, type Signpost } from "../../core/signpost/schema.ts";
 
 export interface SignpostMirrorRow {
   signpost: Signpost;
@@ -88,4 +88,67 @@ export function mirrorSignposts(db: Database.Database, repo: string, rows: reado
   });
 
   mirror(rows);
+}
+
+interface SignpostRow {
+  id: string;
+  claim: string;
+  category: string;
+  evidence: string | null;
+  scope_json: string;
+  confidence: number;
+  status: string;
+  provenance_json: string;
+}
+
+const SELECT_COLUMNS = "id, claim, category, evidence, scope_json, confidence, status, provenance_json";
+
+/**
+ * A mirror row back as a Signpost, parsed rather than cast: the row's JSON
+ * columns were written by a previous version of this code, and the graph acts
+ * on what comes back — `resolve_conflict` adjudicates against it.
+ */
+function toSignpost(row: SignpostRow): Signpost {
+  return signpostSchema.parse({
+    id: row.id,
+    claim: row.claim,
+    category: row.category,
+    evidence: row.evidence ?? "",
+    scope: JSON.parse(row.scope_json),
+    confidence: row.confidence,
+    status: row.status,
+    provenance: JSON.parse(row.provenance_json),
+  });
+}
+
+/** Every signpost id in use in `repo`, pending rows included — what slug generation must avoid. */
+export function signpostIds(db: Database.Database, repo: string): Set<string> {
+  const rows = db.prepare("SELECT id FROM signposts WHERE repo = ?").all(repo) as { id: string }[];
+  return new Set(rows.map((row) => row.id));
+}
+
+export function signpostById(db: Database.Database, repo: string, id: string): Signpost | undefined {
+  const row = db
+    .prepare(`SELECT ${SELECT_COLUMNS} FROM signposts WHERE repo = ? AND id = ?`)
+    .get(repo, id) as SignpostRow | undefined;
+  return row === undefined ? undefined : toSignpost(row);
+}
+
+/** The named signposts, in the order the ids were given; unknown ids are skipped. */
+export function signpostsByIds(db: Database.Database, repo: string, ids: readonly string[]): Signpost[] {
+  const found = new Map(
+    ids.length === 0
+      ? []
+      : (
+          db
+            .prepare(
+              `SELECT ${SELECT_COLUMNS} FROM signposts WHERE repo = ? AND id IN (${ids.map(() => "?").join(", ")})`,
+            )
+            .all(repo, ...ids) as SignpostRow[]
+        ).map((row) => [row.id, toSignpost(row)] as const),
+  );
+  return ids.flatMap((id) => {
+    const signpost = found.get(id);
+    return signpost === undefined ? [] : [signpost];
+  });
 }

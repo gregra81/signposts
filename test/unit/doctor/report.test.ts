@@ -4,170 +4,17 @@ import {
   classifyDbIntegrity,
   detectSignpostSessionStartHook,
   isNodeVersionSupported,
-  type CredentialFact,
   type DoctorFacts,
 } from "../../../src/core/doctor/report.js";
-import { AUTH_CHAIN, SHARED_QUOTA_TIER } from "../../../src/core/config/constants.js";
-
-const [SUBSCRIPTION, API_KEY, AUTH_TOKEN] = AUTH_CHAIN;
-
-const NO_CREDENTIAL: CredentialFact = {
-  selected: "none",
-  usable: [],
-  subscriptionType: undefined,
-  rateLimitTier: undefined,
-  subscriptionExpired: false,
-  pinned: false,
-};
-
-/** The credentials line, wherever it landed — the report can insert an advisory after it. */
-function credentialLine(lines: string[]): string {
-  const line = lines.find((candidate) => candidate.startsWith("credentials:"));
-  if (line === undefined) {
-    throw new Error(`no credentials line in report:\n${lines.join("\n")}`);
-  }
-  return line;
-}
 
 const BASE_FACTS: DoctorFacts = {
   nodeMajorVersion: 24,
   nodeMinVersion: 24,
-  credential: NO_CREDENTIAL,
   gh: { installed: false, authenticated: false },
   modelCachePresent: false,
   dbIntegrity: "no-database",
   hookInstalled: false,
 };
-
-describe("credential reporting", () => {
-  it("names the selected method", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: { ...NO_CREDENTIAL, selected: API_KEY, usable: [API_KEY] },
-    });
-    expect(credentialLine(lines)).toBe(`credentials: ${API_KEY}`);
-  });
-
-  it("lists the other usable methods alongside the selected one", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: {
-        ...NO_CREDENTIAL,
-        selected: SUBSCRIPTION,
-        usable: [SUBSCRIPTION, API_KEY, AUTH_TOKEN],
-      },
-    });
-    const line = credentialLine(lines);
-    expect(line).toContain(SUBSCRIPTION);
-    expect(line).toContain(`also available: ${API_KEY}, ${AUTH_TOKEN}`);
-    expect(line).not.toContain(`also available: ${SUBSCRIPTION}`);
-  });
-
-  it("shows the bare method name when the subscription reports no tier", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: {
-        ...NO_CREDENTIAL,
-        selected: SUBSCRIPTION,
-        usable: [SUBSCRIPTION],
-        subscriptionType: undefined,
-      },
-    });
-    expect(credentialLine(lines)).toBe(`credentials: ${SUBSCRIPTION}`);
-  });
-
-  it("never shows a subscription tier against a non-subscription method", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: {
-        ...NO_CREDENTIAL,
-        selected: API_KEY,
-        usable: [API_KEY],
-        subscriptionType: "pro",
-      },
-    });
-    expect(credentialLine(lines)).toBe(`credentials: ${API_KEY}`);
-  });
-
-  it("does not warn when the subscription is on a tier of its own", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: {
-        ...NO_CREDENTIAL,
-        selected: SUBSCRIPTION,
-        usable: [SUBSCRIPTION],
-        rateLimitTier: "dedicated_tier",
-      },
-    });
-    expect(lines.join("\n")).not.toContain("share the quota");
-  });
-
-  it("names the subscription tier when there is one", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: {
-        ...NO_CREDENTIAL,
-        selected: SUBSCRIPTION,
-        usable: [SUBSCRIPTION],
-        subscriptionType: "pro",
-      },
-    });
-    expect(credentialLine(lines)).toBe(`credentials: ${SUBSCRIPTION} (pro)`);
-  });
-
-  it("warns that a shared-quota subscription competes with interactive Claude Code", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: {
-        ...NO_CREDENTIAL,
-        selected: SUBSCRIPTION,
-        usable: [SUBSCRIPTION],
-        rateLimitTier: SHARED_QUOTA_TIER,
-      },
-    });
-    expect(lines.join("\n")).toContain("share the quota");
-  });
-
-  it("does not warn about quota for a non-subscription method", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: {
-        ...NO_CREDENTIAL,
-        selected: API_KEY,
-        usable: [API_KEY],
-        rateLimitTier: SHARED_QUOTA_TIER,
-      },
-    });
-    expect(lines.join("\n")).not.toContain("share the quota");
-  });
-
-  it("tells the user to refresh an expired subscription credential", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: { ...NO_CREDENTIAL, subscriptionExpired: true },
-    });
-    expect(lines.join("\n")).toContain("expired");
-  });
-
-  it("distinguishes a pinned-but-missing method from nothing configured", () => {
-    const pinned = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: { ...NO_CREDENTIAL, pinned: true },
-    });
-    expect(credentialLine(pinned)).toContain("pinned");
-
-    const unpinned = buildDoctorReport(BASE_FACTS);
-    expect(credentialLine(unpinned)).not.toContain("pinned");
-  });
-
-  it("with nothing available, names every way to authenticate", () => {
-    const line = credentialLine(buildDoctorReport(BASE_FACTS));
-    expect(line).toContain("Claude Code");
-    expect(line).toContain("ANTHROPIC_API_KEY");
-    expect(line).toContain("ANTHROPIC_AUTH_TOKEN");
-    expect(line).toContain("ant auth login");
-  });
-});
 
 describe("isNodeVersionSupported", () => {
   it("at floor is supported", () => {
@@ -294,23 +141,12 @@ describe("detectSignpostSessionStartHook", () => {
 describe("buildDoctorReport", () => {
   it("reports every fact as one line, in order", () => {
     const lines = buildDoctorReport(BASE_FACTS);
-    expect(lines).toHaveLength(6);
+    expect(lines).toHaveLength(5);
     expect(lines[0]).toContain("node:");
-    expect(lines[1]).toContain("credentials:");
-    expect(lines[2]).toContain("gh:");
-    expect(lines[3]).toContain("embedding model cache:");
-    expect(lines[4]).toContain("database:");
-    expect(lines[5]).toContain("session-start hook:");
-  });
-
-  it("an advisory adds a line without displacing the other facts", () => {
-    const lines = buildDoctorReport({
-      ...BASE_FACTS,
-      credential: { ...NO_CREDENTIAL, subscriptionExpired: true },
-    });
-    expect(lines).toHaveLength(7);
-    expect(lines[0]).toContain("node:");
-    expect(lines.at(-1)).toContain("session-start hook:");
+    expect(lines[1]).toContain("gh:");
+    expect(lines[2]).toContain("embedding model cache:");
+    expect(lines[3]).toContain("database:");
+    expect(lines[4]).toContain("session-start hook:");
   });
 
   it("node below floor is called out", () => {
@@ -325,22 +161,22 @@ describe("buildDoctorReport", () => {
 
   it("gh not installed", () => {
     const lines = buildDoctorReport(BASE_FACTS);
-    expect(lines[2]).toContain("not found");
+    expect(lines[1]).toContain("not found");
   });
 
   it("gh installed, not authenticated", () => {
     const lines = buildDoctorReport({ ...BASE_FACTS, gh: { installed: true, authenticated: false } });
-    expect(lines[2]).toContain("not authenticated");
+    expect(lines[1]).toContain("not authenticated");
   });
 
   it("gh installed and authenticated", () => {
     const lines = buildDoctorReport({ ...BASE_FACTS, gh: { installed: true, authenticated: true } });
-    expect(lines[2]).toBe("gh: authenticated");
+    expect(lines[1]).toBe("gh: authenticated");
   });
 
   it("model cache present vs absent", () => {
-    expect(buildDoctorReport({ ...BASE_FACTS, modelCachePresent: true })[3]).toContain("present");
-    expect(buildDoctorReport({ ...BASE_FACTS, modelCachePresent: false })[3]).toContain("absent");
+    expect(buildDoctorReport({ ...BASE_FACTS, modelCachePresent: true })[2]).toContain("present");
+    expect(buildDoctorReport({ ...BASE_FACTS, modelCachePresent: false })[2]).toContain("absent");
   });
 
   it.each([
@@ -348,12 +184,12 @@ describe("buildDoctorReport", () => {
     ["ok", "database: ok"],
     ["corrupt", "database: integrity check failed"],
   ] as const)("db integrity %s", (status, expected) => {
-    const line = buildDoctorReport({ ...BASE_FACTS, dbIntegrity: status })[4];
+    const line = buildDoctorReport({ ...BASE_FACTS, dbIntegrity: status })[3];
     expect(line).toBe(expected);
   });
 
   it("hook installed vs not", () => {
-    expect(buildDoctorReport({ ...BASE_FACTS, hookInstalled: true })[5]).toBe("session-start hook: installed");
-    expect(buildDoctorReport({ ...BASE_FACTS, hookInstalled: false })[5]).toBe("session-start hook: not installed");
+    expect(buildDoctorReport({ ...BASE_FACTS, hookInstalled: true })[4]).toBe("session-start hook: installed");
+    expect(buildDoctorReport({ ...BASE_FACTS, hookInstalled: false })[4]).toBe("session-start hook: not installed");
   });
 });

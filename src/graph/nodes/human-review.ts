@@ -32,8 +32,12 @@ import { summariseIssues } from "../../core/errors/format-zod-error.ts";
 import type { GatedOperations, HumanDecision } from "../../core/contracts/graph.ts";
 import type { ExtractionState, ExtractionUpdate } from "../state.ts";
 
+/** Discriminates a review from the other thing a run halts on. */
+export const REVIEW_REQUEST_KIND = "human_review";
+
 /** What a reviewer is shown when the run halts. */
 export interface ReviewRequest {
+  kind: typeof REVIEW_REQUEST_KIND;
   repo: string;
   sessionId: string;
   /**
@@ -69,6 +73,7 @@ export function humanReviewNode(state: ExtractionState): ExtractionUpdate {
 
   while (!isReviewComplete(state.gated, decisions)) {
     const answered = interrupt<ReviewRequest, ReviewResponse>({
+      kind: REVIEW_REQUEST_KIND,
       repo: state.repo,
       sessionId: state.sessionId,
       needsHuman: outstanding(state.gated, decisions),

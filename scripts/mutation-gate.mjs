@@ -24,16 +24,6 @@ const REPORT_PATH = "reports/mutation/mutation.json";
  */
 const THRESHOLDS = [
   { module: "src/core/redact", break: 95 },
-  // Credentials sit at redact's floor, not doctor's: a surviving mutant here
-  // is an untested branch in code that decides which account gets billed and
-  // handles a live access token.
-  { module: "src/core/credentials", break: 95 },
-  { module: "src/core/paths", break: 95 },
-  // The resolver's tool logic: caps, argv, exit-status semantics, parsing.
-  // Held at paths' floor rather than the default because a surviving mutant
-  // here is a tool that reports the wrong thing to a model deciding whether
-  // to overwrite recorded knowledge.
-  { module: "src/core/tools", break: 95 },
   { module: "src/core/gate", break: 95 },
   { module: "src/core/graph", break: 95 },
   { module: "src/core/eligibility", break: 95 },
@@ -50,6 +40,10 @@ const THRESHOLDS = [
   { module: "src/core/doctor", break: 95 },
   { module: "src/core/errors", break: 95 },
   { module: "src/core/prompts", break: 95 },
+  // The pull request as text — the only thing a reviewer reads before
+  // deciding, so a surviving mutant here is a row that misdescribes what is
+  // about to be merged.
+  { module: "src/core/pr", break: 95 },
   // The structured-output schema adapter. A surviving mutant here is a
   // keyword wrongly kept or wrongly stripped, which is a 400 on every call to
   // the node whose schema it mangled.

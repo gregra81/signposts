@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
-import { API_KEY, AUTH_TOKEN, credentialsFor, fakePorts, NO_CREDENTIALS } from "../helpers/fake-ports.js";
+import { fakePorts } from "../helpers/fake-ports.js";
 
 describe("signpost doctor", () => {
   let homeDir: string;
@@ -36,14 +36,12 @@ describe("signpost doctor", () => {
     const exitCode = await runCli(["doctor"], {
       config,
       ports: fakePorts(),
-      credentials: NO_CREDENTIALS,
       stdio,
     });
 
     expect(exitCode).toBe(0);
     const output = stdio.writtenOutput();
     expect(output).toContain("node:");
-    expect(output).toContain("credentials:");
     expect(output).toContain("gh:");
     expect(output).toContain("embedding model cache:");
     expect(output).toContain("no database yet");
@@ -57,7 +55,6 @@ describe("signpost doctor", () => {
     await runCli(["init"], {
       config,
       ports: fakePorts(),
-      credentials: NO_CREDENTIALS,
       stdio: createFakeStdio("y"),
     });
 
@@ -65,7 +62,6 @@ describe("signpost doctor", () => {
     const exitCode = await runCli(["doctor"], {
       config,
       ports: fakePorts(),
-      credentials: NO_CREDENTIALS,
       stdio,
     });
 
@@ -84,42 +80,8 @@ describe("signpost doctor", () => {
     );
 
     const stdio = createFakeStdio();
-    await runCli(["doctor"], { config, ports: fakePorts(), credentials: NO_CREDENTIALS, stdio });
+    await runCli(["doctor"], { config, ports: fakePorts(), stdio });
 
     expect(stdio.writtenOutput()).toContain("session-start hook: installed");
-  });
-
-  it("reports the api-key method as the credential source when present", async () => {
-    const stdio = createFakeStdio();
-
-    await runCli(["doctor"], {
-      config,
-      ports: fakePorts(),
-      credentials: credentialsFor(API_KEY),
-      stdio,
-    });
-
-    expect(stdio.writtenOutput()).toContain(`credentials: ${API_KEY}`);
-  });
-
-  it("reports the auth-token method as the credential source when only that is present", async () => {
-    const stdio = createFakeStdio();
-
-    await runCli(["doctor"], {
-      config,
-      ports: fakePorts(),
-      credentials: credentialsFor(AUTH_TOKEN),
-      stdio,
-    });
-
-    expect(stdio.writtenOutput()).toContain(`credentials: ${AUTH_TOKEN}`);
-  });
-
-  it("reports no credentials found when neither is present", async () => {
-    const stdio = createFakeStdio();
-
-    await runCli(["doctor"], { config, ports: fakePorts(), credentials: NO_CREDENTIALS, stdio });
-
-    expect(stdio.writtenOutput()).toContain("credentials: none found");
   });
 });

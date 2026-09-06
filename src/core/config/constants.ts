@@ -55,7 +55,7 @@ export const ASSISTANT_HEAD_CHARS_ADJACENT = 600;
 /** Tail budget for the same turn — a plan's conclusion is what gets accepted or rejected. */
 export const ASSISTANT_TAIL_CHARS_ADJACENT = 900;
 
-/** Wire-format tags for content block types — not tunables, just named to avoid magic literals. */
+/** Content block types in a Claude Code transcript — named to avoid magic literals. */
 export const TEXT_BLOCK_TYPE = "text";
 export const TOOL_USE_BLOCK_TYPE = "tool_use";
 export const TOOL_RESULT_BLOCK_TYPE = "tool_result";
@@ -164,20 +164,6 @@ export const MAX_VALIDATE_ATTEMPTS = 2;
 /** Above this ratio of critic rejections → retry extraction. Judgement; tune with golden set. */
 export const CRITIC_REJECT_RATIO = 0.66;
 
-/**
- * Phase 4.5. Bounds the resolver's tool loop — how many times it may ask for
- * a file, read the answer, and decide what to ask next before it must answer.
- *
- * Kept at 6 against a request for 2, deliberately. Measured against a live
- * model: it opened with a grep the tool refused, then spent five more turns
- * adaptively narrowing to the commit that settled the contradiction. At 2
- * that run answers `undecidable` with no evidence,
- * because the whole budget went on recovering from one bad call — and
- * `undecidable` routes to a person. A tight budget here does not save much on
- * the graph's rarest node; it converts resolvable contradictions into review.
- */
-export const MAX_RESOLVE_TOOL_ITERATIONS = 6;
-
 /** Unrecognised → discard thread, re-run from transcript. */
 export const STATE_VERSION = 1;
 
@@ -260,117 +246,6 @@ export const EVIDENCE_MAX_CHARS = 500;
 
 export const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-// ---------------------------------------------------------------------------
-// Models and cost
-// ---------------------------------------------------------------------------
-
-/**
- * The model a node uses unless config names another, and the fallback for any
- * node without its own constant below.
- */
-export const MODEL_DEFAULT = "claude-opus-5";
-
-/**
- * Per-node models. `critic` and `resolve_conflict` stay on MODEL_DEFAULT: the
- * line on them in 08-models-and-credentials.md is "never economise here" and
- * "cost is irrelevant", and they are the lowest-volume, hardest judgment in
- * the graph.
- *
- * `extract` and `classify` are the reverse of 08's candidate table, which put
- * extract on Sonnet 5 and classify on Haiku 4.5. That table optimises for cost
- * per call: extract carries the largest input, classify the highest count.
- * This assignment weights where the judgment is instead — classify decides a
- * relation against retrieved neighbours, and 08 itself names
- * duplicate-versus-contradiction as the case a small model folds on.
- *
- * Neither ordering is measured. Nothing scores extraction quality, so the
- * argument for either is a reading of the task rather than a result. What is
- * measured is the cache consequence: EXTRACT_SYSTEM's prefix is 1578 tokens
- * against Haiku 4.5's 4096 minimum, so extract no longer caches, having been
- * the largest consumer of cache reads in the graph.
- */
-export const MODEL_EXTRACT = "claude-sonnet-5";
-export const MODEL_CLASSIFY = "claude-haiku-4-5";
-
-/** `true` for background runs, `false` for `--sync`. */
-export const BATCH_BY_DEFAULT = true;
-
-/**
- * Minimum cacheable prefix, per model. A system prompt shorter than its
- * model's entry does not cache: the `cache_control` marker is silently
- * ignored and `cache_creation_input_tokens` comes back 0, with no error.
- *
- * One number per model, not one number (13-constants.md,
- * "PROMPT_CACHE_MIN_TOKENS is per model"): the minimum does not fall as the
- * models get newer, and Haiku 4.5 needs eight times what Opus 5 needs.
- *
- * PROMPT_CACHE_MIN_TOKENS_FALLBACK is the largest published minimum, for a
- * model absent from the map.
- *
- * These describe the API's behaviour; they do not gate anything. signposts
- * always sends the `cache_control` marker, because a marker below the minimum
- * is ignored for free while withholding one forfeits every read it would have
- * earned. What they explain is why `usage.cacheReadTokens` is an acceptance
- * criterion for extract, critic and resolve but never for classify, whose
- * ~330-token prompt clears no model's minimum.
- */
-export const PROMPT_CACHE_MIN_TOKENS: Readonly<Record<string, number>> = {
-  "claude-opus-5": 512,
-  "claude-sonnet-5": 1024,
-  "claude-haiku-4-5": 4096,
-};
-
-export const PROMPT_CACHE_MIN_TOKENS_FALLBACK = 4096;
-
-/**
- * Thinking is on by default on every model `extract` runs on and shares this
- * budget with the reply. 8000 was enough for Opus but truncated Sonnet 5
- * mid-JSON on the two largest golden transcripts (009, 025), which surfaces
- * as a parse error rather than as the token cap it is.
- */
-export const MAX_TOKENS_EXTRACT = 16000;
-
-/** critic, classify. */
-export const MAX_TOKENS_SMALL = 2000;
-
-/**
- * resolve_conflict. Larger than the other two small nodes because it is the
- * only one that reasons about two competing claims and can return two scopes
- * with it, and because thinking shares the budget. At MAX_TOKENS_SMALL it
- * truncated mid-JSON on the first genuine contradiction the scenarios reached.
- */
-export const MAX_TOKENS_RESOLVE = 8000;
-
-/** Log a warning above this. */
-export const COST_WARN_PER_RUN_USD = 1.0;
-
-/**
- * List price in USD per million tokens, by model id
- * (08-models-and-credentials.md). Nodes can each run a different model, so a
- * single pair of numbers would misreport every call that is not Opus.
- *
- * Anything absent here cannot be priced, and signposts refuses to guess:
- * costUsd is written into every fixture and usage record, and a number that
- * is silently wrong is worse than a missing one. The refusal happens when the
- * provider is constructed, before any request is sent — see modelPrices() in
- * src/io/model/anthropic-provider.ts.
- *
- * Sonnet 5's $2/$10 launched as introductory pricing through 2026-08-31. It
- * is the standard price now: Anthropic cancelled the increase to $3/$15 that
- * was scheduled for 2026-09-01, so these numbers need no expiry handling.
- */
-export const MODEL_PRICES: Readonly<Record<string, { input: number; output: number }>> = {
-  "claude-opus-5": { input: 5, output: 25 },
-  "claude-sonnet-5": { input: 2, output: 10 },
-  "claude-haiku-4-5": { input: 1, output: 5 },
-};
-
-/** Cache reads bill at ~0.1x input; writing a cache entry costs ~1.25x. */
-export const PRICE_CACHE_READ_MULTIPLIER = 0.1;
-export const PRICE_CACHE_WRITE_MULTIPLIER = 1.25;
-
-export const TOKENS_PER_MTOK = 1_000_000;
-
 /** Indent for JSON written to disk, so a fixture diff is readable line by line. */
 export const JSON_INDENT = 2;
 
@@ -396,6 +271,17 @@ export const MODEL_CACHE_DIRNAME = "models";
 
 export const DB_FILENAME = "signposts.db";
 
+/**
+ * Per-repo state subdirectory holding the git worktree a run commits through.
+ *
+ * Proposals are never written into the checkout the developer is working in:
+ * a run happens while they are mid-task, and switching their branch or
+ * dropping files into their working tree to open a PR is the tool taking
+ * their editor hostage. The worktree is a second checkout of the same
+ * repository, on the signposts branch, which nothing else touches.
+ */
+export const WORKTREE_DIRNAME = "pr-worktree";
+
 export const CHECKPOINT_FILENAME = "checkpoints.db";
 
 export const STATUSLINE_FILENAME = "status.json";
@@ -417,58 +303,3 @@ export const LOCK_STALE_MINUTES = 60;
 /** Worker writes state at most this often. */
 export const STATUSLINE_REFRESH_MS = 1000;
 
-// ---------------------------------------------------------------------------
-// Credentials
-// ---------------------------------------------------------------------------
-
-/**
- * Every Anthropic auth method signposts accepts, highest priority first —
- * the order `auth.method: auto` walks. The Claude subscription leads
- * deliberately: it is the zero-configuration path, so a developer who has
- * only ever signed in to Claude Code can run signposts without creating a
- * console account. See 08-models-and-credentials.md.
- */
-export const AUTH_CHAIN = [
-  "claude-subscription",
-  "api-key",
-  "auth-token",
-  "console-profile",
-] as const;
-
-/**
- * `auth.method`'s default: walk AUTH_CHAIN. Any other value pins one method.
- * Spelled "auto-detect" rather than "auto" so it stays distinct from the
- * review gate's unrelated "auto" verdict (src/core/gate/gate.ts).
- */
-export const AUTH_METHOD_AUTO = "auto-detect";
-
-/** macOS Keychain generic-password service Claude Code stores its OAuth credential under. */
-export const CLAUDE_CODE_KEYCHAIN_SERVICE = "Claude Code-credentials";
-
-/** Key wrapping the credential inside that Keychain item's JSON payload. */
-export const CLAUDE_CODE_OAUTH_KEY = "claudeAiOauth";
-
-/** Non-macOS home-relative fallback for the same credential. */
-export const CLAUDE_CODE_CREDENTIALS_FILE = ".claude/.credentials.json";
-
-/** Home-relative `ant auth login` config dir, used when ANTHROPIC_CONFIG_DIR is unset. */
-export const ANTHROPIC_CONFIG_DIRNAME = ".config/anthropic";
-
-/** Subdirectory of the config dir holding one JSON file per logged-in profile. */
-export const ANTHROPIC_CREDENTIALS_DIRNAME = "credentials";
-
-/** Profile consulted when ANTHROPIC_PROFILE is unset. */
-export const ANTHROPIC_DEFAULT_PROFILE = "default";
-
-/**
- * Treat an access token as expired this long before its stated expiry, so a
- * token that dies mid-run is caught before the request rather than during it.
- */
-export const TOKEN_EXPIRY_SKEW_MS = 60_000;
-
-/**
- * Subscription rate-limit tier that shares quota with interactive Claude Code
- * use. Seeing this means a background signposts run competes with the
- * developer's own session — 08-models-and-credentials.md's first objection.
- */
-export const SHARED_QUOTA_TIER = "default_claude_ai";
