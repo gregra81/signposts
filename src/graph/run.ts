@@ -92,18 +92,29 @@ function pendingOf(state: ExtractionState): PendingRequest[] {
   });
 }
 
-/** What the thread is halted on right now, according to its checkpoint. */
+/**
+ * What the thread is halted on right now, according to its checkpoint.
+ *
+ * An interrupt with no id throws here for the same reason it does in
+ * `pendingOf`, and doubly so: this list is the allow-list a resume's keys are
+ * checked against. Dropping one silently would reject a caller answering the
+ * halt it was told about with "it is waiting on nothing", pointing at the
+ * caller rather than at the malformed checkpoint.
+ */
 async function pendingOnThread(
   graph: ExtractionGraph,
   config: LangGraphRunnableConfig,
 ): Promise<PendingRequest[]> {
   const snapshot = await graph.getState(config);
   return snapshot.tasks.flatMap((task) =>
-    task.interrupts.flatMap((interrupted) =>
-      interrupted.id === undefined
-        ? []
-        : [{ id: interrupted.id, request: interrupted.value as ModelRequest | ReviewRequest }],
-    ),
+    task.interrupts.map((interrupted) => {
+      if (interrupted.id === undefined) {
+        throw new Error(
+          "a thread is halted on an interrupt with no id, so there is no key to answer it under",
+        );
+      }
+      return { id: interrupted.id, request: interrupted.value as ModelRequest | ReviewRequest };
+    }),
   );
 }
 

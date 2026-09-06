@@ -59,6 +59,17 @@ function baseBranch(repoRoot: string): string {
  * The branch is created from the remote copy where one exists, so a run on a
  * second machine — or after the state directory was cleared — continues the
  * developer's existing branch instead of starting a rival one from local HEAD.
+ *
+ * The absent case prunes first. Whether the worktree exists is asked of the
+ * directory, but git records it in the *parent* repository
+ * (`.git/worktrees/<name>`), and that record outlives the directory — git does
+ * not prune on its own. So a developer who clears `~/.signposts`, or moves
+ * machine, hits a directory that is gone and a registration that is not:
+ * `worktree add` refuses it as "a missing but already registered worktree",
+ * and `worktree add -b` refuses the branch as one that already exists. Both
+ * arms of the ternary below fail, `apply` reports that it could not prepare
+ * the worktree, and it fails the same way on every later run — after every
+ * model call in the session has already been paid for.
  */
 export function ensureWorktree(input: {
   repoRoot: string;
@@ -72,6 +83,7 @@ export function ensureWorktree(input: {
   }
 
   mkdirSync(path.dirname(worktreeDir), { recursive: true });
+  git(repoRoot, ["worktree", "prune"]);
   git(repoRoot, ["fetch", "origin", branch]);
 
   const startPoint = git(repoRoot, ["rev-parse", "--verify", `refs/remotes/origin/${branch}`]).ok

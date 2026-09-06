@@ -99,8 +99,11 @@ describe("the run seam", () => {
       });
 
     // `run` with no `--replies` reaches startRun against a graph that is not
-    // there; whatever it throws, the handle has to be released.
-    await expect(runCli(["run"], { config, openRun, stdio })).rejects.toThrow();
+    // there; whatever it throws, the handle has to be released. The throw is
+    // reported rather than escaping (src/cli/commands/run.ts, `withRun`), so
+    // the release is asserted against a returned exit code, not a rejection.
+    await expect(runCli(["run"], { config, openRun, stdio })).resolves.toBe(1);
     expect(closed).toBe(1);
+    expect(stdio.writtenOutput()).toBe("");
   });
 });

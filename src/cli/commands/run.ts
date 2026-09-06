@@ -55,7 +55,19 @@ function fail(input: RunCommandInput, message: string): ExitCode {
   return 1;
 }
 
-/** Opens a run, hands it over, and closes it again whatever the body did. */
+/**
+ * Opens a run, hands it over, and closes it again whatever the body did.
+ *
+ * A throw is reported the way every other failure here is, through `fail`.
+ * `bin/signpost.js` is a bare top-level `await` with no handler, so anything
+ * that escaped arrived as a Node stack trace on stderr and nothing at all on
+ * stdout — which breaks the one-JSON-object contract precisely where the
+ * caller needs it. The ordinary errors are ordinary: a `--replies` path that
+ * does not exist, a reply the answering session got the shape of wrong, a
+ * resume against a halt the thread is not waiting on. The skill has to be
+ * able to tell "your answer was rejected, redo it" from "signposts crashed",
+ * and it reads that off `status`.
+ */
 async function withRun(
   input: RunCommandInput,
   body: (handle: RunHandle) => Promise<ExitCode>,
@@ -71,6 +83,8 @@ async function withRun(
 
   try {
     return await body(opened.handle);
+  } catch (error) {
+    return fail(input, error instanceof Error ? error.message : String(error));
   } finally {
     opened.handle.close();
   }

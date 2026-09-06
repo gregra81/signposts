@@ -217,13 +217,19 @@ describe("the run loop", () => {
     const { pending } = firstJson(started.writtenOutput()) as { pending: { id: string }[] };
     writeFileSync(repliesPath, JSON.stringify({ replies: { [pending[0]!.id]: { candidates: [{}] } } }), "utf8");
 
+    // The schema violation is reported, not thrown past the CLI: the skill is
+    // told every command prints one JSON object, so a rejected answer has to
+    // reach it as `signposts: <message>` and a non-zero exit — something it
+    // can tell apart from a crash — with stdout left empty rather than
+    // carrying a half-written object.
     const stdio = createFakeStdio();
-    await expect(
-      runCli(["resume", "--session", SESSION_ID, "--replies", repliesPath], {
-        config,
-       
-        stdio,
-      }),
-    ).rejects.toThrow(/extract: structured output did not satisfy its schema/);
+    const exitCode = await runCli(
+      ["resume", "--session", SESSION_ID, "--replies", repliesPath],
+      { config, stdio },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(stdio.writtenError()).toMatch(/extract: structured output did not satisfy its schema/);
+    expect(stdio.writtenOutput()).toBe("");
   }, 30_000);
 });

@@ -158,18 +158,24 @@ async function openOrUpdatePr(
   operations: CommitInput,
 ): Promise<void> {
   const section = prSection(operations.sessionId, operations.operations);
+  // The pull request this branch has, as far as we have got. Assigned from
+  // `openPr` as well as `hasOpenPr`, because the number is what the failure
+  // path needs and a PR opened a line ago is no less open than one found: a
+  // `setLabels` that throws right after a successful `openPr` used to leave
+  // this null and send the developer to `gh pr create` for the pull request
+  // that call had just created.
   let open: number | null = null;
 
   try {
     open = await input.forge.hasOpenPr(branch);
-    const prNumber =
-      open ?? (await input.forge.openPr({ branch, title: PR_TITLE, body: prBody("", section) }));
+    const existed = open !== null;
+    open ??= await input.forge.openPr({ branch, title: PR_TITLE, body: prBody("", section) });
 
-    if (open !== null) {
-      await input.forge.updatePr(prNumber, prBody(await input.forge.readPrBody(prNumber), section));
+    if (existed) {
+      await input.forge.updatePr(open, prBody(await input.forge.readPrBody(open), section));
     }
 
-    await input.forge.setLabels(prNumber, prLabels(operations.operations));
+    await input.forge.setLabels(open, prLabels(operations.operations));
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     input.warn(

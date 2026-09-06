@@ -208,6 +208,27 @@ describe("a halt with no id to answer it under", () => {
       /halted on an interrupt with no id/,
     );
   });
+
+  it("names the checkpoint rather than blaming the caller on the way back in", async () => {
+    // The same halt read off the checkpoint, where the list is the allow-list
+    // a resume's keys are checked against. Dropping it there would reject a
+    // caller answering the halt it was told about with "it is waiting on
+    // nothing" — an error about the caller, for a fault in the checkpoint.
+    const { graph, checkpointer } = hostRun();
+    const first = await startRun(graph, checkpointer, RUN_INPUT);
+
+    // Only `getState` is reached: the key check runs before the resume does.
+    const blind = {
+      getState: () =>
+        Promise.resolve({
+          tasks: [{ interrupts: [{ value: { kind: MODEL_REQUEST_KIND, node: "extract" } }] }],
+        }),
+    } as unknown as Parameters<typeof resumeRun>[0];
+
+    await expect(
+      resumeRun(blind, checkpointer, RUN_INPUT, { [onlyModelRequest(first).id]: {} }),
+    ).rejects.toThrow(/halted on an interrupt with no id/);
+  });
 });
 
 describe("a fan-out halts on every task at once", () => {
