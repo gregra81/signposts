@@ -132,10 +132,6 @@ what you just wrote.
 `retire` is in the operation union, `validate-operations.ts` checks it, and `partition.ts` maps it
 to the `deletes_existing` gate reason. No classification path emits it, so both are unreachable.
 
-`RESOLVE_SYSTEM` still names `read_file`, `git_log` and `grep_repo` as lookups the resolver may
-use. Nothing brokers those any more: whoever answers a resolve request is working in the
-repository already and reads it with their own tools.
-
 ## Style
 
 Comments explain why, and name the doc or the incident behind a decision. Match the density of the
