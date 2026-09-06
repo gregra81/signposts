@@ -333,6 +333,7 @@ describe("the commit port", () => {
     const elsewhere = path.join(root, "elsewhere");
     execFileSync("git", ["clone", "--branch", BRANCH, remote, elsewhere]);
     git(elsewhere, "config", "user.email", "someone@example.com");
+    git(elsewhere, "config", "user.name", "Someone");
     git(elsewhere, "config", "commit.gpgsign", "false");
     writeFileSync(path.join(elsewhere, "other.md"), "from another machine\n", "utf8");
     git(elsewhere, "add", "other.md");
