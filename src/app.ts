@@ -28,6 +28,7 @@ import { runInit } from "./cli/commands/init.ts";
 import { runIndex } from "./cli/commands/index.ts";
 import { runDoctor } from "./cli/commands/doctor.ts";
 import { runExtraction, runResume, runSessionsList } from "./cli/commands/run.ts";
+import { runReview } from "./cli/commands/review.ts";
 import type { OpenRun } from "./cli/run-port.ts";
 
 export type ExitCode = 0 | 1;
@@ -36,6 +37,14 @@ export interface Stdio {
   input: NodeJS.ReadableStream;
   output: NodeJS.WritableStream;
   error: NodeJS.WritableStream;
+  /**
+   * Whether a person is at the other end of `input`. Read from the real
+   * process here and nowhere below (R7), because `review` refuses to run
+   * without one — a review answered by a pipe was answered by nobody.
+   * Defaults to false: a caller that assembles its own streams is not a
+   * terminal unless it says so.
+   */
+  interactive?: boolean;
 }
 
 export interface CreateAppInput {
@@ -50,10 +59,15 @@ export interface App {
   run(argv: string[]): Promise<ExitCode>;
 }
 
-const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume>\n";
+const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|review>\n";
 
 function defaultStdio(): Stdio {
-  return { input: process.stdin, output: process.stdout, error: process.stderr };
+  return {
+    input: process.stdin,
+    output: process.stdout,
+    error: process.stderr,
+    interactive: process.stdin.isTTY === true,
+  };
 }
 
 export function createApp({ config, openRun, stdio }: CreateAppInput): App {
@@ -95,6 +109,14 @@ export function createApp({ config, openRun, stdio }: CreateAppInput): App {
           return runExtraction(runInput);
         case "resume":
           return runResume(runInput);
+        case "review":
+          return runReview({
+            config,
+            repoRoot,
+            openRun,
+            stdio: io,
+            interactive: io.interactive === true,
+          });
       }
     },
   };

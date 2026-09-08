@@ -13,7 +13,7 @@
 
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import type { ResolvedConfig } from "../core/config/resolve.ts";
-import type { ExtractionGraph, GraphPorts } from "../graph/index.ts";
+import type { ExtractionGraph, GraphPorts, ReviewRequest } from "../graph/index.ts";
 
 /** One eligible transcript — what `sessions` lists and `run` picks from. */
 export interface RunSession {
@@ -31,6 +31,26 @@ export interface FinishedSession {
   tokenEstimate: number | null;
 }
 
+/**
+ * One thread parked on `human_review`, as `signpost review` finds it — with
+ * everything needed to show it and to answer it, and nothing that has to have
+ * survived in memory since the halt.
+ *
+ * `interruptId` is what the decisions are filed under, so it is read from the
+ * thread now rather than remembered from the run that halted: LangGraph mints
+ * it, and the process that halted is long gone.
+ */
+export interface PendingReview {
+  threadId: string;
+  sessionId: string;
+  /** The other half of the thread id — what `resumeRun` is handed back. */
+  contentHash: string;
+  interruptId: string;
+  /** When the halt was checkpointed. How long the developer has left it. */
+  waitingSince: Date;
+  needsHuman: ReviewRequest["needsHuman"];
+}
+
 export interface RunHandle {
   /** The "owner/name" key, from the origin remote. */
   repo: string;
@@ -38,10 +58,19 @@ export interface RunHandle {
   checkpointer: BaseCheckpointSaver;
   /** Proposals reach the next session through this — see runResume's report. */
   pendingIndex: GraphPorts["pendingIndex"];
+  /** What a signpost says today, for the "before" half of a review's diff. */
+  index: GraphPorts["index"];
   /** Eligible sessions for this repo, oldest activity first. */
   eligible(now: Date): RunSession[];
   /** Records a session as processed, and the repo as past its bootstrap run. */
   finish(session: FinishedSession): void;
+  /**
+   * Threads in this repo halted on a review, longest-waiting first. Reads the
+   * checkpoint database rather than any record kept by the run that halted —
+   * that run's process exited, possibly days ago. A thread past
+   * THREAD_EXPIRY_DAYS is dropped here rather than listed.
+   */
+  pendingReviews(now: Date): Promise<PendingReview[]>;
   close(): void;
 }
 

@@ -97,11 +97,13 @@ function pendingOf(state: ExtractionState): PendingRequest[] {
  *
  * An interrupt with no id throws here for the same reason it does in
  * `pendingOf`, and doubly so: this list is the allow-list a resume's keys are
- * checked against. Dropping one silently would reject a caller answering the
- * halt it was told about with "it is waiting on nothing", pointing at the
- * caller rather than at the malformed checkpoint.
+ * checked against, and the list `signpost review` reads a halted thread's
+ * outstanding review off (src/io/review/pending.ts). Dropping one silently
+ * would reject a caller answering the halt it was told about with "it is
+ * waiting on nothing", pointing at the caller rather than at the malformed
+ * checkpoint.
  */
-async function pendingOnThread(
+export async function pendingOnThread(
   graph: ExtractionGraph,
   config: LangGraphRunnableConfig,
 ): Promise<PendingRequest[]> {

@@ -58,6 +58,13 @@ signpost init          # asks once, writes .signposts/ and the skill
 After that you never run it by hand: ask Claude to run signposts, and the skill it installed drives
 the extraction, brings anything that needs your judgement back to you, and opens the PR.
 
+The exception is `signpost review`. A run stops at anything that edits, deletes or contradicts
+knowledge you already have, and it stays stopped until you answer, usually days later and from a
+different process. `signpost review` is where you answer: what is waiting and for how long, then
+one proposal at a time as a before/after diff with the reason it stopped. Accept, reject, edit or
+skip each one. It refuses a stdin that is not a terminal, so nothing automated can answer in your
+place.
+
 ## Where this stands
 
 Just getting started. Building it in layers, one PR at a time.

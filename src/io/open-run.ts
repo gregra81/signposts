@@ -23,6 +23,7 @@ import { ghForge } from "./forge/gh-forge.ts";
 import { resolveRepo } from "./git/remote-origin.ts";
 import { authorEmail } from "./git/worktree.ts";
 import { buildGraphPorts } from "./graph-ports.ts";
+import { listPendingReviews } from "./review/pending.ts";
 import { discoverSessions } from "./transcript/discover.ts";
 
 const NO_REPO =
@@ -73,11 +74,14 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
       }),
     });
 
+    const graph = buildExtractionGraph({ ports, checkpointer });
+
     const handle: RunHandle = {
       repo,
-      graph: buildExtractionGraph({ ports, checkpointer }),
+      graph,
       checkpointer,
       pendingIndex: ports.pendingIndex,
+      index: ports.index,
 
       eligible: (now) =>
         discoverSessions({
@@ -86,6 +90,8 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
           processedKeys: processedKeys(db, repo),
           now,
         }),
+
+      pendingReviews: (now) => listPendingReviews({ graph, checkpointer, repo, now, warn }),
 
       finish: (session) => {
         // The first run in a repo gates everything to a person, whatever its
