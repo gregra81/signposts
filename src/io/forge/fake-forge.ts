@@ -3,7 +3,7 @@
 // written, no mocking framework — records every call so a test can assert
 // on what reached the forge, per 15-spec.md's "What a good test is here".
 
-import type { Forge } from "./forge.ts";
+import type { Forge, ForgeBranch } from "./forge.ts";
 
 export interface OpenPrCall {
   branch: string;
@@ -26,21 +26,35 @@ export class FakeForge implements Forge {
   readonly updatePrCalls: UpdatePrCall[] = [];
   readonly setLabelsCalls: SetLabelsCall[] = [];
 
-  private readonly openPrsByBranch = new Map<string, number>();
+  /** Newest first, the order `branchesUnder` promises. */
+  private readonly prs: ForgeBranch[] = [];
   private readonly bodies = new Map<number, string>();
   private nextPrNumber = 1;
 
-  async hasOpenPr(branch: string): Promise<number | null> {
-    return this.openPrsByBranch.get(branch) ?? null;
+  async branchesUnder(prefix: string): Promise<ForgeBranch[]> {
+    return this.prs.filter((pr) => pr.branch.startsWith(prefix)).map((pr) => ({ ...pr }));
   }
 
   async openPr(input: OpenPrCall): Promise<number> {
     this.openPrCalls.push(input);
     const prNumber = this.nextPrNumber;
     this.nextPrNumber += 1;
-    this.openPrsByBranch.set(input.branch, prNumber);
+    this.prs.unshift({ branch: input.branch, number: prNumber, open: true });
     this.bodies.set(prNumber, input.body);
     return prNumber;
+  }
+
+  /**
+   * Merges (or closes) the pull request on `branch` — the event that ends a
+   * cycle. The branch keeps its pull request, which is what tells the next
+   * session the name is spent.
+   */
+  merge(branch: string): void {
+    const pr = this.prs.find((candidate) => candidate.branch === branch);
+    if (pr === undefined) {
+      throw new Error(`FakeForge: no pull request on ${branch} to merge`);
+    }
+    pr.open = false;
   }
 
   async readPrBody(prNumber: number): Promise<string> {

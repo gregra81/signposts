@@ -19,8 +19,8 @@ import type { Operation } from "../../../src/core/contracts/graph.js";
 import type { Signpost } from "../../../src/core/signpost/schema.js";
 
 const AUTHOR = "greg@example.com";
-const BRANCH = "signposts/greg";
 const TODAY = "2026-09-05";
+const BRANCH = `signposts/greg/${TODAY}`;
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -138,6 +138,35 @@ describe("the commit port", () => {
     expect(forge.updatePrCalls[0]?.body).toContain("sess-2");
   });
 
+  it("starts a new branch off the base once the open PR has merged", async () => {
+    // The reason the branch carries a date at all. A branch reused past its
+    // own merge keeps its pre-merge tip for ever — nothing here rebases onto
+    // the base — so it drifts from the merged corpus and applyOperations
+    // starts skipping ids that are in the mirror and not on the branch.
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    // The developer reviews and merges, which is the only way a cycle ends.
+    git(repoRoot, "fetch", "origin", BRANCH);
+    git(repoRoot, "merge", "--ff-only", `origin/${BRANCH}`);
+    git(repoRoot, "push", "origin", "main");
+    forge.merge(BRANCH);
+
+    await apply("sess-2", [{ op: "add", signpost: signpost({ id: "second", claim: "Second claim" }) }]);
+
+    const second = `${BRANCH}-2`;
+    expect(git(worktreeDir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(second);
+    expect(forge.openPrCalls.map((call) => call.branch)).toEqual([BRANCH, second]);
+
+    // Off the merged base: one commit ahead of main, and the merged signpost
+    // is there because main carries it, not because it was proposed again.
+    expect(git(worktreeDir, "log", "--pretty=%s", `main..${second}`).split("\n")).toEqual([
+      "signposts: 1 from session sess-2",
+    ]);
+    expect(existsSync(path.join(worktreeDir, SIGNPOSTS_DIRNAME, "environment", "staging-read-only.md"))).toBe(
+      true,
+    );
+  });
+
   it("adds one commit per session on the same branch", async () => {
     await apply("sess-1", [{ op: "add", signpost: signpost() }]);
     await apply("sess-2", [
@@ -201,8 +230,10 @@ describe("the commit port", () => {
       branchPattern: BRANCH_PATTERN,
       author: AUTHOR,
       forge: {
-        hasOpenPr: () => Promise.reject(new Error("gh: not authenticated")),
-        openPr: (input) => forge.openPr(input),
+        // Unreachable means unreachable: the listing that picks the branch
+        // and the call that opens the pull request both fail.
+        branchesUnder: () => Promise.reject(new Error("gh: not authenticated")),
+        openPr: () => Promise.reject(new Error("gh: not authenticated")),
         readPrBody: (prNumber) => forge.readPrBody(prNumber),
         updatePr: (prNumber, body) => forge.updatePr(prNumber, body),
         setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
@@ -219,7 +250,7 @@ describe("the commit port", () => {
     });
 
     expect(git(remote, "rev-parse", "--verify", BRANCH)).toBeTruthy();
-    expect(warnings.join("\n")).toContain("gh pr create --head signposts/greg");
+    expect(warnings.join("\n")).toContain(`gh pr create --head ${BRANCH}`);
   });
 
   it("keeps a commit whose push failed, rather than resetting over it on the next run", async () => {
@@ -286,7 +317,7 @@ describe("the commit port", () => {
       branchPattern: BRANCH_PATTERN,
       author: AUTHOR,
       forge: {
-        hasOpenPr: (branch) => forge.hasOpenPr(branch),
+        branchesUnder: (prefix) => forge.branchesUnder(prefix),
         openPr: (input) => forge.openPr(input),
         readPrBody: (prNumber) => forge.readPrBody(prNumber),
         updatePr: () => Promise.reject(new Error("gh: label not found")),
@@ -375,9 +406,9 @@ describe("the commit port", () => {
     });
 
     expect(git(worktreeDir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(
-      "signposts/greg-rashkevitch",
+      `signposts/greg-rashkevitch/${TODAY}`,
     );
-    expect(git(remote, "rev-parse", "--verify", "signposts/greg-rashkevitch")).toBe(
+    expect(git(remote, "rev-parse", "--verify", `signposts/greg-rashkevitch/${TODAY}`)).toBe(
       git(worktreeDir, "rev-parse", "HEAD"),
     );
     // The first branch keeps its own commit rather than being moved to the tip

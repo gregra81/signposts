@@ -10,9 +10,13 @@
 // here is the command to open the PR yourself".
 
 import { spawnSync } from "node:child_process";
-import type { Forge } from "./forge.ts";
+import { FORGE_BRANCH_PAGE } from "../../core/config/constants.ts";
+import type { Forge, ForgeBranch } from "./forge.ts";
 
 const OPEN_STATE = "open";
+
+/** `--state all`: a merged branch is closed and its name is still spent. */
+const ALL_STATES = "all";
 
 export class GhCliError extends Error {}
 
@@ -43,11 +47,34 @@ export function ghForge(cwd: string): Forge {
     JSON.parse(gh(cwd, ["pr", "view", String(prNumber), "--json", "number,state,body"])) as PrView;
 
   return {
-    async hasOpenPr(branch: string): Promise<number | null> {
+    async branchesUnder(prefix: string): Promise<ForgeBranch[]> {
+      // `gh pr list --head` matches one exact branch, and there is no prefix
+      // filter, so the listing is filtered here. `--state all` is what makes a
+      // merged cycle visible: its branch name is spent even though its PR is
+      // not open. The limit is a page rather than every pull request the repo
+      // has ever had — a name older than that cannot collide with a date from
+      // this week, which is the only collision that matters.
       const listed = JSON.parse(
-        gh(cwd, ["pr", "list", "--head", branch, "--state", OPEN_STATE, "--json", "number", "--limit", "1"]),
-      ) as { number: number }[];
-      return listed[0]?.number ?? null;
+        gh(cwd, [
+          "pr",
+          "list",
+          "--state",
+          ALL_STATES,
+          "--json",
+          "number,headRefName,state",
+          "--limit",
+          String(FORGE_BRANCH_PAGE),
+        ]),
+      ) as { number: number; headRefName: string; state: string }[];
+
+      return listed
+        .filter((pr) => pr.headRefName.startsWith(prefix))
+        .map((pr) => ({
+          branch: pr.headRefName,
+          number: pr.number,
+          // `gh` reports the state uppercased: OPEN, CLOSED, MERGED.
+          open: pr.state.toLowerCase() === OPEN_STATE,
+        }));
     },
 
     async openPr(input: { branch: string; title: string; body: string }): Promise<number> {

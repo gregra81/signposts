@@ -34,8 +34,9 @@ install is one command instead of a deployment.
 **Git is the store.** Signposts live as markdown under `.signposts/` in the project's own repo.
 No separate database, no auth system — the people who'd read this already have repo access.
 
-**Review happens through a PR**, one branch per developer (`signposts/<author>`). A shared branch
-would just be a push race between everyone's local worker.
+**Review happens through a PR**, one branch per developer per review cycle
+(`signposts/<author>/<date>`). A shared branch would just be a push race between everyone's local
+worker. Sessions pile onto the branch that is still open; a merge starts the next one.
 
 **Only knowledge you couldn't get from reading the code.** If it's inferable from the source, it
 doesn't belong here — that's the entire point of the tool.

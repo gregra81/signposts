@@ -121,8 +121,11 @@ tokens) and brings a `human_review` halt back to the main session, because only 
 answer it.
 
 A run never touches the developer's checkout. `commit` writes through a second worktree
-(`paths.worktreeDir`) on `signposts/<author-slug>`, so proposals live on a branch and in a PR and
-appear in the working tree only when it merges.
+(`paths.worktreeDir`) on `signposts/<author-slug>/<date>`, so proposals live on a branch and in a PR
+and appear in the working tree only when it merges. Sessions accumulate onto whichever of those
+branches still has an open PR; once it merges the next session starts a new one from the base,
+because nothing rebases the branch and a reused one drifts from the merged corpus
+(`src/core/git/branch.ts`).
 
 So a change can still be correct, tested, and unreachable by a user. Say so when that is true of
 what you just wrote.

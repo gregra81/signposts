@@ -21,11 +21,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ZodError } from "zod";
-import type { Forge } from "../forge/forge.ts";
+import type { Forge, ForgeBranch } from "../forge/forge.ts";
 import type { CommitInput, CommitPort } from "../../graph/ports.ts";
 import { formatZodError } from "../../core/errors/format-zod-error.ts";
 import { INDEX_FILENAME, SIGNPOSTS_DIRNAME } from "../../core/config/constants.ts";
-import { branchFor } from "../../core/git/branch.ts";
+import { branchPrefix, pickBranch } from "../../core/git/branch.ts";
 import { commitMessage, prBody, prLabels, prSection, PR_TITLE } from "../../core/pr/body.ts";
 import { applyOperations, signpostPath } from "../../core/signpost/apply-operations.ts";
 import { parseSignpost, serialiseSignpost } from "../../core/signpost/codec.ts";
@@ -50,8 +50,6 @@ export interface CommitPortInput {
 }
 
 export function makeCommitPort(input: CommitPortInput): CommitPort {
-  const branch = branchFor(input.branchPattern, input.author);
-
   return {
     async apply(operations: CommitInput): Promise<void> {
       if (operations.operations.length === 0) {
@@ -60,6 +58,12 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
         // the PR history that describes no change.
         return;
       }
+
+      // Per session, not once when the port is built: a run processes several
+      // sessions, and the first of them can be what opens the pull request the
+      // second should commit onto.
+      const cycle = await chooseBranch(input);
+      const branch = cycle.branch;
 
       const worktree = ensureWorktree({
         repoRoot: operations.repoRoot,
@@ -109,8 +113,48 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
         return;
       }
 
-      await openOrUpdatePr(input, branch, operations);
+      await openOrUpdatePr(input, cycle, operations);
     },
+  };
+}
+
+/** The branch this session commits on, and the pull request it already has. */
+interface Cycle {
+  branch: string;
+  /** The open PR on that branch, when the listing already found one. */
+  openPr: number | null;
+}
+
+/**
+ * Which cycle this session belongs to: the branch under review, or a new one.
+ *
+ * A forge that cannot be reached is not fatal here either. With no listing
+ * there is nothing to say a branch is under review, so today's name is minted
+ * — which is the branch an earlier session today already pushed to, and a new
+ * one otherwise. The pull request is the part that is lost, and the push
+ * warning already tells the developer how to open it by hand.
+ */
+async function chooseBranch(input: CommitPortInput): Promise<Cycle> {
+  const prefix = branchPrefix(input.branchPattern, input.author);
+
+  let known: ForgeBranch[] = [];
+  try {
+    known = await input.forge.branchesUnder(prefix);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    input.warn(`signposts: could not ask the forge which ${prefix}* branches are under review (${reason}).`);
+  }
+
+  const branch = pickBranch({
+    pattern: input.branchPattern,
+    email: input.author,
+    date: input.today(),
+    known,
+  });
+
+  return {
+    branch,
+    openPr: known.find((candidate) => candidate.branch === branch && candidate.open)?.number ?? null,
   };
 }
 
@@ -168,20 +212,20 @@ function writeCorpus(
  */
 async function openOrUpdatePr(
   input: CommitPortInput,
-  branch: string,
+  cycle: Cycle,
   operations: CommitInput,
 ): Promise<void> {
+  const branch = cycle.branch;
   const section = prSection(operations.sessionId, operations.operations);
   // The pull request this branch has, as far as we have got. Assigned from
-  // `openPr` as well as `hasOpenPr`, because the number is what the failure
-  // path needs and a PR opened a line ago is no less open than one found: a
-  // `setLabels` that throws right after a successful `openPr` used to leave
-  // this null and send the developer to `gh pr create` for the pull request
-  // that call had just created.
-  let open: number | null = null;
+  // `openPr` as well as from the listing, because the number is what the
+  // failure path needs and a PR opened a line ago is no less open than one
+  // found: a `setLabels` that throws right after a successful `openPr` used to
+  // leave this null and send the developer to `gh pr create` for the pull
+  // request that call had just created.
+  let open: number | null = cycle.openPr;
 
   try {
-    open = await input.forge.hasOpenPr(branch);
     const existed = open !== null;
     open ??= await input.forge.openPr({ branch, title: PR_TITLE, body: prBody("", section) });
 

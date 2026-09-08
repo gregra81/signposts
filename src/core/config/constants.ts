@@ -209,8 +209,22 @@ export const BOOTSTRAP_GATE_ALL = true;
 // Git
 // ---------------------------------------------------------------------------
 
-/** Per developer, not per repo. A shared branch produces push races between teammates' workers. */
-export const BRANCH_PATTERN = "signposts/{author_slug}";
+/**
+ * Per developer, not per repo — a shared branch produces push races between
+ * teammates' workers — and per review cycle rather than for ever: `{date}`
+ * turns over once the branch's pull request has merged, because a branch
+ * reused past its own merge never picks the base branch back up again
+ * (src/core/git/branch.ts).
+ */
+export const BRANCH_PATTERN = "signposts/{author_slug}/{date}";
+
+/**
+ * How many of the repo's pull requests are read to find which of this
+ * developer's branches are under review, and which names are already spent.
+ * One page: the names being guarded against carry this week's date, and every
+ * pull request in the repo's history is a slow call for the same answer.
+ */
+export const FORGE_BRANCH_PAGE = 100;
 
 /** Local-part of `git config user.email`, kebab-cased. Real identity — the branch lives in the team's own repo. */
 export const AUTHOR_SLUG = "local-part of git config user.email, kebab-cased";
