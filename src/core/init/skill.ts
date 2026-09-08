@@ -14,7 +14,10 @@
 //     workspace it was supposed to serve.
 //
 //   - A review halt comes back to the main session. Only the developer can
-//     answer it, and a subagent cannot ask them.
+//     answer it, and a subagent cannot ask them. `signpost review` is the
+//     developer's own way to answer one later, at their terminal; the skill
+//     is told not to run it, and the command refuses a stdin that is not a
+//     terminal anyway.
 
 export const SKILL_DIR = ".claude/skills/signposts";
 export const SKILL_FILENAME = "SKILL.md";
@@ -77,6 +80,11 @@ subagent answer it. Return to the main session, show the developer each entry in
 or edit each one. Then resume with
 \`{ "<id>": { "<operation key>": { "decision": "accept", "decidedAt": "<ISO 8601>" } } }\`,
 using the same keys the request used.
+
+The developer can also answer these later themselves, by typing
+\`signpost review\` at their own terminal. **Never run that command**, in the main
+session or a subagent: it is a prompt for a person, and it refuses a stdin that
+is not a terminal.
 
 **Every operation in \`needsHuman\` needs an entry.** A rejected one is
 \`"decision": "reject"\`, not an omission — an operation you leave out has not been

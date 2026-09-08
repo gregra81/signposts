@@ -18,6 +18,17 @@ export function createFakeStdio(answerLine?: string): FakeStdio {
   return buildFakeStdio(input);
 }
 
+/**
+ * Stdin that answers a sequence of prompts, and a terminal at the other end.
+ *
+ * `interactive` is what `signpost review` checks before it asks anything, so a
+ * test driving the review prompt has to claim it — which is also the point:
+ * nothing gets a review prompt by accident.
+ */
+export function createScriptedStdio(lines: readonly string[]): FakeStdio {
+  return { ...buildFakeStdio(Readable.from(lines.map((line) => `${line}\n`))), interactive: true };
+}
+
 /** Stdin that hits EOF immediately with no data — the piped/non-TTY/CI case (e.g. `< /dev/null`). */
 export function createEofStdio(): FakeStdio {
   return buildFakeStdio(Readable.from([]));

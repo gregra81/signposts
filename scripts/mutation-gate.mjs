@@ -40,6 +40,7 @@ const THRESHOLDS = [
   { module: "src/core/doctor", break: 95 },
   { module: "src/core/errors", break: 95 },
   { module: "src/core/prompts", break: 95 },
+  { module: "src/core/review", break: 95 },
   // The structured-output schema adapter. A surviving mutant here is a
   // keyword wrongly kept or wrongly stripped, which is a 400 on every call to
   // the node whose schema it mangled.

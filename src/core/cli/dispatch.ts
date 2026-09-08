@@ -7,8 +7,11 @@
 // The three run commands take options rather than positional arguments: they
 // are driven by a skill, and a named flag survives being reordered by
 // whatever assembles the command line.
+//
+// `review` takes none: it is typed by a person, and everything it acts on it
+// finds for itself in the checkpoint database.
 
-const KNOWN_COMMANDS = ["init", "index", "doctor", "sessions", "run", "resume"] as const;
+const KNOWN_COMMANDS = ["init", "index", "doctor", "sessions", "run", "resume", "review"] as const;
 export type KnownCommand = (typeof KNOWN_COMMANDS)[number];
 
 /** Options the run commands accept; absent for the others. */
