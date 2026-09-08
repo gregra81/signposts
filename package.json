@@ -33,7 +33,6 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.122.0",
     "@huggingface/transformers": "^4.2.0",
     "@langchain/langgraph": "^1.4.12",
     "@langchain/langgraph-checkpoint-sqlite": "^1.0.4",

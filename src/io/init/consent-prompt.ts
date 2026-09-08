@@ -8,9 +8,9 @@
 import { createInterface } from "node:readline";
 
 export const CONSENT_PROMPT_TEXT =
-  "signposts reads Claude Code transcripts on this machine, spends your Anthropic API " +
-  "credits to propose knowledge for review, and writes proposals to a branch/PR in this " +
-  "repo. This is asked once. Continue? [y/N] ";
+  "signposts reads Claude Code transcripts on this machine, asks your Claude Code " +
+  "session to turn them into knowledge for review, and writes proposals to a branch/PR " +
+  "in this repo. This is asked once. Continue? [y/N] ";
 
 export interface ConsentIO {
   input: NodeJS.ReadableStream;

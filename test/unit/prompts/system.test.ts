@@ -32,9 +32,14 @@ const DIGESTS: Record<NodeName, { sha256: string; bytes: number }> = {
     sha256: "85d540c5cbbe48f27e0c1a91c9a7965281d63f5ff26a81b8f8273313be25f0d1",
     bytes: 1746,
   },
+  // Updated when the resolver stopped being handed tools: the prompt named
+  // read_file, git_log and grep_repo, and nothing brokers those now that the
+  // answering session reads the repository itself. 14-prompts.md carries the
+  // replacement wording. The golden set needs a re-run against the new prompt
+  // (09-evaluation.md) — the recorded resolve scenarios answered the old one.
   resolve: {
-    sha256: "962026769fc12d997cab97aaac51b621310d3cd577f5cf21f1911de79e24ded9",
-    bytes: 1091,
+    sha256: "56c8014e94d98b93cd4d6105baf244a2b99338f8984233dd62679c8bdfd6ad59",
+    bytes: 1170,
   },
 };
 

@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
-import { fakePorts, NO_CREDENTIALS } from "../helpers/fake-ports.js";
 
 describe("unknown/missing subcommand", () => {
   let homeDir: string;
@@ -30,8 +29,7 @@ describe("unknown/missing subcommand", () => {
     const stdio = createFakeStdio();
     const exitCode = await runCli(["bogus"], {
       config,
-      ports: fakePorts(),
-      credentials: NO_CREDENTIALS,
+     
       stdio,
     });
 
@@ -42,7 +40,7 @@ describe("unknown/missing subcommand", () => {
 
   it("no subcommand at all prints usage to stderr and exits 1", async () => {
     const stdio = createFakeStdio();
-    const exitCode = await runCli([], { config, ports: fakePorts(), credentials: NO_CREDENTIALS, stdio });
+    const exitCode = await runCli([], { config, stdio });
 
     expect(exitCode).toBe(1);
     expect(stdio.writtenError()).toContain("usage");

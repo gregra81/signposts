@@ -9,17 +9,36 @@ authority and this repo is the transcription. Read the one a change touches befo
 `src/core/` is pure. No filesystem, no network, no clock, no `process.env`. `src/io/` is where
 those live. A function that needs the time or the environment takes it as an argument.
 
-Ports are interfaces (`src/graph/ports.ts`, `src/app.ts`) constructed in exactly one place, the
-composition root at `src/io/production-app.ts`. Nothing else builds a port (R2). Nothing below the
-composition root reads the environment, the Keychain, or the `ant` profile directory (R7). Tests
-pass fakes into the same seams.
+Ports are interfaces (`src/graph/ports.ts`, `src/cli/run-port.ts`) constructed in exactly one
+place: the composition root, which is `src/io/production-app.ts` and the `openRun` it hands down
+(`src/io/open-run.ts`). Nothing else builds a port (R2). Nothing below the composition root reads
+the environment (R7). Tests pass fakes into the same seams.
+
+A run's resources — a database handle, a checkpointer, an embedder that loads an ONNX pipeline —
+live for one invocation, so `openRun` is a function rather than a built object: `doctor` has to
+run in a repo with no database, and `init` must not create one before consent.
 
 The extraction graph is a LangGraph state machine in `src/graph/`, ten nodes, four of which call a
 model: `extract`, `critic`, `classify`, `resolve_conflict`.
 
+## Who answers the model calls
+
+The Claude Code session does. signposts holds no credential and calls no API: `hostModel`
+(`src/graph/host-model.ts`) implements the `ModelProvider` port with `interrupt()`, so a model call
+halts the run and comes back from `startRun`/`resumeRun` as a pending request carrying the node,
+both turns and the JSON Schema for the reply. The session answers it and resumes the thread by
+interrupt id.
+
+`human_review` halts the same way and is answered the same way; `kind` on the payload
+(`MODEL_REQUEST_KIND`, `REVIEW_REQUEST_KIND`) is what tells the two apart. Answer by interrupt id,
+never positionally — `classify` fans out, so several tasks can be halted at once.
+
+The reply crosses a process boundary and is validated on arrival: `src/graph/llm.ts` parses it with
+the same zod schema the request went out with, and a reply that does not satisfy it throws.
+
 ## Rules the linter enforces, and why
 
-Four custom rules in `eslint-rules/`. Each exists because of a specific failure, so work with
+Three custom rules in `eslint-rules/`. Each exists because of a specific failure, so work with
 them instead of around them.
 
 **`no-magic-literal`** — a string or number under `src/` that duplicates a value exported by
@@ -31,12 +50,9 @@ value, never a reference to the unrelated one that happens to share it.
 allowlist (`path`, `url`, `util`, `buffer`, and `crypto` for hashing only), and so are
 `process.*`, `Date.now()`, `new Date()` and `Math.random()`. An allowlist rather than a list of
 banned modules, because a denylist catches `node:fs` and waves through `node:fs/promises`. The
-rule exists because `confine.ts` imported `node:fs` and called lstat, readlink and realpath for
-months while this file claimed core was pure. When you hit it, the fix is the one the shape
-section describes: take what you need as an argument, as `confine()` now takes `PathFacts`.
-
-**`no-anthropic-sdk-outside-io-model`** — `@anthropic-ai/sdk` may only be imported under
-`src/io/model/`. Any live model call belongs there.
+rule exists because a module under `src/core/` imported `node:fs` and called lstat, readlink and
+realpath for months while this file claimed core was pure. When you hit it, the fix is the one the
+shape section describes: take what you need as an argument.
 
 **`no-src-import-in-hooks-or-statusline`** — `hooks/` and `statusline/` run outside the app and
 may not import from `src/`.
@@ -81,31 +97,43 @@ The golden set, the synthetic scenarios and the recorded model responses are in 
 path, no config. Keep it that way: fixtures are one person's private corpus, and `src/` is what a
 user's runtime touches.
 
-`FixtureModelProvider` stays here because the repo's own tests need a model double, and
-`production-app.ts` currently uses it as a placeholder. That placeholder goes when the graph is
-wired.
+`FixtureModelProvider` stays here because the repo's own tests need a model double — it replays
+replies keyed on `(node, system, user)` and treats a miss as an error.
 
-## The graph is not wired yet
+## How it is used
 
-`buildExtractionGraph` and `startRun` are referenced nowhere outside `src/graph/`.
-`production-app.ts` builds a `FixtureModelProvider` with an empty map and no `neighbours`, `pendingIndex`,
-`index`, `commit` or `tools` ports. `src/io/db/neighbours.ts` implements RRF retrieval,
-`src/io/db/pending-index.ts` implements the between-sessions reindex, both have tests, and nothing calls
-either. The CLI has three commands: `doctor`, `init`, `index`.
+`npm i -g signposts`, then `signpost init` in a repo: consent, `.signposts/`, the CLAUDE.md pointer,
+and `.claude/skills/signposts/SKILL.md` — the skill is how the tool is driven, and it is rewritten
+on every accepted `init` so it cannot drift from the CLI it describes.
 
-So a change can be correct, tested, and still unreachable by a user. Say so when that is true of
+The CLI is six commands. `doctor`, `init` and `index` stand alone; `sessions`, `run` and `resume`
+are the loop the skill drives, one JSON object per invocation:
+
+```
+signpost sessions                                  # eligible transcripts
+signpost run --session <id> [--first]              # -> {status: "waiting", pending: [...]}
+signpost resume --session <id> --replies <path>    # -> the next halt, or "finished"
+```
+
+`--first` clears what the previous run left pending, so it belongs on the first session of a run
+and nowhere else. The skill runs the loop in a subagent (a session's prompts are thousands of
+tokens) and brings a `human_review` halt back to the main session, because only the developer can
+answer it.
+
+A run never touches the developer's checkout. `commit` writes through a second worktree
+(`paths.worktreeDir`) on `signposts/<author-slug>/<date>`, so proposals live on a branch and in a PR
+and appear in the working tree only when it merges. Sessions accumulate onto whichever of those
+branches still has an open PR; once it merges the next session starts a new one from the base,
+because nothing rebases the branch and a reused one drifts from the merged corpus
+(`src/core/git/branch.ts`).
+
+So a change can still be correct, tested, and unreachable by a user. Say so when that is true of
 what you just wrote.
 
 ## A known hole
 
 `retire` is in the operation union, `validate-operations.ts` checks it, and `partition.ts` maps it
 to the `deletes_existing` gate reason. No classification path emits it, so both are unreachable.
-
-The resolver's tools used to be the second hole and are now built: `resolve-conflict.ts` passes the
-three `RESOLVE_SYSTEM` names through `src/core/graph/resolve-tools.ts`, the provider loops on them
-up to `MAX_RESOLVE_TOOL_ITERATIONS` and then forbids further calls with `tool_choice: none`, and
-`src/io/tools/repo-tools.ts` runs each one behind `confine()`. Like the rest of the graph, none of
-it runs until `production-app.ts` builds a `RepoToolsPort`.
 
 ## Style
 

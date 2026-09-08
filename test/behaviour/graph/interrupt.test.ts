@@ -18,6 +18,7 @@ import {
   threadConfigFor,
 } from "../../../src/graph/index.js";
 import { buildThreadId } from "../../../src/core/graph/thread-id.js";
+import type { RunResult } from "../../../src/graph/index.js";
 import { operationKey } from "../../../src/core/graph/decisions.js";
 import {
   CHECKPOINT_FILENAME,
@@ -90,6 +91,19 @@ function freshProcess(options: HarnessOptions) {
   return { ports, checkpointer, graph: buildExtractionGraph({ ports, checkpointer }) };
 }
 
+/**
+ * The id the halted thread is waiting under. Every answer is filed by it —
+ * a review decision travels the same way a model answer does, because to the
+ * graph they are the same thing.
+ */
+function haltId(result: RunResult): string {
+  const [pending] = result.pending;
+  if (pending === undefined) {
+    throw new Error("the run did not halt");
+  }
+  return pending.id;
+}
+
 describe("the long-lived interrupt", () => {
   it("halts without committing when the gate needs a human", async () => {
     const first = freshProcess(gatedOptions());
@@ -112,7 +126,7 @@ describe("the long-lived interrupt", () => {
       second.graph,
       second.checkpointer,
       { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
-      { [operationKey(pending!.operation)]: { decision: "accept", decidedAt: "2026-08-30" } },
+      { [haltId(halted)]: { [operationKey(pending!.operation)]: { decision: "accept", decidedAt: "2026-08-30" } } },
     );
 
     expect(second.ports.commit.applied).toHaveLength(1);
@@ -129,7 +143,7 @@ describe("the long-lived interrupt", () => {
       second.graph,
       second.checkpointer,
       { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
-      { [operationKey(pending!.operation)]: { decision: "accept", decidedAt: "2026-08-30" } },
+      { [haltId(halted)]: { [operationKey(pending!.operation)]: { decision: "accept", decidedAt: "2026-08-30" } } },
     );
 
     expect(second.ports.model.callsTo("extract")).toEqual([]);
@@ -146,7 +160,7 @@ describe("the long-lived interrupt", () => {
       second.graph,
       second.checkpointer,
       { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
-      { [operationKey(pending!.operation)]: { decision: "reject", decidedAt: "2026-08-30" } },
+      { [haltId(halted)]: { [operationKey(pending!.operation)]: { decision: "reject", decidedAt: "2026-08-30" } } },
     );
 
     expect(second.ports.commit.operations).toEqual([]);
@@ -168,7 +182,7 @@ describe("the long-lived interrupt", () => {
       second.graph,
       second.checkpointer,
       { repo: RUN_INPUT.repo, sessionId: RUN_INPUT.sessionId, contentHash: RUN_INPUT.contentHash },
-      { [operationKey(pending!.operation)]: { decision: "edit", edited, decidedAt: "2026-08-30" } },
+      { [haltId(halted)]: { [operationKey(pending!.operation)]: { decision: "edit", edited, decidedAt: "2026-08-30" } } },
     );
 
     expect(second.ports.commit.operations).toEqual([edited]);
@@ -223,17 +237,22 @@ describe("a review answered in instalments", () => {
     const first = freshProcess(twoGatedOptions());
     const halted = await startRun(first.graph, first.checkpointer, RUN_INPUT);
     expect(halted.state.gated.needsHuman).toHaveLength(2);
-    return halted.state.gated.needsHuman.map(({ operation }) => operation);
+    return {
+      operations: halted.state.gated.needsHuman.map(({ operation }) => operation),
+      id: haltId(halted),
+    };
   }
 
   // The partial-review bug: answering one of two used to write that decision,
   // fall through to `commit`, and end the thread with the other discarded.
   it("commits nothing and stays halted when only one of two is answered", async () => {
-    const [one] = await haltWithTwo();
+    const { operations: [one], id } = await haltWithTwo();
 
     const second = freshProcess(twoGatedOptions());
     const result = await resumeRun(second.graph, second.checkpointer, parts, {
-      [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+      [id]: {
+        [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+      },
     });
 
     expect(second.ports.commit.applied).toEqual([]);
@@ -241,28 +260,34 @@ describe("a review answered in instalments", () => {
   });
 
   it("keeps the first answer and commits both once the second arrives", async () => {
-    const [one, two] = await haltWithTwo();
+    const { operations: [one, two], id } = await haltWithTwo();
 
     const second = freshProcess(twoGatedOptions());
     await resumeRun(second.graph, second.checkpointer, parts, {
-      [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+      [id]: {
+        [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+      },
     });
 
     // A third process, another day. The first answer is not re-sent.
     const third = freshProcess(twoGatedOptions());
     await resumeRun(third.graph, third.checkpointer, parts, {
-      [operationKey(two!)]: { decision: "accept", decidedAt: "2026-08-31" },
+      [id]: {
+        [operationKey(two!)]: { decision: "accept", decidedAt: "2026-08-31" },
+      },
     });
 
     expect(third.ports.commit.operations).toHaveLength(2);
   });
 
   it("asks only about what is still outstanding on the second halt", async () => {
-    const [one, two] = await haltWithTwo();
+    const { operations: [one, two], id } = await haltWithTwo();
 
     const second = freshProcess(twoGatedOptions());
     await resumeRun(second.graph, second.checkpointer, parts, {
-      [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+      [id]: {
+        [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+      },
     });
 
     const snapshot = await second.graph.getState(threadConfigFor(buildThreadId(RUN_INPUT)));
@@ -274,15 +299,17 @@ describe("a review answered in instalments", () => {
   // [e]dit on the replacement text. Retargeting is not an edit, and it would
   // reach `commit` without passing `validate`, which ran before the gate.
   it("rejects an edit that points at a different signpost", async () => {
-    const [one] = await haltWithTwo();
+    const { operations: [one], id } = await haltWithTwo();
 
     const second = freshProcess(twoGatedOptions());
     await expect(
       resumeRun(second.graph, second.checkpointer, parts, {
-        [operationKey(one!)]: {
-          decision: "edit",
-          edited: { op: "supersede", id: "no-such-signpost", replacement: EXISTING },
-          decidedAt: "2026-08-30",
+        [id]: {
+          [operationKey(one!)]: {
+            decision: "edit",
+            edited: { op: "supersede", id: "no-such-signpost", replacement: EXISTING },
+            decidedAt: "2026-08-30",
+          },
         },
       }),
     ).rejects.toThrow(
@@ -294,22 +321,24 @@ describe("a review answered in instalments", () => {
   });
 
   it("names every retargeted edit, not just the first", async () => {
-    const [one, two] = await haltWithTwo();
+    const { operations: [one, two], id } = await haltWithTwo();
     const elsewhere = (id: string) =>
       ({ op: "supersede", id, replacement: EXISTING }) as const;
 
     const second = freshProcess(twoGatedOptions());
     await expect(
       resumeRun(second.graph, second.checkpointer, parts, {
-        [operationKey(one!)]: {
-          decision: "edit",
-          edited: elsewhere("no-such-signpost"),
-          decidedAt: "2026-08-30",
-        },
-        [operationKey(two!)]: {
-          decision: "edit",
-          edited: elsewhere("nor-this-one"),
-          decidedAt: "2026-08-30",
+        [id]: {
+          [operationKey(one!)]: {
+            decision: "edit",
+            edited: elsewhere("no-such-signpost"),
+            decidedAt: "2026-08-30",
+          },
+          [operationKey(two!)]: {
+            decision: "edit",
+            edited: elsewhere("nor-this-one"),
+            decidedAt: "2026-08-30",
+          },
         },
       }),
     ).rejects.toThrow(
@@ -319,28 +348,46 @@ describe("a review answered in instalments", () => {
   });
 
   it("accepts an edit that only reworks the operation it replaces", async () => {
-    const [one, two] = await haltWithTwo();
+    const { operations: [one, two], id } = await haltWithTwo();
     const reworded = { ...one!, replacement: { ...EXISTING, claim: "Reworded by hand" } };
 
     const second = freshProcess(twoGatedOptions());
     await resumeRun(second.graph, second.checkpointer, parts, {
-      [operationKey(one!)]: { decision: "edit", edited: reworded, decidedAt: "2026-08-30" },
-      [operationKey(two!)]: { decision: "reject", decidedAt: "2026-08-30" },
+      [id]: {
+        [operationKey(one!)]: { decision: "edit", edited: reworded, decidedAt: "2026-08-30" },
+        [operationKey(two!)]: { decision: "reject", decidedAt: "2026-08-30" },
+      },
     });
 
     expect(second.ports.commit.operations).toEqual([reworded]);
   });
 
+  it("refuses an answer keyed by anything but the halt's own id", async () => {
+    // The map form of `resume` is only recognised when every key is an
+    // interrupt id; one that is not silently demotes the whole object to the
+    // bare form, which hands all of it to every halted task.
+    const { operations: [one] } = await haltWithTwo();
+
+    const second = freshProcess(twoGatedOptions());
+    await expect(
+      resumeRun(second.graph, second.checkpointer, parts, {
+        [operationKey(one!)]: { decision: "accept", decidedAt: "2026-08-30" },
+      }),
+    ).rejects.toThrow(/is not waiting on supersede:/);
+
+    expect(second.ports.commit.applied).toEqual([]);
+  });
+
   it("rejects a resume payload that is not a valid set of decisions", async () => {
-    const [one] = await haltWithTwo();
+    const { operations: [one], id } = await haltWithTwo();
 
     const second = freshProcess(twoGatedOptions());
     await expect(
       resumeRun(second.graph, second.checkpointer, parts, {
         // "edit" with no replacement: applyDecisions would have committed the
         // original operation, which is the opposite of what was asked.
-        [operationKey(one!)]: { decision: "edit", decidedAt: "2026-08-30" },
-      } as never),
+        [id]: { [operationKey(one!)]: { decision: "edit", decidedAt: "2026-08-30" } },
+      }),
     ).rejects.toThrow(/not a valid set of decisions/);
 
     expect(second.ports.commit.applied).toEqual([]);

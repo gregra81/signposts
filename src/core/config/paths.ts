@@ -15,7 +15,10 @@ import {
   LOCKFILE_FILENAME,
   MODEL_CACHE_DIRNAME,
   SIGNPOSTS_DIRNAME,
+  CLAUDE_CONFIG_ROOT,
   STATUSLINE_FILENAME,
+  TRANSCRIPT_DIRNAME,
+  WORKTREE_DIRNAME,
 } from "./constants.ts";
 
 export interface DerivedPaths {
@@ -32,6 +35,17 @@ export interface DerivedPaths {
   modelCacheDir: string;
   knowledgeDir: string;
   indexFile: string;
+  /** Second checkout of this repo, on the signposts branch — see WORKTREE_DIRNAME. */
+  worktreeDir: string;
+  /** Where Claude Code writes transcripts: its config directory, plus `projects`. */
+  transcriptRoot: string;
+}
+
+/** The prefix CLAUDE_CONFIG_ROOT is written with — this module supplies the home. */
+const HOME_PREFIX = "~/";
+
+function expandHome(homeRelative: string, homeDir: string): string {
+  return path.join(homeDir, homeRelative.slice(HOME_PREFIX.length));
 }
 
 /** sha256(repoRoot), hex-encoded, first 12 characters — repoRoot taken as given, unnormalised. */
@@ -39,7 +53,22 @@ export function hashRepoRoot(repoRoot: string): string {
   return createHash("sha256").update(repoRoot).digest("hex").slice(0, 12);
 }
 
-export function derivePaths(repoRoot: string, homeDir: string): DerivedPaths {
+/**
+ * Claude Code moves its whole config directory when `CLAUDE_CONFIG_DIR` is
+ * set, transcripts included. Hard-coding `~/.claude` sent `discoverSessions`
+ * to a root holding nothing, and its ENOENT branch reports that as an empty
+ * session list — `sessions` prints nothing eligible and the skill correctly
+ * stops, with no way to tell that from a repo with no idle transcripts. Same
+ * silent-and-empty failure as the project directory name, through the other
+ * half of the path.
+ *
+ * Read at the composition root and passed down (R7), not read here.
+ */
+export function derivePaths(
+  repoRoot: string,
+  homeDir: string,
+  claudeConfigDir?: string | undefined,
+): DerivedPaths {
   const repoHash = hashRepoRoot(repoRoot);
   const globalRoot = path.join(homeDir, SIGNPOSTS_DIRNAME);
   const stateDir = path.join(globalRoot, repoHash);
@@ -56,5 +85,12 @@ export function derivePaths(repoRoot: string, homeDir: string): DerivedPaths {
     modelCacheDir: path.join(globalRoot, MODEL_CACHE_DIRNAME),
     knowledgeDir,
     indexFile: path.join(knowledgeDir, INDEX_FILENAME),
+    worktreeDir: path.join(stateDir, WORKTREE_DIRNAME),
+    transcriptRoot: path.join(
+      claudeConfigDir === undefined || claudeConfigDir === ""
+        ? expandHome(CLAUDE_CONFIG_ROOT, homeDir)
+        : claudeConfigDir,
+      TRANSCRIPT_DIRNAME,
+    ),
   };
 }

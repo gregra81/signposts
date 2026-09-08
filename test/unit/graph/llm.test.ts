@@ -1,25 +1,15 @@
 // callStructured — the one path from the graph to a model.
 //
-// Two things are asserted here that no behaviour test can reach: the optional
-// request fields are omitted rather than sent as `undefined`, and the message
-// a schema violation throws names the node and every offending path. That
-// throw is a provider or schema fault, so it is the only signal anyone gets.
+// Two things are asserted here that no behaviour test can reach: a request
+// carries the node's own system prompt and schema and nothing else, and the
+// message a schema violation throws names the node and every offending path.
+// That throw is all anyone gets when an answer comes back the wrong shape.
 
 import { describe, expect, it } from "vitest";
 import { callStructured } from "../../../src/graph/llm.js";
 import { systemPromptFor } from "../../../src/core/prompts/system.js";
 import { jsonSchemaFor } from "../../../src/core/graph/node-io.js";
-import { MODEL_DEFAULT } from "../../../src/core/config/constants.js";
-import type { ModelProvider, NodeName, Usage } from "../../../src/core/model/types.js";
-
-const USAGE: Usage = {
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheCreationTokens: 0,
-  model: MODEL_DEFAULT,
-  costUsd: 0,
-};
+import type { ModelProvider } from "../../../src/core/model/types.js";
 
 type Request = Parameters<ModelProvider["structured"]>[0];
 
@@ -41,9 +31,9 @@ class RecordingProvider implements ModelProvider {
     return first;
   }
 
-  async structured<T>(req: Request): Promise<{ value: T; usage: Usage }> {
+  async structured<T>(req: Request): Promise<T> {
     this.requests.push(req);
-    return { value: this.reply as T, usage: USAGE };
+    return this.reply as T;
   }
 }
 
@@ -53,8 +43,8 @@ const VALID_CLASSIFICATION = {
   rationale: "Nothing like it recorded.",
 };
 
-async function classifyWith(model: ModelProvider, extra: { batchable?: boolean } = {}) {
-  return callStructured({ model, node: "classify", user: "u", ...extra });
+async function classifyWith(model: ModelProvider) {
+  return callStructured({ model, node: "classify", user: "u" });
 }
 
 describe("the request", () => {
@@ -68,52 +58,12 @@ describe("the request", () => {
     expect(model.sent.user).toBe("u");
   });
 
-  it("omits batchable and tools entirely when they were not given", async () => {
+  it("carries nothing else: the request is the node, the two turns and the schema", async () => {
     const model = new RecordingProvider(VALID_CLASSIFICATION);
 
     await classifyWith(model);
 
-    expect("batchable" in model.sent).toBe(false);
-    expect("tools" in model.sent).toBe(false);
-    expect("runTool" in model.sent).toBe(false);
-  });
-
-  it("forwards batchable when it was given, including false", async () => {
-    const model = new RecordingProvider(VALID_CLASSIFICATION);
-
-    await classifyWith(model, { batchable: false });
-
-    expect("batchable" in model.sent).toBe(true);
-    expect(model.sent.batchable).toBe(false);
-  });
-
-  it("forwards tools when they were given", async () => {
-    const model = new RecordingProvider({
-      tempId: "t1",
-      outcome: "new_wins",
-      reasoning: "The newer claim was demonstrated.",
-    });
-    const tools = [{ name: "read_file", description: "Read a file.", inputSchema: {} }];
-
-    await callStructured({ model, node: "resolve" as NodeName, user: "u", tools });
-
-    expect(model.sent.tools).toEqual(tools);
-  });
-
-  it("forwards the tool runner alongside the tools", async () => {
-    // A ToolDef says what a tool is; only the runner can perform one. The
-    // provider refuses a call carrying tools it cannot execute, so dropping
-    // this on the way through would fail every resolve.
-    const model = new RecordingProvider({
-      tempId: "t1",
-      outcome: "undecidable",
-      reasoning: "The evidence did not settle it.",
-    });
-    const runTool = async () => ({ content: "", isError: false });
-
-    await callStructured({ model, node: "resolve" as NodeName, user: "u", runTool });
-
-    expect(model.sent.runTool).toBe(runTool);
+    expect(Object.keys(model.sent).sort()).toEqual(["node", "schema", "system", "user"]);
   });
 
   it("returns the parsed reply", async () => {

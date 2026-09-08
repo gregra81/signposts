@@ -26,6 +26,8 @@ export interface ResolveConfigInput {
   userFileContents?: string | undefined;
   /** In place of reading `process.env` directly. */
   env: Readonly<Record<string, string | undefined>>;
+  /** `CLAUDE_CONFIG_DIR`, when the caller's environment sets it. */
+  claudeConfigDir?: string | undefined;
 }
 
 export type ResolvedConfig = Readonly<SignpostsConfig & { paths: DerivedPaths }>;
@@ -105,7 +107,7 @@ export function resolveConfig(input: ResolveConfigInput): ResolvedConfig {
     git = { ...git, auto_merge: false };
   }
 
-  const paths = derivePaths(input.repoRoot, input.homeDir);
+  const paths = derivePaths(input.repoRoot, input.homeDir, input.claudeConfigDir);
 
   return Object.freeze({ ...config, git, paths });
 }

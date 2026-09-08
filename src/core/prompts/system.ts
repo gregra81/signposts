@@ -134,11 +134,23 @@ If no neighbour is genuinely about the same claim, return NOVEL even when the su
 
 Return: kind, relatedId (required unless NOVEL), rationale (one sentence).`;
 
-/** `resolve_conflict` — the adjudicator. Gets read-only tools at Phase 4.5. */
+/**
+ * `resolve_conflict` — the adjudicator.
+ *
+ * It used to promise `read_file`, `git_log` and `grep_repo`, brokered by this
+ * repo. Nothing brokers them now: the session answering a resolve request is
+ * working in the repository already and reads it with its own tools. Naming
+ * three tools that are not in the request, and then saying not to adjudicate
+ * from the text, gave an answerer that took the instruction literally a
+ * documented reason to return `undecidable` — which routes to the developer.
+ * That turns a resolvable contradiction into a review, which is the cost this
+ * prompt exists to avoid (14-prompts.md).
+ */
 export const RESOLVE_SYSTEM = `Two claims about the same repository contradict each other. Determine which is true.
 
-You have read-only tools: read_file, git_log, grep_repo. Use them. Do not adjudicate from the text
-alone when evidence is available — check whether the configuration actually changed, and when.
+You are working in the repository these claims are about. Read it before you answer — check whether
+the configuration actually changed, and when. Do not adjudicate from the two claims alone when the
+files and the history are there to settle it.
 
 Possible outcomes:
 
@@ -153,7 +165,8 @@ guessing wrong silently corrupts the knowledge base. Prefer undecidable when gen
 
 Cite what you checked. If you read a file or a commit, say which and what it showed.
 
-Do not modify anything. Your tools are read-only and you have no other capabilities.`;
+Do not modify anything. Answering this is a read; whatever else you can do here, this is not the
+place to do it.`;
 
 /** Every node's system prompt, by the NodeName the provider dispatches on. */
 export const SYSTEM_PROMPTS: Readonly<Record<NodeName, string>> = {

@@ -4,14 +4,11 @@
 // itself — is the only place any port is constructed; every command
 // downstream receives ports already built, never builds its own (R2).
 //
-// The model port is deliberately still the double. src/io/model/
-// anthropic-provider.ts is the live implementation and is ready, but wiring
-// it up here would make a billable Anthropic call reachable from `init`,
-// `index` and `doctor`, which is out of scope until the graph is wired.
-// FixtureModelProvider with no fixtures stands in exactly as
-// 16-build-plan.md sanctions for the test double, and is equally correct
-// here: none of the three commands call the model port, and a call that did
-// would fail loudly rather than silently going live.
+// What a run needs is opened by `openRun` (./open-run.ts) rather than here:
+// its resources live for one invocation, and `doctor` has to run in a repo
+// with no database at all. The model port inside it is `hostModel` — a model
+// call halts the run and is answered by the Claude Code session that started
+// it (src/graph/host-model.ts).
 //
 // `repo` (the "owner/name" git-origin key) is NOT resolved here: `doctor`
 // must run in any repo, including one with no GitHub origin, so eagerly
@@ -25,20 +22,8 @@ import process from "node:process";
 import type { App } from "../app.ts";
 import { createApp } from "../app.ts";
 import { resolveConfig } from "../core/config/resolve.ts";
-import { AUTH_METHOD_AUTO, MODEL_CLASSIFY, MODEL_DEFAULT, MODEL_EXTRACT } from "../core/config/constants.ts";
-import type { NodeName } from "../core/model/types.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
-import { gatherAuthFacts } from "./credentials/index.ts";
-import { FixtureModelProvider } from "./model/fixture-provider.ts";
-import { systemClock } from "./clock/system-clock.ts";
-import { stubForge } from "./forge/stub-forge.ts";
-
-const MODELS: Record<NodeName, string> = {
-  extract: MODEL_EXTRACT,
-  critic: MODEL_DEFAULT,
-  classify: MODEL_CLASSIFY,
-  resolve: MODEL_DEFAULT,
-};
+import { openRun } from "./open-run.ts";
 
 export function buildProductionApp(): App {
   const repoRoot = process.cwd();
@@ -50,36 +35,8 @@ export function buildProductionApp(): App {
     repoFileContents: readRepoConfigFile(repoRoot),
     userFileContents: readUserConfigFile(homeDir),
     env: process.env,
+    claudeConfigDir: process.env["CLAUDE_CONFIG_DIR"],
   });
 
-  // Every credential source is probed once, here: env vars, Claude Code's
-  // credential store, and the `ant auth login` profile directory. Only the
-  // resulting presence flags travel downstream — no token leaves this call.
-  const auth = gatherAuthFacts(
-    {
-      homeDir,
-      env: process.env,
-      platform: process.platform,
-      account: os.userInfo().username,
-      now: Date.now(),
-    },
-    config.auth.method,
-  );
-
-  return createApp({
-    config,
-    credentials: {
-      selected: auth.selected,
-      usable: auth.usable,
-      subscriptionType: auth.subscriptionType,
-      rateLimitTier: auth.rateLimitTier,
-      subscriptionExpired: auth.subscriptionExpired,
-      pinned: config.auth.method !== AUTH_METHOD_AUTO,
-    },
-    ports: {
-      model: new FixtureModelProvider({}, MODELS),
-      clock: systemClock,
-      forge: stubForge,
-    },
-  });
+  return createApp({ config, openRun });
 }

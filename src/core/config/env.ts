@@ -12,18 +12,11 @@ export interface LeafMapping {
   readonly type: EnvType;
 }
 
-// Grouped by top-level schema section so each section name (e.g. "models")
-// appears only as an object key — one of which, MODEL_CACHE_DIRNAME, happens
-// to share a spelling with a constants.ts value; property keys are exempt
-// from signposts/no-magic-literal, unlike a bare array element would be.
+// Grouped by top-level schema section so each section name appears only as an
+// object key — one of which, MODEL_CACHE_DIRNAME, happens to share a spelling
+// with a constants.ts value; property keys are exempt from
+// signposts/no-magic-literal, unlike a bare array element would be.
 const SECTION_MAPPINGS: Readonly<Record<string, readonly LeafMapping[]>> = {
-  auth: [{ envVar: "SIGNPOSTS_AUTH_METHOD", leaf: "method", type: "string" }],
-  models: [
-    { envVar: "SIGNPOSTS_MODELS_EXTRACT", leaf: "extract", type: "string" },
-    { envVar: "SIGNPOSTS_MODELS_CRITIC", leaf: "critic", type: "string" },
-    { envVar: "SIGNPOSTS_MODELS_CLASSIFY", leaf: "classify", type: "string" },
-    { envVar: "SIGNPOSTS_MODELS_RESOLVE", leaf: "resolve", type: "string" },
-  ],
   thresholds: [
     {
       envVar: "SIGNPOSTS_THRESHOLDS_AUTO_PUBLISH_CONFIDENCE",

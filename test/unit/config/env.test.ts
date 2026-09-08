@@ -24,8 +24,8 @@ describe("parseEnvLayer", () => {
   });
 
   it("leaves a string leaf as-is", () => {
-    expect(parseEnvLayer({ SIGNPOSTS_MODELS_EXTRACT: "claude-haiku" })).toEqual({
-      models: { extract: "claude-haiku" },
+    expect(parseEnvLayer({ SIGNPOSTS_GIT_BRANCH_PATTERN: "knowledge/{author_slug}" })).toEqual({
+      git: { branch_pattern: "knowledge/{author_slug}" },
     });
   });
 

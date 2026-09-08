@@ -26,7 +26,7 @@
 // deletes every one of them.
 
 import type Database from "better-sqlite3";
-import type { Signpost } from "../../core/signpost/schema.ts";
+import { signpostSchema, type Signpost } from "../../core/signpost/schema.ts";
 
 export interface SignpostMirrorRow {
   signpost: Signpost;
@@ -88,4 +88,88 @@ export function mirrorSignposts(db: Database.Database, repo: string, rows: reado
   });
 
   mirror(rows);
+}
+
+interface SignpostRow {
+  id: string;
+  claim: string;
+  category: string;
+  evidence: string | null;
+  scope_json: string;
+  confidence: number;
+  status: string;
+  provenance_json: string;
+}
+
+const SELECT_COLUMNS = "id, claim, category, evidence, scope_json, confidence, status, provenance_json";
+
+/**
+ * A mirror row back as a Signpost, parsed rather than cast: the row's JSON
+ * columns were written by a previous version of this code, and the graph acts
+ * on what comes back — `resolve_conflict` adjudicates against it.
+ *
+ * A row that no longer parses is dropped rather than thrown on, which is what
+ * `signpost index` already does with a file that no longer parses. This runs
+ * on the retrieval path — `neighbours.find`, once per candidate inside
+ * `retrieve_neighbours` — so throwing took the whole run down over one stale
+ * row, in every run in that repo, until someone worked out that `signpost
+ * index` needed re-running. Both callers already treat an id they cannot
+ * resolve as one that is not there.
+ */
+function toSignpost(row: SignpostRow): Signpost | undefined {
+  const parsed = signpostSchema.safeParse({
+    id: row.id,
+    claim: row.claim,
+    category: row.category,
+    evidence: row.evidence ?? "",
+    scope: safeJson(row.scope_json),
+    confidence: row.confidence,
+    status: row.status,
+    provenance: safeJson(row.provenance_json),
+  });
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** `JSON.parse` throws on a truncated column; the schema rejects the undefined. */
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Every signpost id in use in `repo`, pending rows included — what slug generation must avoid. */
+export function signpostIds(db: Database.Database, repo: string): Set<string> {
+  const rows = db.prepare("SELECT id FROM signposts WHERE repo = ?").all(repo) as { id: string }[];
+  return new Set(rows.map((row) => row.id));
+}
+
+export function signpostById(db: Database.Database, repo: string, id: string): Signpost | undefined {
+  const row = db
+    .prepare(`SELECT ${SELECT_COLUMNS} FROM signposts WHERE repo = ? AND id = ?`)
+    .get(repo, id) as SignpostRow | undefined;
+  return row === undefined ? undefined : toSignpost(row);
+}
+
+/** The named signposts, in the order the ids were given; unknown ids are skipped. */
+export function signpostsByIds(db: Database.Database, repo: string, ids: readonly string[]): Signpost[] {
+  const found = new Map(
+    ids.length === 0
+      ? []
+      : (
+          db
+            .prepare(
+              `SELECT ${SELECT_COLUMNS} FROM signposts WHERE repo = ? AND id IN (${ids.map(() => "?").join(", ")})`,
+            )
+            .all(repo, ...ids) as SignpostRow[]
+        ).flatMap((row) => {
+          const signpost = toSignpost(row);
+          return signpost === undefined ? [] : [[row.id, signpost] as const];
+        }),
+  );
+  return ids.flatMap((id) => {
+    const signpost = found.get(id);
+    return signpost === undefined ? [] : [signpost];
+  });
 }

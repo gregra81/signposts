@@ -2,7 +2,10 @@
 // disambiguate against ids already on disk (03-memory-model.md: "id: stable
 // slug, e.g. staging-db-read-only"). Output always matches ID_PATTERN
 // (src/core/config/constants.ts) by construction: lowercased, non-alnum runs
-// collapsed to a single `-`, leading/trailing `-` trimmed.
+// collapsed to a single `-`, leading/trailing `-` trimmed, and cut to
+// MAX_SLUG_LENGTH on a word boundary.
+
+import { MAX_SLUG_LENGTH } from "../config/constants.ts";
 
 const FALLBACK_SLUG = "signpost";
 
@@ -13,9 +16,31 @@ function kebabCase(text: string): string {
     .replace(/^-|-$/g, "");
 }
 
+/**
+ * The slug cut to MAX_SLUG_LENGTH on a word boundary.
+ *
+ * On a boundary rather than mid-word because the id is read by people, in a
+ * filename and in the index table — `staging-s-database-is-read-only-outside`
+ * is a name, `staging-s-database-is-read-only-outsid` is a typo. A first word
+ * longer than the cap is cut where it falls, there being no boundary to find.
+ *
+ * The result still satisfies ID_PATTERN without a further trim: `slug` comes
+ * from `kebabCase`, which has already collapsed hyphen runs and dropped the
+ * edges, so cutting at the last hyphen lands on an alphanumeric and a clip
+ * with no hyphen in it cannot end with one either.
+ */
+function cut(slug: string): string {
+  if (slug.length <= MAX_SLUG_LENGTH) {
+    return slug;
+  }
+  const clipped = slug.slice(0, MAX_SLUG_LENGTH);
+  const lastBoundary = clipped.lastIndexOf("-");
+  return lastBoundary === -1 ? clipped : clipped.slice(0, lastBoundary);
+}
+
 /** Given ids already in use, returns a unique ID_PATTERN-matching slug for `claim`. */
 export function generateSlug(claim: string, existingIds: ReadonlySet<string>): string {
-  const base = kebabCase(claim) || FALLBACK_SLUG;
+  const base = cut(kebabCase(claim)) || FALLBACK_SLUG;
   if (!existingIds.has(base)) {
     return base;
   }

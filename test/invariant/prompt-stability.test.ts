@@ -1,10 +1,12 @@
 // Tier 5 scan: prompt stability.
 //
-// 16-build-plan.md asks for the mechanical check behind prompt caching —
-// "assert each of the four system prompts is byte-identical across every call
-// in a run", rather than trusting that nobody interpolated a timestamp, a
-// session id, or a repo name into the system turn. A single varying byte
-// costs the cache hit on every subsequent call (08-models-and-credentials.md).
+// 16-build-plan.md asks for the mechanical check: "assert each of the four
+// system prompts is byte-identical across every call in a run", rather than
+// trusting that nobody interpolated a timestamp, a session id, or a repo name
+// into the system turn. The instructions for a node are a fixed text; a value
+// that leaks into them makes what one node was told depend on which run asked,
+// which is the difference between a prompt that can be iterated on and one
+// that has to be reverse-engineered from a transcript.
 //
 // The fixture is replayed twice: once for within-run identity, and again to
 // catch a value that is stable inside a process but varies between them.
@@ -12,23 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { FixtureModelProvider, fixtureKey } from "../../src/io/model/fixture-provider.js";
 import { systemPromptFor } from "../../src/core/prompts/system.js";
-import type { JSONSchema, ModelProvider, NodeName, ToolDef, Usage } from "../../src/core/model/types.js";
-
-const MODELS: Record<NodeName, string> = {
-  extract: "claude-fixture-extract",
-  critic: "claude-fixture-critic",
-  classify: "claude-fixture-classify",
-  resolve: "claude-fixture-resolve",
-};
-
-const USAGE: Usage = {
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheCreationTokens: 0,
-  model: "claude-fixture",
-  costUsd: 0,
-};
+import type { JSONSchema, ModelProvider, NodeName } from "../../src/core/model/types.js";
 
 /**
  * One pass of the graph's model calls, in order. Every node appears more than
@@ -60,19 +46,16 @@ class CapturingProvider implements ModelProvider {
     system: string;
     user: string;
     schema: JSONSchema;
-    batchable?: boolean;
-    tools?: ToolDef[];
-  }): Promise<{ value: T; usage: Usage }> {
+  }): Promise<T> {
     this.systems.push({ node: req.node, system: req.system });
     return this.inner.structured<T>(req);
   }
 }
 
-function fixtures(): Record<string, { value: unknown; usage: Usage }> {
-  const recorded: Record<string, { value: unknown; usage: Usage }> = {};
+function fixtures(): Record<string, unknown> {
+  const recorded: Record<string, unknown> = {};
   for (const call of FIXTURE_CALLS) {
-    const key = fixtureKey(call.node, MODELS[call.node], systemPromptFor(call.node), call.user);
-    recorded[key] = { value: {}, usage: USAGE };
+    recorded[fixtureKey(call.node, systemPromptFor(call.node), call.user)] = {};
   }
   return recorded;
 }
@@ -83,7 +66,7 @@ function fixtures(): Record<string, { value: unknown; usage: Usage }> {
  * before the byte comparison below ever runs.
  */
 async function runFixture(): Promise<Array<{ node: NodeName; system: string }>> {
-  const provider = new CapturingProvider(new FixtureModelProvider(fixtures(), MODELS));
+  const provider = new CapturingProvider(new FixtureModelProvider(fixtures()));
   for (const call of FIXTURE_CALLS) {
     await provider.structured({
       node: call.node,

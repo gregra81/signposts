@@ -14,7 +14,6 @@ import { getOriginUrl } from "../../../src/io/git/remote-origin.js";
 import { openDb } from "../../../src/io/db/migrate.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
-import { fakePorts, NO_CREDENTIALS } from "../helpers/fake-ports.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 
 function signpost(overrides: Partial<Signpost> & Pick<Signpost, "id" | "claim">): Signpost {
@@ -80,8 +79,7 @@ describe("signpost index", () => {
     async () => {
       const exitCode = await runCli(["index"], {
         config,
-        ports: fakePorts(),
-        credentials: NO_CREDENTIALS,
+       
         stdio: createFakeStdio(),
       });
 
@@ -107,8 +105,7 @@ describe("signpost index", () => {
 
       const exitCode = await runCli(["index"], {
         config,
-        ports: fakePorts(),
-        credentials: NO_CREDENTIALS,
+       
         stdio: createFakeStdio(),
       });
 
@@ -142,14 +139,12 @@ describe("signpost index", () => {
 
       await runCli(["index"], {
         config,
-        ports: fakePorts(),
-        credentials: NO_CREDENTIALS,
+       
         stdio: createFakeStdio(),
       });
       const exitCode = await runCli(["index"], {
         config,
-        ports: fakePorts(),
-        credentials: NO_CREDENTIALS,
+       
         stdio: createFakeStdio(),
       });
 
@@ -179,8 +174,7 @@ describe("signpost index", () => {
 
       await runCli(["index"], {
         config,
-        ports: fakePorts(),
-        credentials: NO_CREDENTIALS,
+       
         stdio: createFakeStdio(),
       });
 
@@ -211,8 +205,7 @@ describe("signpost index", () => {
       const stdio = createFakeStdio();
       const exitCode = await runCli(["index"], {
         config,
-        ports: fakePorts(),
-        credentials: NO_CREDENTIALS,
+       
         stdio,
       });
 
