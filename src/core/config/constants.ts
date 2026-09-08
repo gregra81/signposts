@@ -246,6 +246,17 @@ export const EVIDENCE_MAX_CHARS = 500;
 
 export const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/**
+ * Longest id `generateSlug` will mint, before any collision suffix.
+ *
+ * An id is a filename (`.signposts/<category>/<id>.md`) and a table cell in
+ * the index, and 03-memory-model.md asks for "a stable slug, e.g.
+ * staging-db-read-only". Uncapped, the slug was the entire claim: a real run
+ * produced a 164-character filename against a 255-byte component limit, so a
+ * longer claim would have failed the write outright.
+ */
+export const MAX_SLUG_LENGTH = 48;
+
 /** Indent for JSON written to disk, so a fixture diff is readable line by line. */
 export const JSON_INDENT = 2;
 
