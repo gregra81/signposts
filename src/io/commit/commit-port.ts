@@ -65,6 +65,10 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
         repoRoot: operations.repoRoot,
         worktreeDir: input.worktreeDir,
         branch,
+        // `writeCorpus` rewrites the index from the whole corpus every time,
+        // so two commits both "changing" it is an artefact of that rather
+        // than a disagreement, and it is rewritten again a few lines below.
+        regenerated: [path.join(SIGNPOSTS_DIRNAME, INDEX_FILENAME)],
       });
       if (!worktree.ok) {
         throw new Error(`signposts: could not prepare the worktree for ${branch}: ${worktree.output}`);

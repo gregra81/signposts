@@ -386,6 +386,74 @@ describe("the commit port", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("replays an unpushed commit on top of the remote when the branch has diverged", async () => {
+    // The dead end this closes: a push fails (offline), so HEAD is ahead; the
+    // remote then moves. HEAD stops being an ancestor, so the guarded reset is
+    // declined — rightly, it would discard the unpushed commit — and every
+    // later run added another commit to a branch whose push was already
+    // rejected, for ever.
+    //
+    // Both sides also rewrite .signposts/index.md, which is what makes the
+    // replay conflict: the index is generated from the whole corpus on every
+    // commit, so any two commits "change" it.
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    const failingPush = path.join(root, "unreachable.git");
+    git(repoRoot, "remote", "set-url", "--push", "origin", failingPush);
+    await apply("sess-2", [
+      { op: "add", signpost: signpost({ id: "mine", claim: "A claim from this machine" }) },
+    ]);
+    expect(warnings.join("\n")).toContain("could not push");
+    const unpushed = git(worktreeDir, "rev-parse", "HEAD");
+
+    // The same developer's other machine commits to the branch and pushes.
+    const elsewhere = path.join(root, "elsewhere");
+    execFileSync("git", ["clone", "--branch", BRANCH, remote, elsewhere]);
+    git(elsewhere, "config", "user.email", "greg@other.example");
+    git(elsewhere, "config", "user.name", "Greg Elsewhere");
+    git(elsewhere, "config", "commit.gpgsign", "false");
+    const theirSignpost = signpost({ id: "theirs", claim: "A claim from the other machine" });
+    const theirPath = path.join(elsewhere, SIGNPOSTS_DIRNAME, "environment", "theirs.md");
+    writeFileSync(theirPath, serialiseSignpost(theirSignpost), "utf8");
+    const indexPath = path.join(elsewhere, SIGNPOSTS_DIRNAME, "index.md");
+    writeFileSync(indexPath, `${readFileSync(indexPath, "utf8")}\n| \`theirs\` | theirs | acme/api |\n`, "utf8");
+    git(elsewhere, "add", "-A");
+    git(elsewhere, "commit", "-m", "from another machine");
+    git(elsewhere, "push");
+    const theirs = git(elsewhere, "rev-parse", "HEAD");
+
+    // The network comes back.
+    git(repoRoot, "remote", "set-url", "--push", "origin", remote);
+    warnings = [];
+    await apply("sess-3", [
+      { op: "add", signpost: signpost({ id: "third", claim: "A third claim" }) },
+    ]);
+
+    // The replay landed: their commit is in the history, this machine's
+    // unpushed proposal survived it, and the push went through.
+    expect(warnings).toEqual([]);
+    expect(git(remote, "rev-parse", "--verify", BRANCH)).toBe(git(worktreeDir, "rev-parse", "HEAD"));
+    expect(git(worktreeDir, "log", "--pretty=%s")).toContain("from another machine");
+    expect(git(worktreeDir, "rev-parse", "HEAD")).not.toBe(unpushed);
+    expect(git(worktreeDir, "rev-list", "--count", `${theirs}..HEAD`)).not.toBe("0");
+
+    for (const [category, id] of [
+      ["environment", "staging-read-only"],
+      ["environment", "mine"],
+      ["environment", "theirs"],
+      ["environment", "third"],
+    ]) {
+      expect(existsSync(path.join(worktreeDir, SIGNPOSTS_DIRNAME, category!, `${id!}.md`))).toBe(true);
+    }
+    // The index was regenerated from the merged corpus, not left with a
+    // conflict marker in it.
+    const index = readFileSync(path.join(worktreeDir, SIGNPOSTS_DIRNAME, "index.md"), "utf8");
+    expect(index).not.toContain("<<<<<<<");
+    for (const id of ["staging-read-only", "mine", "theirs", "third"]) {
+      expect(index).toContain(id);
+    }
+  });
+
   it("writes nothing at all for a session that proposed nothing", async () => {
     await apply("sess-1", []);
 

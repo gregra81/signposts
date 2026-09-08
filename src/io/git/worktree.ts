@@ -113,8 +113,14 @@ export function ensureWorktree(input: {
   repoRoot: string;
   worktreeDir: string;
   branch: string;
+  /**
+   * Paths the caller rewrites from scratch on every commit. A conflict in one
+   * of them is not a disagreement — see `reconcile`.
+   */
+  regenerated?: readonly string[];
 }): GitResult {
   const { repoRoot, worktreeDir, branch } = input;
+  const regenerated = input.regenerated ?? [];
 
   // One fetch for the whole operation. A worktree shares its parent's object
   // store and refs, so fetching here is what every step below reads. Offline
@@ -124,7 +130,7 @@ export function ensureWorktree(input: {
 
   if (existsSync(path.join(worktreeDir, ".git"))) {
     const onBranch = ensureOnBranch(repoRoot, worktreeDir, branch);
-    return onBranch.ok ? refresh(worktreeDir, branch, fetched) : onBranch;
+    return onBranch.ok ? refresh(worktreeDir, branch, fetched, regenerated) : onBranch;
   }
 
   mkdirSync(path.dirname(worktreeDir), { recursive: true });
@@ -136,7 +142,7 @@ export function ensureWorktree(input: {
     : ["worktree", "add", "-b", branch, worktreeDir, startPointFor(repoRoot, branch)];
 
   const added = git(repoRoot, args);
-  return added.ok ? refresh(worktreeDir, branch, fetched) : added;
+  return added.ok ? refresh(worktreeDir, branch, fetched, regenerated) : added;
 }
 
 /**
@@ -152,8 +158,22 @@ export function ensureWorktree(input: {
  * said. Unpushed work is left where it is and the next commit stacks on it.
  *
  * A fetch that did not happen is not fatal either, for the same reason.
+ *
+ * Diverged is the third case, and it used to be a dead end. A commit whose
+ * push failed leaves HEAD ahead; the remote then moves — the same developer's
+ * other machine, or a merge — and HEAD stops being an ancestor. The reset was
+ * declined (rightly: it would discard the unpushed commit), so every later run
+ * added another commit to a branch whose push was already rejected, for ever,
+ * with only the push warning to show for it. Rebasing keeps the local commits
+ * and puts them on top of what the remote has, which is what makes the next
+ * push land.
  */
-function refresh(worktreeDir: string, branch: string, fetched: boolean): GitResult {
+function refresh(
+  worktreeDir: string,
+  branch: string,
+  fetched: boolean,
+  regenerated: readonly string[],
+): GitResult {
   const remoteRef = `origin/${branch}`;
 
   if (!fetched) {
@@ -163,12 +183,60 @@ function refresh(worktreeDir: string, branch: string, fetched: boolean): GitResu
     // The branch exists only here — nothing to catch up with.
     return { ok: true, output: worktreeDir };
   }
-  if (!git(worktreeDir, ["merge-base", "--is-ancestor", "HEAD", remoteRef]).ok) {
+  if (git(worktreeDir, ["merge-base", "--is-ancestor", "HEAD", remoteRef]).ok) {
+    const reset = git(worktreeDir, ["reset", "--hard", remoteRef]);
+    return reset.ok ? { ok: true, output: worktreeDir } : reset;
+  }
+  if (git(worktreeDir, ["merge-base", "--is-ancestor", remoteRef, "HEAD"]).ok) {
+    // Ahead of the remote and nothing to replay — an unpushed commit from a
+    // previous run. The next push carries it.
     return { ok: true, output: worktreeDir };
   }
 
-  const reset = git(worktreeDir, ["reset", "--hard", remoteRef]);
-  return reset.ok ? { ok: true, output: worktreeDir } : reset;
+  return reconcile(worktreeDir, remoteRef, regenerated);
+}
+
+/**
+ * Replays the local commits on top of the remote branch.
+ *
+ * A conflict confined to `regenerated` is resolved rather than abandoned. The
+ * index is rewritten from the whole corpus on every commit, so both sides
+ * having "changed" it is an artefact of that, not two people disagreeing about
+ * anything — and whichever side wins here is overwritten by the write that
+ * follows this call. A conflict in a signpost itself is a real disagreement
+ * about a claim and is left to a person.
+ *
+ * A rebase that cannot be finished is unwound, and this still reports `ok`:
+ * the extraction is already paid for, the commit is still worth making
+ * locally, and the push warning tells the developer where it stands. Failing
+ * here instead would throw away the session on top of everything else.
+ */
+function reconcile(
+  worktreeDir: string,
+  remoteRef: string,
+  regenerated: readonly string[],
+): GitResult {
+  if (git(worktreeDir, ["rebase", remoteRef]).ok) {
+    return { ok: true, output: worktreeDir };
+  }
+
+  const conflicted = git(worktreeDir, ["diff", "--name-only", "--diff-filter=U"]);
+  const paths = conflicted.output.split("\n").filter((line) => line !== "");
+  const onlyRegenerated =
+    conflicted.ok && paths.length > 0 && paths.every((file) => regenerated.includes(file));
+
+  if (onlyRegenerated) {
+    git(worktreeDir, ["checkout", "--ours", "--", ...paths]);
+    git(worktreeDir, ["add", "--", ...paths]);
+    // GIT_EDITOR=true: `rebase --continue` opens an editor for the commit
+    // message otherwise, and nothing here can answer it.
+    if (git(worktreeDir, ["-c", "core.editor=true", "rebase", "--continue"]).ok) {
+      return { ok: true, output: worktreeDir };
+    }
+  }
+
+  git(worktreeDir, ["rebase", "--abort"]);
+  return { ok: true, output: worktreeDir };
 }
 
 /**
