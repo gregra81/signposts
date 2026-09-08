@@ -84,12 +84,36 @@ afterEach(() => {
  * interrupt, stop, and exit. It never shows a prompt — that is the separation
  * the review command exists to keep.
  */
-async function haltForReview(): Promise<void> {
+async function haltForReview(input: typeof RUN_INPUT = RUN_INPUT): Promise<void> {
   const { checkpointer, close } = openCheckpointer(checkpointPath);
   try {
     const graph = buildExtractionGraph({ ports: makeHarness(gatedOptions()), checkpointer });
-    const result = await startRun(graph, checkpointer, RUN_INPUT);
+    const result = await startRun(graph, checkpointer, input);
     expect(result.pending).toHaveLength(1);
+  } finally {
+    close();
+  }
+}
+
+/** A run that needs nobody: high confidence, nothing recorded to contradict. */
+function autoOptions(): HarnessOptions {
+  return {
+    session: gutteredSession(),
+    script: {
+      extract: [{ candidates: [candidate({ confidence: 1 })] }],
+      critic: [{ verdicts: [{ tempId: "t1", keep: true, reason: "durable" }] }],
+      classify: [{ tempId: "t1", kind: "NOVEL", rationale: "nothing like it recorded" }],
+    },
+  };
+}
+
+/** A run that goes all the way to `commit`, leaving a checkpoint nobody waits on. */
+async function runToCompletion(): Promise<void> {
+  const { checkpointer, close } = openCheckpointer(checkpointPath);
+  try {
+    const graph = buildExtractionGraph({ ports: makeHarness(autoOptions()), checkpointer });
+    const result = await startRun(graph, checkpointer, RUN_INPUT);
+    expect(result.pending).toEqual([]);
   } finally {
     close();
   }
@@ -236,6 +260,57 @@ describe("signpost review", () => {
     expect(stdio.writtenError()).toContain("answered by a person at a terminal");
     expect(stdio.writtenOutput()).toBe("");
     expect(harness.commit.applied).toEqual([]);
+  });
+
+  it("records no decision when stdin ends in the middle of an edit", async () => {
+    await haltForReview();
+    const harness = makeHarness(gatedOptions());
+
+    // `e`, then the input ends: the reviewer backed out of the edit rather
+    // than approving the operation unchanged.
+    const stdio = createScriptedStdio(["e"]);
+    const exitCode = await runCli(["review"], { config, stdio, openRun: openRunWith(harness) });
+
+    expect(exitCode).toBe(0);
+    expect(harness.commit.applied).toEqual([]);
+    expect(finished).toEqual([]);
+
+    // And it is still there to answer.
+    const second = createScriptedStdio(["a"]);
+    const next = makeHarness(gatedOptions());
+    await runCli(["review"], { config, stdio: second, openRun: openRunWith(next) });
+    expect(next.commit.operations).toHaveLength(1);
+  });
+
+  it("says nothing about an old thread whose run finished", async () => {
+    await runToCompletion();
+    await backdate(THREAD_EXPIRY_DAYS + 1);
+
+    const stdio = createScriptedStdio(["q"]);
+    await runCli(["review"], { config, stdio, openRun: openRunWith(makeHarness(autoOptions())) });
+
+    // The checkpoint is old, but nobody was waiting on it: telling the
+    // developer a pending review was dropped would be false.
+    expect(stdio.writtenError()).toBe("");
+    expect(stdio.writtenOutput()).toContain("Nothing is waiting for review.");
+  });
+
+  it("finds every halted thread, across more checkpoints than one query returns", async () => {
+    // Ten checkpoints per halted run, so eight sessions is more than the scan
+    // reads in a page — the walk has to carry on past the first one.
+    const sessions = ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"];
+    for (const sessionId of sessions) {
+      await haltForReview({ ...RUN_INPUT, sessionId });
+    }
+
+    const stdio = createScriptedStdio(["q"]);
+    await runCli(["review"], { config, stdio, openRun: openRunWith(makeHarness(gatedOptions())) });
+
+    const listed = stdio.writtenOutput();
+    expect(listed).toContain(`${String(sessions.length)} sessions waiting for review`);
+    for (const sessionId of sessions) {
+      expect(listed).toContain(`session ${sessionId} —`);
+    }
   });
 
   it("drops a thread nobody answered for a month, and says so", async () => {

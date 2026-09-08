@@ -30,14 +30,21 @@ export type ReviewChoice = (typeof REVIEW_CHOICES)[keyof typeof REVIEW_CHOICES];
 /** Whole words, so `accept` and `a` both work. */
 const WORDS = new Set<string>(Object.values(REVIEW_CHOICES));
 
-/** First letter or whole word, either case. The listed order is the prompt's. */
-const BY_KEY: Record<string, ReviewChoice> = {
-  a: REVIEW_CHOICES.accept,
-  r: REVIEW_CHOICES.reject,
-  e: REVIEW_CHOICES.edit,
-  s: REVIEW_CHOICES.skip,
-  q: REVIEW_CHOICES.quit,
-};
+/**
+ * First letter to choice, in the order the prompt lists them.
+ *
+ * A Map rather than an object literal, because the lookup key is whatever was
+ * typed: `BY_KEY["constructor"]` on an object reaches through the prototype
+ * and hands back the `Object` function, so a function whose type says
+ * `ReviewChoice | undefined` would return something that is neither.
+ */
+const BY_KEY = new Map<string, ReviewChoice>([
+  ["a", REVIEW_CHOICES.accept],
+  ["r", REVIEW_CHOICES.reject],
+  ["e", REVIEW_CHOICES.edit],
+  ["s", REVIEW_CHOICES.skip],
+  ["q", REVIEW_CHOICES.quit],
+]);
 
 /**
  * The choice the typed line names, or undefined when it names none.
@@ -55,7 +62,7 @@ const BY_KEY: Record<string, ReviewChoice> = {
  */
 export function parseReviewChoice(line: string, editable: boolean): ReviewChoice | undefined {
   const typed = line.trim().toLowerCase();
-  const choice = BY_KEY[typed] ?? (WORDS.has(typed) ? (typed as ReviewChoice) : undefined);
+  const choice = BY_KEY.get(typed) ?? (WORDS.has(typed) ? (typed as ReviewChoice) : undefined);
   // An unknown word is already undefined, so only the edit rule needs saying.
   return choice === REVIEW_CHOICES.edit && !editable ? undefined : choice;
 }

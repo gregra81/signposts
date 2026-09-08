@@ -15,7 +15,11 @@
 // neighbours, ids and a bootstrap flag the repo has long since moved past, so
 // there is nothing honest left to review.
 
-import type { BaseCheckpointSaver, CheckpointTuple } from "@langchain/langgraph";
+import type {
+  BaseCheckpointSaver,
+  CheckpointTuple,
+  LangGraphRunnableConfig,
+} from "@langchain/langgraph";
 import type { PendingReview } from "../../cli/run-port.ts";
 import { THREAD_EXPIRY_DAYS } from "../../core/config/constants.ts";
 import { decideCheckpoint } from "../../core/graph/state-version.ts";
@@ -48,9 +52,17 @@ interface ThreadIdentity {
 export async function listPendingReviews(input: PendingReviewsInput): Promise<PendingReview[]> {
   const reviews: PendingReview[] = [];
 
-  for (const tuple of await newestPerThread(input.checkpointer)) {
+  for await (const tuple of newestPerThread(input.checkpointer)) {
     const threadId = tuple.config.configurable?.["thread_id"];
     if (typeof threadId !== "string") {
+      continue;
+    }
+
+    // Whose thread it is, before anything is judged or deleted. The checkpoint
+    // file is this repo's, but a thread that is not this repo's business is
+    // not this listing's to drop either.
+    const identity = identify(tuple.checkpoint.channel_values);
+    if (identity === undefined || identity.repo !== input.repo) {
       continue;
     }
 
@@ -58,6 +70,21 @@ export async function listPendingReviews(input: PendingReviewsInput): Promise<Pe
       checkpointedAt: tuple.checkpoint.ts,
       now: input.now,
     });
+    if (decision.action !== "resume" && decision.action !== "expired") {
+      continue;
+    }
+
+    // Whether it is holding a review is asked BEFORE the expiry is acted on.
+    // `decideCheckpoint` reads a version and a timestamp; it has no idea
+    // whether anyone is waiting. Nothing deletes a thread when its run reaches
+    // `commit`, so the database keeps the last checkpoint of every finished
+    // run — and judged on age alone, each of those printed "Dropping it" at a
+    // developer who was told their pending reviews had been thrown away.
+    const halts = (await pendingOnThread(input.graph, threadConfigFor(threadId))).filter(isReview);
+    if (halts.length === 0) {
+      continue;
+    }
+
     if (decision.action === "expired") {
       input.warn(
         `Pending review for thread ${threadId} is ${decision.ageDays.toFixed(0)} days old ` +
@@ -66,28 +93,15 @@ export async function listPendingReviews(input: PendingReviewsInput): Promise<Pe
       await input.checkpointer.deleteThread(threadId);
       continue;
     }
-    if (decision.action !== "resume") {
-      continue;
-    }
 
-    const identity = identify(tuple.checkpoint.channel_values);
-    if (identity === undefined || identity.repo !== input.repo) {
-      continue;
-    }
-
-    // The halt itself comes from the thread, not from the checkpoint payload:
-    // the interrupt id is LangGraph's, and only the graph knows it.
-    for (const request of await pendingOnThread(input.graph, threadConfigFor(threadId))) {
-      if (!isReview(request)) {
-        continue;
-      }
+    for (const halt of halts) {
       reviews.push({
         threadId,
         sessionId: identity.sessionId,
         contentHash: identity.contentHash,
-        interruptId: request.id,
+        interruptId: halt.id,
         waitingSince: new Date(tuple.checkpoint.ts),
-        needsHuman: request.request.needsHuman,
+        needsHuman: halt.request.needsHuman,
       });
     }
   }
@@ -97,24 +111,61 @@ export async function listPendingReviews(input: PendingReviewsInput): Promise<Pe
   return reviews.sort((left, right) => left.waitingSince.getTime() - right.waitingSince.getTime());
 }
 
+/** How many checkpoints one query pulls back. See `newestPerThread`. */
+const SCAN_PAGE = 64;
+
 /**
- * The latest checkpoint of each thread.
+ * The latest checkpoint of each thread, a page at a time.
  *
  * `list` with no thread_id walks every thread, newest checkpoint first
  * (`ORDER BY checkpoint_id DESC`, and checkpoint ids are time-ordered), so the
  * first row seen for a thread is its current one. The namespace is pinned to
  * the root: a subgraph's checkpoint carries its own channel values, which have
  * neither the version nor the session this reads.
+ *
+ * Paged rather than taken in one call, because the SQLite saver materialises
+ * its whole result set — `.all()` — and deserialises every checkpoint blob in
+ * it before the first `yield`. Unpaged, that is every superstep of every run
+ * this repo has ever done held in memory at once, to find the handful of
+ * threads that are halted. `before` is exclusive (`checkpoint_id < ?`), so
+ * each page picks up where the last one stopped.
+ *
+ * The walk is still proportional to history rather than to what is waiting,
+ * which is bounded by nothing deleting a finished run's thread. If that ever
+ * becomes the cost that matters, pruning at `commit` is the fix, not a bigger
+ * page.
  */
-async function newestPerThread(checkpointer: BaseCheckpointSaver): Promise<CheckpointTuple[]> {
-  const newest = new Map<string, CheckpointTuple>();
-  for await (const tuple of checkpointer.list({ configurable: { checkpoint_ns: "" } })) {
-    const threadId = tuple.config.configurable?.["thread_id"];
-    if (typeof threadId === "string" && !newest.has(threadId)) {
-      newest.set(threadId, tuple);
+async function* newestPerThread(
+  checkpointer: BaseCheckpointSaver,
+): AsyncGenerator<CheckpointTuple> {
+  const seen = new Set<string>();
+  let before: LangGraphRunnableConfig | undefined;
+
+  for (;;) {
+    let read = 0;
+    let last: string | undefined;
+
+    for await (const tuple of checkpointer.list(
+      { configurable: { checkpoint_ns: "" } },
+      { limit: SCAN_PAGE, ...(before === undefined ? {} : { before }) },
+    )) {
+      read += 1;
+      const checkpointId = tuple.config.configurable?.["checkpoint_id"];
+      if (typeof checkpointId === "string") {
+        last = checkpointId;
+      }
+      const threadId = tuple.config.configurable?.["thread_id"];
+      if (typeof threadId === "string" && !seen.has(threadId)) {
+        seen.add(threadId);
+        yield tuple;
+      }
     }
+
+    if (read < SCAN_PAGE || last === undefined) {
+      return;
+    }
+    before = { configurable: { checkpoint_id: last } };
   }
-  return [...newest.values()];
 }
 
 function isReview(

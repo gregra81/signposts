@@ -75,10 +75,7 @@ export function renderItem(item: ReviewItem): string {
     lines.push(`  scope: ${JSON.stringify(operation.scope)}`);
   }
 
-  const why = whyText(operation);
-  if (why !== undefined) {
-    lines.push(`  why: ${why}`);
-  }
+  lines.push(...whyLines(operation, item.before?.evidence));
   return lines.join("\n");
 }
 
@@ -97,31 +94,67 @@ function diffLines(operation: Operation, before: string | undefined): string[] {
     case OPERATION_TAGS.add:
       return [`${ADDED} ${operation.signpost.claim}`];
     case OPERATION_TAGS.reinforce:
-      return [kept ?? `${UNCHANGED} ${unchangedText(operation)}`];
+      return [kept ?? `${UNCHANGED} another session said the same thing`];
     case OPERATION_TAGS.retire:
-      return [before === undefined ? `${REMOVED} ${unchangedText(operation)}` : `${REMOVED} ${before}`];
-    default: {
-      // refine and supersede. A refine with no claim changes only the scope,
-      // so the claim it leaves alone is shown as kept.
-      const after =
-        operation.op === OPERATION_TAGS.supersede ? operation.replacement.claim : operation.claim;
-      if (after === undefined) {
-        return [kept ?? `${UNCHANGED} ${unchangedText(operation)}`];
-      }
-      return before === undefined
-        ? [`${ADDED} ${after}`]
-        : [`${REMOVED} ${before}`, `${ADDED} ${after}`];
-    }
+      return [`${REMOVED} ${before ?? "removes this signpost"}`];
+    case OPERATION_TAGS.supersede:
+      return changed(before, operation.replacement.claim);
+    case OPERATION_TAGS.refine:
+      // The only operation that can rewrite nothing about the claim: every
+      // field on it is optional, and it is as often a narrowed scope or a
+      // reworked evidence line as a new claim.
+      return operation.claim === undefined
+        ? [kept ?? `${UNCHANGED} ${refineText(operation)}`]
+        : changed(before, operation.claim);
   }
 }
 
-/** What an operation that rewrites no claim is doing instead. */
-function unchangedText(operation: Operation): string {
-  return operation.op === OPERATION_TAGS.reinforce
-    ? "another session said the same thing"
-    : operation.op === OPERATION_TAGS.retire
-      ? "removes this signpost"
-      : "narrows the scope, leaving the claim as it is";
+/** A claim replaced by another, with the old one shown when it is recorded. */
+function changed(before: string | undefined, after: string): string[] {
+  return before === undefined
+    ? [`${ADDED} ${after}`]
+    : [`${REMOVED} ${before}`, `${ADDED} ${after}`];
+}
+
+/**
+ * What a refine that leaves the claim alone is doing instead.
+ *
+ * Three operations wear this one tag. Saying "narrows the scope" for all of
+ * them told a reviewer looking at an evidence-only refine that it changes
+ * something it does not touch.
+ */
+function refineText(operation: Extract<Operation, { op: typeof OPERATION_TAGS.refine }>): string {
+  if (operation.scope !== undefined) {
+    return "narrows the scope, leaving the claim as it is";
+  }
+  if (operation.evidence !== undefined) {
+    return "rewrites the evidence, leaving the claim as it is";
+  }
+  return "leaves the claim as it is";
+}
+
+/**
+ * The evidence, as a line or as a change.
+ *
+ * For most operations the evidence is the case for accepting a new claim, so
+ * one line is right. A `refine` is the exception: it can rewrite the evidence
+ * and nothing else, and a lone `why:` line then reads as the justification for
+ * the change rather than as the change itself. When the recorded evidence is
+ * there to compare against, that one is shown as the diff it is.
+ */
+function whyLines(operation: Operation, beforeEvidence: string | undefined): string[] {
+  const why = whyText(operation);
+  if (why === undefined) {
+    return [];
+  }
+  if (
+    operation.op === OPERATION_TAGS.refine &&
+    beforeEvidence !== undefined &&
+    beforeEvidence !== why
+  ) {
+    return [`${REMOVED} why: ${beforeEvidence}`, `${ADDED} why: ${why}`];
+  }
+  return [`  why: ${why}`];
 }
 
 /** The evidence for the change, which is the whole case for accepting it. */

@@ -113,44 +113,73 @@ async function decide(
     }
     if (choice === REVIEW_CHOICES.edit) {
       const edited = await editOperation(item.operation, ask, input.io.output);
-      if (edited !== undefined) {
-        return { decision: REVIEW_CHOICES.edit, edited, decidedAt: input.now.toISOString() };
+      if (edited.kind === ENDED) {
+        return undefined;
       }
-      // A rejected edit falls through and asks again, with the original still
-      // on screen: the reviewer has not decided anything yet.
+      if (edited.kind === EDITED) {
+        return {
+          decision: REVIEW_CHOICES.edit,
+          edited: edited.operation,
+          decidedAt: input.now.toISOString(),
+        };
+      }
+      // An edit that does not parse falls through and asks again, with the
+      // original still on screen: the reviewer has not decided anything yet.
       continue;
     }
     input.io.output.write(`Not one of ${editable ? KEYS : KEYS_NO_EDIT}.\n`);
   }
 }
 
+const EDITED = "edited";
+const REJECTED = "rejected";
+const ENDED = "ended";
+
+/** An edit that parsed, one that did not, and a stdin that ended mid-edit. */
+type EditResult =
+  | { kind: typeof EDITED; operation: Operation }
+  | { kind: typeof REJECTED }
+  | { kind: typeof ENDED };
+
 /**
- * The reviewer's replacement wording, or undefined if it does not parse.
+ * The reviewer's replacement wording.
  *
  * Only the two fields a review is about. Everything else — the id, the
  * category, the scope, the provenance — is carried over untouched, which is
  * also what keeps the edit inside the operation it answers.
+ *
+ * EOF is its own answer, not an empty line. An empty line means "keep this
+ * field", so folding EOF into it turned a reviewer who typed `e`, saw the
+ * claim and pressed Ctrl-D into an `edit` decision carrying the *unchanged*
+ * operation — which `applyDecisions` commits exactly as an accept would.
+ * Backing out of an edit is not a decision.
  */
 async function editOperation(
   operation: Operation,
   ask: Ask,
   output: NodeJS.WritableStream,
-): Promise<Operation | undefined> {
+): Promise<EditResult> {
   const current = editableText(operation);
   const claim = await ask(`claim${KEEP}\n  ${current.claim ?? ""}\n> `);
+  if (claim === undefined) {
+    return { kind: ENDED };
+  }
   const evidence = await ask(`why${KEEP}\n  ${current.evidence ?? ""}\n> `);
+  if (evidence === undefined) {
+    return { kind: ENDED };
+  }
 
   const edited = withEdits(operation, {
-    ...(claim === undefined || claim.trim() === "" ? {} : { claim: claim.trim() }),
-    ...(evidence === undefined || evidence.trim() === "" ? {} : { evidence: evidence.trim() }),
+    ...(claim.trim() === "" ? {} : { claim: claim.trim() }),
+    ...(evidence.trim() === "" ? {} : { evidence: evidence.trim() }),
   });
 
   const parsed = operationSchema.safeParse(edited);
   if (!parsed.success) {
     output.write(`That is not a usable operation: ${summariseIssues(parsed.error.issues)}\n`);
-    return undefined;
+    return { kind: REJECTED };
   }
-  return parsed.data;
+  return { kind: EDITED, operation: parsed.data };
 }
 
 /** One question, answered — or `undefined` once stdin has ended. */
@@ -197,9 +226,29 @@ function asker(rl: Interface, output: NodeJS.WritableStream): Ask {
     answer(undefined);
   });
 
+  /**
+   * Shows the prompt through readline, so it is the one `_refreshLine`
+   * redraws. Written behind readline's back it is `""` as far as the
+   * interface knows, and the first Backspace on a terminal clears the line
+   * and leaves the answer floating at column 0 with nothing saying what is
+   * being answered.
+   *
+   * Once the input has ended, `rl.prompt()` throws ERR_USE_AFTER_CLOSE — and
+   * there are still queued lines to answer from, so the question is written
+   * directly. There is no line editing left to keep in step by then.
+   */
+  const show = (question: string): void => {
+    if (closed) {
+      output.write(question);
+      return;
+    }
+    rl.setPrompt(question);
+    rl.prompt();
+  };
+
   return (question) =>
     new Promise<string | undefined>((resolve) => {
-      output.write(question);
+      show(question);
       const next = queued.shift();
       if (next !== undefined) {
         resolve(next);

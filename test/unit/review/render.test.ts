@@ -104,11 +104,14 @@ describe("renderItem", () => {
       BEFORE,
     );
 
+    // The evidence changed too, so it is shown as the change it is rather
+    // than as the justification for the new claim.
     expect(text).toBe(
       `refine staging-writable — it changes a signpost you already have\n` +
         `- ${BEFORE.claim}\n` +
         `+ Staging is writable only at night\n` +
-        `  why: Narrowed.`,
+        `- why: ${BEFORE.evidence}\n` +
+        `+ why: Narrowed.`,
     );
   });
 
@@ -127,11 +130,73 @@ describe("renderItem", () => {
   });
 
   it("describes a scope-only refine even when the target is not recorded yet", () => {
-    const text = render({ op: OPERATION_TAGS.refine, id: BEFORE.id }, undefined);
+    const text = render(
+      { op: OPERATION_TAGS.refine, id: BEFORE.id, scope: { repo: "acme/api" } },
+      undefined,
+    );
 
     expect(text).toBe(
       `refine staging-writable — it changes a signpost you already have\n` +
-        `= narrows the scope, leaving the claim as it is`,
+        `= narrows the scope, leaving the claim as it is\n` +
+        `  scope: {"repo":"acme/api"}`,
+    );
+  });
+
+  it("shows an evidence-only refine as the evidence being rewritten", () => {
+    const text = render(
+      { op: OPERATION_TAGS.refine, id: BEFORE.id, evidence: "Seen again in the ETL logs." },
+      BEFORE,
+    );
+
+    // Not "narrows the scope": this one narrows nothing, and the evidence is
+    // the thing being changed rather than the case for changing something.
+    expect(text).toBe(
+      `refine staging-writable — it changes a signpost you already have\n` +
+        `= ${BEFORE.claim}\n` +
+        `- why: ${BEFORE.evidence}\n` +
+        `+ why: Seen again in the ETL logs.`,
+    );
+  });
+
+  it("names an evidence-only refine even with nothing recorded to compare against", () => {
+    const text = render(
+      { op: OPERATION_TAGS.refine, id: BEFORE.id, evidence: "Seen again in the ETL logs." },
+      undefined,
+    );
+
+    // No recorded evidence to diff against, so the new one stands on its own
+    // line rather than against `undefined`.
+    expect(text).toBe(
+      `refine staging-writable — it changes a signpost you already have\n` +
+        `= rewrites the evidence, leaving the claim as it is\n` +
+        `  why: Seen again in the ETL logs.`,
+    );
+  });
+
+  it("keeps the evidence on one line when it is the evidence already recorded", () => {
+    const text = render(
+      { op: OPERATION_TAGS.refine, id: BEFORE.id, claim: "Staging is writable at night", evidence: BEFORE.evidence },
+      BEFORE,
+    );
+
+    expect(text.split("\n")).toEqual([
+      `refine staging-writable — it changes a signpost you already have`,
+      `- ${BEFORE.claim}`,
+      `+ Staging is writable at night`,
+      `  why: ${BEFORE.evidence}`,
+    ]);
+  });
+
+  it("says a refine that carries nothing changes nothing about the claim", () => {
+    expect(render({ op: OPERATION_TAGS.refine, id: BEFORE.id }, BEFORE)).toBe(
+      `refine staging-writable — it changes a signpost you already have\n= ${BEFORE.claim}`,
+    );
+
+    // And with nothing recorded to show either, it says so rather than
+    // claiming a scope or an evidence change it does not carry.
+    expect(render({ op: OPERATION_TAGS.refine, id: BEFORE.id }, undefined)).toBe(
+      `refine staging-writable — it changes a signpost you already have\n` +
+        `= leaves the claim as it is`,
     );
   });
 
