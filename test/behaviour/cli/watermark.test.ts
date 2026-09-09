@@ -218,6 +218,37 @@ describe("the watermark a finished run leaves for the hook", () => {
     expect(status()?.lastRunFinishedAt).toBe(LAST_ACTIVITY.toISOString());
   });
 
+  // The age guard alone lets an abandoned run be adopted: a subagent that died
+  // five minutes ago is well inside RUN_PROGRESS_STALE_MINUTES, and the skill
+  // re-invoked with `--first` would then add its session to that run's count.
+  // `--first` is the precise signal, and the guard is only a proxy for it.
+  it("does not adopt an abandoned run's count when --first opens a new one", async () => {
+    mkdirSync(path.dirname(config.paths.statuslineState), { recursive: true });
+    writeFileSync(
+      config.paths.statuslineState,
+      JSON.stringify({
+        phase: "idle",
+        updatedAt: new Date().toISOString(),
+        eligibleSessions: 0,
+        threadsWaiting: 0,
+        runProgress: {
+          sessionsDone: 2,
+          sessionsTotal: 3,
+          found: 7,
+          updatedAt: new Date().toISOString(),
+        },
+      }),
+    );
+
+    await runCli(["run", "--first"], {
+      config,
+      openRun: seam({ script: AUTO, session: gutteredSession() }, [UNTOUCHED]),
+      stdio: createFakeStdio(),
+    });
+
+    expect(status()?.runProgress).toMatchObject({ sessionsDone: 1, sessionsTotal: 2, found: 1 });
+  });
+
   // The reason `settle` writes this at all. The worker takes the census, and
   // the worker runs only when a session starts — so a review parked a minute
   // ago used to be invisible until the next `claude`, which is the one state

@@ -164,6 +164,61 @@ describe("signpost worker", () => {
     120_000,
   );
 
+  // The run commands write this file throughout, and only the worker takes
+  // `paths.lockfile` — so a rebuild, which loads an ONNX pipeline and embeds
+  // the corpus, is minutes during which `settle` can clear a finished run's
+  // progress. Carrying the opening read into the closing write would put it
+  // back, and the bar would report a run that ended.
+  it(
+    "does not put back progress a run cleared while it was indexing",
+    async () => {
+      writeSignpostFile(signpost("a-claim", "Something true about the system"));
+      mkdirSync(config.paths.stateDir, { recursive: true });
+      writeFileSync(
+        config.paths.statuslineState,
+        JSON.stringify({
+          phase: "idle",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          eligibleSessions: 0,
+          threadsWaiting: 0,
+          runProgress: {
+            sessionsDone: 2,
+            sessionsTotal: 3,
+            found: 7,
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        }),
+      );
+
+      const running = worker();
+      // The worker stamps `phase: "running"` before it starts the rebuild, so
+      // this waits for the window rather than racing into it.
+      while (status().phase !== "running") {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      // What `recordRunFinished` leaves behind: the run is over, the progress
+      // is gone, and the watermark it wrote is the worker's to carry through.
+      writeFileSync(
+        config.paths.statuslineState,
+        JSON.stringify({
+          phase: "running",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          eligibleSessions: 0,
+          threadsWaiting: 0,
+          lastRunFinishedAt: "2026-02-02T00:00:00.000Z",
+        }),
+      );
+
+      expect(await running).toBe(0);
+
+      expect(status()).not.toHaveProperty("runProgress");
+      // The other half of the same read: the watermark that appeared while it
+      // worked is carried, not dropped.
+      expect(status().lastRunFinishedAt).toBe("2026-02-02T00:00:00.000Z");
+    },
+    120_000,
+  );
+
   // A background process must never leave the lock behind on the way out.
   it(
     "records the reason and releases the lock when the repo has no origin",

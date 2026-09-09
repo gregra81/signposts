@@ -141,16 +141,18 @@ describe("nothing when idle", () => {
 });
 
 describe("progress during a run", () => {
+  // "found" is 07's own word, and it stays vague on purpose: the count is one
+  // per candidate, and a candidate's change is not always a new signpost.
   it("shows how far the run has got and what it has found", () => {
     const f = withStatus(fixture(), progress(1, 2, 3, 4));
 
-    expect(render(f).stdout.trim()).toBe("🪧 signposts: 2/3 sessions · 4 signposts");
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: 2/3 sessions · 4 found");
   });
 
-  it("counts one signpost as one", () => {
+  it("counts one as one", () => {
     const f = withStatus(fixture(), progress(1, 1, 1, 1));
 
-    expect(render(f).stdout.trim()).toBe("🪧 signposts: 1/1 sessions · 1 signpost");
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: 1/1 sessions · 1 found");
   });
 
   // A terminal closed between two halts leaves progress on disk with nothing
@@ -170,6 +172,21 @@ describe("progress during a run", () => {
     });
 
     expect(render(f).stdout.trim()).toBe("🪧 signposts: indexing");
+  });
+
+  // `phase` returns to idle in the worker's `finally`, which a SIGKILL or a
+  // suspended laptop never reaches — and in a quiet repo the hook wakes no
+  // later worker to repair the file. Without the age guard the bar reads
+  // "indexing" for good.
+  it("stops showing a reindex nothing has touched since RUN_PROGRESS_STALE_MINUTES", () => {
+    const f = withStatus(fixture(), {
+      phase: "running",
+      updatedAt: new Date(Date.now() - (RUN_PROGRESS_STALE_MINUTES + 1) * MINUTE_MS).toISOString(),
+      eligibleSessions: 0,
+      threadsWaiting: 0,
+    });
+
+    expect(render(f).stdout).toBe("");
   });
 
   it("shows a review parked on the developer", () => {
@@ -234,7 +251,7 @@ describe("wrapping a status line that was already there", () => {
     const f = withStatus(fixture(), progress(1, 1, 2, 3));
 
     expect(render(f, ["--wrap", "echo 'main | 42% context'"]).stdout).toBe(
-      "main | 42% context\n🪧 signposts: 1/2 sessions · 3 signposts\n",
+      "main | 42% context\n🪧 signposts: 1/2 sessions · 3 found\n",
     );
   });
 
@@ -268,7 +285,7 @@ describe("wrapping a status line that was already there", () => {
       "definitely-not-a-command",
     ]);
 
-    expect(result.stdout.trim()).toBe("🪧 signposts: 1/2 sessions · 3 signposts");
+    expect(result.stdout.trim()).toBe("🪧 signposts: 1/2 sessions · 3 found");
     expect(result.status).toBe(0);
   });
 

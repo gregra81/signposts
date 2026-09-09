@@ -154,6 +154,8 @@ async function apply(
     result,
     statusPath: input.config.paths.statuslineState,
     now,
+    // `review` answers a halt, so it continues a run rather than opening one.
+    isFirst: false,
   });
 
   input.stdio.output.write(

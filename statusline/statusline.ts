@@ -38,7 +38,7 @@ import { fileURLToPath } from "node:url";
 // Constants — transcribed from 13-constants.md. See the header.
 // ---------------------------------------------------------------------------
 
-/** Run progress older than this belongs to a run nothing is finishing. */
+/** A run's progress, or a worker's phase, older than this belongs to nothing. */
 const RUN_PROGRESS_STALE_MINUTES = 15;
 const MS_PER_MINUTE = 60_000;
 const RUN_PROGRESS_STALE_MS = RUN_PROGRESS_STALE_MINUTES * MS_PER_MINUTE;
@@ -134,6 +134,8 @@ export interface RunProgress {
 
 export interface WorkerStatus {
   phase?: string;
+  /** When the worker last wrote this snapshot — what ages `phase` out. */
+  updatedAt?: string;
   threadsWaiting?: number;
   lastError?: string;
   runProgress?: RunProgress;
@@ -175,16 +177,17 @@ function agrees(count: number, verb: string): string {
  * finish it. A bar reading "2/3 sessions" for the rest of the week is worse
  * than an empty one: it is the same claim, and it is false.
  */
+function isFresh(stampedAt: unknown, nowMs: number): boolean {
+  if (typeof stampedAt !== "string") {
+    return false;
+  }
+  const stamped = Date.parse(stampedAt);
+  return !Number.isNaN(stamped) && nowMs - stamped < RUN_PROGRESS_STALE_MS;
+}
+
 function liveProgress(status: WorkerStatus, nowMs: number): RunProgress | undefined {
   const progress = status.runProgress;
-  if (progress === undefined || typeof progress.updatedAt !== "string") {
-    return undefined;
-  }
-  const stamped = Date.parse(progress.updatedAt);
-  if (Number.isNaN(stamped) || nowMs - stamped >= RUN_PROGRESS_STALE_MS) {
-    return undefined;
-  }
-  return progress;
+  return progress !== undefined && isFresh(progress.updatedAt, nowMs) ? progress : undefined;
 }
 
 /**
@@ -192,8 +195,8 @@ function liveProgress(status: WorkerStatus, nowMs: number): RunProgress | undefi
  *
  * The order is by immediacy, and only one of these renders: a bar is one row
  * shared with whatever else the developer put there, so this earns at most a
- * clause of it. A run in flight outranks a parked review, which outranks a
- * failure nobody has been told about yet.
+ * clause of it. A parked review outranks a run in flight, which outranks the
+ * worker reindexing, which outranks a failure nobody has been told about yet.
  */
 export function statusLine(status: WorkerStatus, nowMs: number): string {
   // Above the run's progress deliberately. A parked review is the one state
@@ -211,13 +214,23 @@ export function statusLine(status: WorkerStatus, nowMs: number): string {
     const done = whole(progress.sessionsDone);
     const total = Math.max(done, whole(progress.sessionsTotal));
     const found = whole(progress.found);
-    return `${PREFIX}${done}/${total} sessions · ${plural(found, "signpost")}`;
+    // "found", not "signposts", and that is 07's wording rather than a
+    // shortening of it: the count is one per candidate the session proposed a
+    // change for, and a change is not always a new signpost — a retire removes
+    // one and a reinforce adds provenance to one that was already there.
+    return `${PREFIX}${done}/${total} sessions · ${String(found)} found`;
   }
 
   // The worker only ever reindexes (it cannot answer a model call), so this is
   // the one thing that is genuinely happening in the background. Below the
   // run and the review because it is the only row nobody has to act on.
-  if (status.phase === WORKER_PHASE_RUNNING) {
+  //
+  // Aged out on the same window as the progress above, and for the same
+  // reason: `phase` returns to idle in the worker's `finally`, which a SIGKILL
+  // or a suspended laptop never reaches. Nothing repairs the file either — the
+  // hook wakes a worker only when it has a reason to — so without this a
+  // killed worker pins the bar to "indexing" for good.
+  if (status.phase === WORKER_PHASE_RUNNING && isFresh(status.updatedAt, nowMs)) {
     return `${PREFIX}indexing`;
   }
 

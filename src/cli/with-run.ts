@@ -87,6 +87,13 @@ export interface SettleInput {
   /** `config.paths.statuslineState` — where the session watermark lives. */
   statusPath: string;
   now: Date;
+  /**
+   * `--first`: this session opens a run, so it starts the count rather than
+   * adding to whatever the last one left. The age guard alone is not enough —
+   * a run abandoned five minutes ago is still inside the window, and without
+   * this its sessions are adopted by the run that replaces it.
+   */
+  isFirst: boolean;
 }
 
 /**
@@ -136,6 +143,7 @@ export async function settle(input: SettleInput): Promise<void> {
       sessionFinished: false,
       found: 0,
       threadsWaiting: (await handle.pendingReviews(input.now)).length,
+      freshRun: input.isFirst,
     });
     return;
   }
@@ -154,11 +162,22 @@ export async function settle(input: SettleInput): Promise<void> {
     now: input.now,
     remaining,
     sessionFinished: true,
-    found: result.state.operations.length,
+    // Candidates, not operations. `operationsFor` emits more than one entry
+    // per candidate — a `supersede` is a retire plus an add, `both_scoped` a
+    // refine plus an add — so `operations.length` is up to double what a
+    // reviewer will see in the PR. `validated` is grouped by candidate and
+    // every entry in it is partitioned by the gate, so its length is the
+    // number of changes this session actually proposed.
+    //
+    // Not `pendingProposals` either, though it is right here: it counts `add`
+    // alone, deliberately (../core/graph/pending.ts), so a session whose work
+    // was two supersedes and a retire would report nothing found.
+    found: result.state.validated.length,
     // Retaken here too, and this is the direction that matters: answering the
     // last review is what takes the count back to zero, and nothing else in
     // the system would notice until a worker woke.
     threadsWaiting: (await handle.pendingReviews(input.now)).length,
+    freshRun: input.isFirst,
   });
 
   // Only once nothing eligible is left, because the watermark is one date for

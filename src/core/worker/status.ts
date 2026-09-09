@@ -228,7 +228,9 @@ export function runFinishedStatus(
  *
  * Progress that has aged out is replaced rather than continued
  * (RUN_PROGRESS_STALE_MINUTES) — a run abandoned last week must not have its
- * count adopted by this one.
+ * count adopted by this one. `freshRun` says the same thing precisely: it is
+ * `--first`, the flag that declares a new run, and a run abandoned five
+ * minutes ago is inside the window while still being somebody else's count.
  */
 export function runProgressStatus(
   previous: WorkerStatus | undefined,
@@ -238,6 +240,8 @@ export function runProgressStatus(
     sessionFinished: boolean;
     found: number;
     threadsWaiting: number;
+    /** `--first`: this session starts a run, so it inherits no progress. */
+    freshRun: boolean;
   },
 ): WorkerStatus {
   const base: WorkerStatus = previous ?? {
@@ -246,10 +250,15 @@ export function runProgressStatus(
     eligibleSessions: 0,
     threadsWaiting: 0,
   };
-  const carried = progressIsLive(base.runProgress, input.now) ? base.runProgress : undefined;
+  const carried =
+    !input.freshRun && progressIsLive(base.runProgress, input.now) ? base.runProgress : undefined;
   const sessionsDone = (carried?.sessionsDone ?? 0) + (input.sessionFinished ? 1 : 0);
   return {
     ...base,
+    // Re-stamped, because this write is a snapshot: the two counts below are
+    // taken now, and leaving `updatedAt` at whatever the worker last wrote
+    // would date fresh numbers by a census that happened minutes ago.
+    updatedAt: input.now.toISOString(),
     // The census, retaken. It used to be the worker's alone, which left the
     // one number the developer needs — a review parked on them — written only
     // when a SessionStart happened to wake a worker. A run has the same

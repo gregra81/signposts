@@ -219,6 +219,7 @@ describe("runProgressStatus", () => {
       sessionFinished: false,
       found: 0,
       threadsWaiting: 0,
+      freshRun: false,
     });
 
     expect(status.runProgress).toEqual({
@@ -234,7 +235,7 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 1,
       sessionFinished: true,
-      found: 4, threadsWaiting: 0 }
+      found: 4, threadsWaiting: 0, freshRun: false }
     );
 
     expect(status.runProgress).toEqual({
@@ -253,7 +254,7 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 2,
       sessionFinished: false,
-      found: 9, threadsWaiting: 0 }
+      found: 9, threadsWaiting: 0, freshRun: false }
     );
 
     expect(status.runProgress).toEqual({
@@ -271,7 +272,7 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 2,
       sessionFinished: true,
-      found: 1, threadsWaiting: 0 }
+      found: 1, threadsWaiting: 0, freshRun: false }
     );
 
     expect(status.runProgress).toEqual({
@@ -299,7 +300,7 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 0,
       sessionFinished: true,
-      found: 0, threadsWaiting: 0 }
+      found: 0, threadsWaiting: 0, freshRun: false }
     );
 
     expect(status.eligibleSessions).toBe(0);
@@ -310,6 +311,41 @@ describe("runProgressStatus", () => {
     expect(status.lastRunFinishedAt).toBe(WATERMARK);
   });
 
+  // The age guard is a proxy for "a different run"; `--first` is the signal
+  // itself. A run abandoned five minutes ago is well inside the window, and
+  // its two sessions must not be adopted by the run that replaces it.
+  it("starts fresh when --first says this session opens a run", () => {
+    const status = runProgressStatus(live("2026-09-09T11:59:00.000Z"), {
+      now: NOW,
+      remaining: 2,
+      sessionFinished: true,
+      found: 1,
+      threadsWaiting: 0,
+      freshRun: true,
+    });
+
+    expect(status.runProgress).toEqual({
+      sessionsDone: 1,
+      sessionsTotal: 3,
+      found: 1,
+      updatedAt: "2026-09-09T12:00:00.000Z",
+    });
+  });
+
+  // `updatedAt` dates the snapshot, and this path retakes both counts on it.
+  it("re-stamps the snapshot it is retaking the census on", () => {
+    const status = runProgressStatus(live("2026-09-09T11:59:00.000Z"), {
+      now: NOW,
+      remaining: 1,
+      sessionFinished: false,
+      found: 0,
+      threadsWaiting: 0,
+      freshRun: false,
+    });
+
+    expect(status.updatedAt).toBe("2026-09-09T12:00:00.000Z");
+  });
+
   it("refuses counts that are not whole and not positive", () => {
     const status = runProgressStatus(undefined, {
       now: NOW,
@@ -317,6 +353,7 @@ describe("runProgressStatus", () => {
       sessionFinished: true,
       found: 2.7,
       threadsWaiting: 0,
+      freshRun: false,
     });
 
     expect(status.runProgress).toEqual({
