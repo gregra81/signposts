@@ -65,6 +65,17 @@ export interface RunHandle {
   /** Records a session as processed, and the repo as past its bootstrap run. */
   finish(session: FinishedSession): void;
   /**
+   * The `gh pr create` command for work this invocation committed and could
+   * not open a pull request for, or null when nothing is outstanding.
+   *
+   * It is read off the handle rather than carried in the graph's state: the
+   * commit port is what discovers it, it belongs to this invocation (a later
+   * process cannot retry a `gh` that is still missing), and the run commands
+   * only need it to choose an exit code once the run has come back
+   * (12-wire-contracts.md, "Exit codes").
+   */
+  prNotOpened(): string | null;
+  /**
    * Threads in this repo halted on a review, longest-waiting first. Reads the
    * checkpoint database rather than any record kept by the run that halted —
    * that run's process exited, possibly days ago. A thread past

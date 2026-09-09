@@ -139,6 +139,9 @@ function openRunWith(harness: Harness): OpenRun {
       index: harness.index,
       eligible: () => [],
       finish: (session) => finished.push(session),
+      // `review` is a person at a terminal; nothing here is about the exit
+      // code a run reports for a pull request it could not open.
+      prNotOpened: () => null,
       pendingReviews: (now) =>
         listPendingReviews({ graph, checkpointer, repo: RUN_INPUT.repo, now, warn }),
       close,

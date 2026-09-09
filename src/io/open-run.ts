@@ -46,6 +46,11 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
     return { reason: NO_AUTHOR };
   }
 
+  // One invocation's worth of "the work is committed and has no pull
+  // request". The commit port writes it, the run command reads it back to
+  // choose its exit code — see RunHandle.prNotOpened.
+  let prNotOpened: string | null = null;
+
   const db = openDb(config.paths.dbPath);
   const { checkpointer, close: closeCheckpointer } = openCheckpointer(config.paths.checkpointPath);
 
@@ -70,6 +75,9 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
         author,
         forge: ghForge(config.paths.worktreeDir),
         warn,
+        prNotOpened: (command) => {
+          prNotOpened = command;
+        },
         today: () => isoDate(new Date()),
       }),
     });
@@ -82,6 +90,8 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
       checkpointer,
       pendingIndex: ports.pendingIndex,
       index: ports.index,
+
+      prNotOpened: () => prNotOpened,
 
       eligible: (now) =>
         discoverSessions({

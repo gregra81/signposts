@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeCommitPort } from "../../../src/io/commit/commit-port.js";
 import { FakeForge } from "../../../src/io/forge/fake-forge.js";
 import { BRANCH_PATTERN, SIGNPOSTS_DIRNAME } from "../../../src/core/config/constants.js";
+import { PR_TITLE } from "../../../src/core/pr/body.js";
 import { parseSignpost, serialiseSignpost } from "../../../src/core/signpost/codec.js";
 import type { Operation } from "../../../src/core/contracts/graph.js";
 import type { Signpost } from "../../../src/core/signpost/schema.js";
@@ -24,6 +25,28 @@ const BRANCH = `signposts/greg/${TODAY}`;
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+}
+
+/**
+ * The arguments a real shell would hand `gh`, for the command the port
+ * printed — a stub `gh` on PATH that writes its argv out, one NUL-separated
+ * argument at a time, so nothing in a body cell can be mistaken for a
+ * separator.
+ */
+function ranThroughShell(command: string): string[] {
+  const binDir = mkdtempSync(path.join(tmpdir(), "signposts-bin-"));
+  try {
+    const stub = path.join(binDir, "gh");
+    writeFileSync(stub, '#!/bin/sh\nprintf "%s\\0" "$@"\n', { encoding: "utf8", mode: 0o755 });
+    const out = execFileSync("sh", ["-c", command], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ""}` },
+    });
+    // A trailing separator, not a trailing empty argument.
+    return out.split("\0").slice(0, -1);
+  } finally {
+    rmSync(binDir, { recursive: true, force: true });
+  }
 }
 
 function signpost(overrides: Partial<Signpost> = {}): Signpost {
@@ -52,6 +75,8 @@ describe("the commit port", () => {
   let worktreeDir: string;
   let forge: FakeForge;
   let warnings: string[];
+  /** The `gh pr create` lines the port handed back for a developer to run. */
+  let manualCommands: string[];
 
   function port() {
     return makeCommitPort({
@@ -61,6 +86,7 @@ describe("the commit port", () => {
       author: AUTHOR,
       forge,
       warn: (message) => warnings.push(message),
+      prNotOpened: (command) => manualCommands.push(command),
       today: () => TODAY,
     });
   }
@@ -76,6 +102,7 @@ describe("the commit port", () => {
     worktreeDir = path.join(root, "state", "pr-worktree");
     forge = new FakeForge();
     warnings = [];
+    manualCommands = [];
 
     execFileSync("git", ["init", "--bare", "--initial-branch=main", remote]);
     execFileSync("git", ["clone", remote, repoRoot]);
@@ -239,6 +266,7 @@ describe("the commit port", () => {
         setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
       },
       warn: (message) => warnings.push(message),
+      prNotOpened: (command) => manualCommands.push(command),
       today: () => TODAY,
     });
 
@@ -251,6 +279,18 @@ describe("the commit port", () => {
 
     expect(git(remote, "rev-parse", "--verify", BRANCH)).toBeTruthy();
     expect(warnings.join("\n")).toContain(`gh pr create --head ${BRANCH}`);
+
+    // The command is the deliverable, so it is run rather than matched: `sh`
+    // splits the printed line, a `gh` on PATH prints the arguments it was
+    // given, and those are what a developer would actually send to GitHub.
+    // The body is a multi-line markdown table with quotes and backticks in
+    // it, which is exactly what a naively printed command loses.
+    const argv = ranThroughShell(manualCommands[0]!);
+    expect(argv.slice(0, 4)).toEqual(["pr", "create", "--head", BRANCH]);
+    expect(argv[argv.indexOf("--title") + 1]).toBe(PR_TITLE);
+    const body = argv[argv.indexOf("--body") + 1]!;
+    expect(body).toContain(signpost().claim);
+    expect(body.split("\n").length).toBeGreaterThan(1);
   });
 
   it("keeps a commit whose push failed, rather than resetting over it on the next run", async () => {
@@ -324,6 +364,7 @@ describe("the commit port", () => {
         setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
       },
       warn: (message) => warnings.push(message),
+      prNotOpened: (command) => manualCommands.push(command),
       today: () => TODAY,
     });
 
@@ -395,6 +436,7 @@ describe("the commit port", () => {
       author: "greg.rashkevitch@example.com",
       forge,
       warn: (message) => warnings.push(message),
+      prNotOpened: (command) => manualCommands.push(command),
       today: () => TODAY,
     });
 
