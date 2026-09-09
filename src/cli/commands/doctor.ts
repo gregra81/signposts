@@ -8,6 +8,7 @@
 // reports what ought to be true is worse than no check, because it is the
 // answer the developer trusts before opening the issue.
 
+import path from "node:path";
 import type { ExitCode } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { EMBEDDING_MODEL, NODE_MIN_VERSION } from "../../core/config/constants.ts";
@@ -36,9 +37,13 @@ export function runDoctor({ config, repoRoot, stdout }: RunDoctorInput): ExitCod
       modelCacheDir: config.paths.modelCacheDir,
       embeddingModel: EMBEDDING_MODEL,
       localModelPath: config.retrieval.local_model_path,
+      allowRemoteModels: config.retrieval.allow_remote_models,
     }),
     dbIntegrity: checkDbIntegrity(config.paths.dbPath),
-    hookInstalled: checkSessionStartHookInstalled(repoRoot),
+    // `path.dirname(transcriptRoot)` is Claude Code's config directory, the
+    // same derivation `init` uses — `CLAUDE_CONFIG_DIR` moves it, and reading
+    // the environment here would be R7.
+    hookInstalled: checkSessionStartHookInstalled(repoRoot, path.dirname(config.paths.transcriptRoot)),
   };
 
   for (const line of buildDoctorReport(facts)) {

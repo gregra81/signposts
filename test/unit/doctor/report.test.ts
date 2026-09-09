@@ -31,16 +31,29 @@ describe("isNodeVersionSupported", () => {
 
 describe("classifyModelCache", () => {
   it("the pinned revision in the shared cache is warm", () => {
-    expect(classifyModelCache({ vendored: false, pinnedRevisionCached: true })).toBe("warm");
+    expect(classifyModelCache({ vendored: false, pinnedRevisionCached: true, remoteAllowed: true })).toBe("warm");
   });
 
-  it("neither cache nor vendored copy is cold", () => {
-    expect(classifyModelCache({ vendored: false, pinnedRevisionCached: false })).toBe("cold");
+  it("nothing on disk, but the download is allowed: cold", () => {
+    expect(classifyModelCache({ vendored: false, pinnedRevisionCached: false, remoteAllowed: true })).toBe("cold");
+  });
+
+  // The restricted-network setup of story 57, minus the vendored copy it
+  // needs: transformers.js throws rather than downloading, so calling this
+  // cold would promise a download that cannot happen.
+  it("nothing on disk and no route to the model host: unavailable, not cold", () => {
+    expect(classifyModelCache({ vendored: false, pinnedRevisionCached: false, remoteAllowed: false })).toBe(
+      "unavailable",
+    );
+  });
+
+  it("a warm cache is warm whatever the remote policy says", () => {
+    expect(classifyModelCache({ vendored: false, pinnedRevisionCached: true, remoteAllowed: false })).toBe("warm");
   });
 
   it("a vendored copy wins, cached or not — transformers.js ignores the shared cache then", () => {
-    expect(classifyModelCache({ vendored: true, pinnedRevisionCached: false })).toBe("vendored");
-    expect(classifyModelCache({ vendored: true, pinnedRevisionCached: true })).toBe("vendored");
+    expect(classifyModelCache({ vendored: true, pinnedRevisionCached: false, remoteAllowed: false })).toBe("vendored");
+    expect(classifyModelCache({ vendored: true, pinnedRevisionCached: true, remoteAllowed: true })).toBe("vendored");
   });
 });
 
@@ -194,6 +207,7 @@ describe("buildDoctorReport", () => {
     ["warm", "warm"],
     ["cold", "cold"],
     ["vendored", "vendored"],
+    ["unavailable", "unavailable"],
   ] as const)("model cache %s", (status, expected) => {
     expect(buildDoctorReport({ ...BASE_FACTS, modelCache: status })[2]).toContain(expected);
   });

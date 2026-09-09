@@ -68,6 +68,9 @@ describe("what a run reports to whatever ran it", () => {
   let repoRoot: string;
   let config: ResolvedConfig;
 
+  /** How often the seam was asked what is still eligible — see the last test. */
+  let eligibleCalls: number;
+
   /** A run seam over the scripted graph, saying what its commit port left undone. */
   function seam(options: HarnessOptions, prNotOpened: string | null = null): OpenRun {
     const ports = makeHarness(options);
@@ -78,7 +81,10 @@ describe("what a run reports to whatever ran it", () => {
       checkpointer,
       pendingIndex: ports.pendingIndex,
       index: ports.index,
-      eligible: () => [SESSION],
+      eligible: () => {
+        eligibleCalls += 1;
+        return [SESSION];
+      },
       finish: () => {},
       prNotOpened: () => prNotOpened,
       pendingReviews: () => Promise.resolve([]),
@@ -88,6 +94,7 @@ describe("what a run reports to whatever ran it", () => {
   }
 
   beforeEach(() => {
+    eligibleCalls = 0;
     repoRoot = mkdtempSync(path.join(tmpdir(), "signposts-exit-"));
     config = resolveConfig({
       repoRoot,
@@ -148,5 +155,27 @@ describe("what a run reports to whatever ran it", () => {
     const exitCode = await runCli(["run"], { config, openRun, stdio });
 
     expect(exitCode).toBe(EXIT_CODES.failure);
+  });
+
+  // `eligible()` is `discoverSessions`: a readdir, then a read and a sha256
+  // over every transcript in this repo's project directory. The verbose trace
+  // needs one to say how much of the run is left, and building that line
+  // eagerly made every plain run pay for it too.
+  it("costs a plain run nothing to build a trace it will not print", async () => {
+    await runCli(["run"], {
+      config,
+      openRun: seam({ script: AUTO, session: gutteredSession() }),
+      stdio: createFakeStdio(),
+    });
+    const quiet = eligibleCalls;
+
+    eligibleCalls = 0;
+    await runCli(["run", "--verbose"], {
+      config,
+      openRun: seam({ script: AUTO, session: gutteredSession() }),
+      stdio: createFakeStdio(),
+    });
+
+    expect(quiet).toBeLessThan(eligibleCalls);
   });
 });

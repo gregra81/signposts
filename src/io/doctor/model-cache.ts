@@ -1,22 +1,24 @@
-// Embedding-model cache probe (R5): can this machine embed without the
-// network, and if not, why.
+// Embedding-model cache probe (R5): can this machine embed, and if not, what
+// has to happen before it can.
 //
-// Directory existence alone was the old answer, and it was the wrong one in
-// both directions. `~/.signposts/models/` is created by the first embedder
-// that ever ran, so an interrupted download reported "present"; and a repo
+// Directory existence was the old answer, and it was wrong in both
+// directions. `~/.signposts/models/` is created by the first embedder that
+// ever ran, so an interrupted download reported "present"; and a repo
 // configured for the vendored offline layout (15-spec.md story 57) has no
-// shared cache at all and reported "absent" while retrieval worked fine.
-// Both are the question a developer asks doctor after a run failed offline.
+// shared cache at all and reported "absent" while retrieval worked fine. Both
+// are the question a developer asks doctor after a run failed offline.
 //
-// The two layouts differ, and that is transformers.js's doing, not ours:
-// the shared cache is keyed `<cacheDir>/<repo-id>/<revision>/`, while
-// `localModelPath` resolves a flat `<localModelPath>/<repo-id>/` and ignores
-// the revision (see test/support/model-cache.ts, which builds both).
+// So this probes the weights themselves rather than a directory.
+// transformers.js caches file by file, renaming each completed download into
+// place, so a first run interrupted after `config.json` and `tokenizer.json`
+// leaves a populated directory with no model in it — which is the exact
+// failure this check exists to name. ../../core/retrieval/model-files.ts holds
+// the paths, shared with the embedder that loads them.
 
-import { readdirSync } from "node:fs";
-import path from "node:path";
+import { existsSync } from "node:fs";
 import { classifyModelCache, type ModelCacheStatus } from "../../core/doctor/report.ts";
 import { splitPinnedModel } from "../../core/retrieval/pinned-model.ts";
+import { cachedWeightsPath, vendoredWeightsPath } from "../../core/retrieval/model-files.ts";
 
 export interface ModelCacheInput {
   /** `config.paths.modelCacheDir` — global, shared by every repo. */
@@ -25,15 +27,8 @@ export interface ModelCacheInput {
   embeddingModel: string;
   /** `config.retrieval.local_model_path`, or null when unset. */
   localModelPath: string | null;
-}
-
-/** True when a directory exists and holds something — a half-written cache is not warm. */
-function populated(dir: string): boolean {
-  try {
-    return readdirSync(dir).length > 0;
-  } catch {
-    return false; // Missing, or unreadable: either way there is nothing to load.
-  }
+  /** `config.retrieval.allow_remote_models` — whether a cold cache can still fill itself. */
+  allowRemoteModels: boolean;
 }
 
 export function checkModelCache(input: ModelCacheInput): ModelCacheStatus {
@@ -41,7 +36,8 @@ export function checkModelCache(input: ModelCacheInput): ModelCacheStatus {
 
   return classifyModelCache({
     vendored:
-      input.localModelPath !== null && populated(path.join(input.localModelPath, repoId)),
-    pinnedRevisionCached: populated(path.join(input.modelCacheDir, repoId, revision)),
+      input.localModelPath !== null && existsSync(vendoredWeightsPath(input.localModelPath, repoId)),
+    pinnedRevisionCached: existsSync(cachedWeightsPath(input.modelCacheDir, repoId, revision)),
+    remoteAllowed: input.allowRemoteModels,
   });
 }

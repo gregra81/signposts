@@ -11,6 +11,7 @@
 import { env, pipeline } from "@huggingface/transformers";
 import { EMBEDDING_DIM } from "../../core/config/constants.ts";
 import { splitPinnedModel } from "../../core/retrieval/pinned-model.ts";
+import { EMBEDDING_DTYPE } from "../../core/retrieval/model-files.ts";
 
 // transformers.js always joins env.localModelPath into its file-resolution
 // paths, even when allowRemoteModels is true and no local override is in

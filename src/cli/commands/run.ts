@@ -73,13 +73,20 @@ function write(stream: NodeJS.WritableStream, value: unknown): void {
  * Everything it writes goes to stderr and is prefixed the way `fail` prefixes
  * its own line, so a terminal holding both a trace and an error reads as one
  * program talking.
+ *
+ * It takes a thunk rather than the lines themselves, so that a plain run pays
+ * nothing to build a trace nobody prints. That is not a micro-optimisation:
+ * `handle.eligible()` re-reads and sha256s every transcript in this repo's
+ * project directory, and an eagerly evaluated argument made every
+ * `signpost run` pay for it a second time.
  */
-function tracer(input: RunCommandInput): (lines: string | readonly string[]) => void {
+function tracer(input: RunCommandInput): (lines: () => string | readonly string[]) => void {
   if (input.verbose !== true) {
     return () => {};
   }
   return (lines) => {
-    for (const line of typeof lines === "string" ? [lines] : lines) {
+    const written = lines();
+    for (const line of typeof written === "string" ? [written] : written) {
       input.stderr.write(`signposts: ${line}\n`);
     }
   };
@@ -107,9 +114,9 @@ function toRef(session: RunSession): SessionRef {
 export function runSessionsList(input: RunCommandInput): Promise<ExitCode> {
   const trace = tracer(input);
   return withRun(input, async (handle) => {
-    trace(contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
+    trace(() => contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
     const sessions = handle.eligible(new Date());
-    trace([eligibleLine(sessions.length), ...sessions.map((session) => sessionLine(traceable(session)))]);
+    trace(() => [eligibleLine(sessions.length), ...sessions.map((session) => sessionLine(traceable(session)))]);
     const output: SessionsOutput = { sessions: sessions.map(toRef) };
     write(input.stdout, output);
     return 0;
@@ -120,12 +127,12 @@ export function runSessionsList(input: RunCommandInput): Promise<ExitCode> {
 export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
   const trace = tracer(input);
   return withRun(input, async (handle) => {
-    trace(contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
+    trace(() => contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
     const session = pick(input, handle);
     if (session === undefined) {
       return fail(input.stderr, "no eligible session to run");
     }
-    trace(startingLine(traceable(session)));
+    trace(() => startingLine(traceable(session)));
     if (input.isFirst === true) {
       // What the last run left pending describes proposals that have since
       // merged or been rejected; a rejected one left in the index would be
@@ -148,7 +155,7 @@ export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
 export function runResume(input: RunCommandInput): Promise<ExitCode> {
   const trace = tracer(input);
   return withRun(input, async (handle) => {
-    trace(contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
+    trace(() => contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
     const session = resuming(input, handle) ?? pick(input, handle);
     if (session === undefined) {
       return fail(
@@ -156,14 +163,13 @@ export function runResume(input: RunCommandInput): Promise<ExitCode> {
         "no session to resume — pass --session <id> --content-hash <hash>, as the halt reported them",
       );
     }
-    if (input.repliesPath === undefined) {
+    const repliesPath = input.repliesPath;
+    if (repliesPath === undefined) {
       return fail(input.stderr, "resume needs --replies <path> (or - for stdin)");
     }
 
-    const replies = parseReplies(
-      readFileSync(input.repliesPath === "-" ? 0 : input.repliesPath, "utf8"),
-    );
-    trace(resumingLine(traceable(session), input.repliesPath, Object.keys(replies).length));
+    const replies = parseReplies(readFileSync(repliesPath === "-" ? 0 : repliesPath, "utf8"));
+    trace(() => resumingLine(traceable(session), repliesPath, Object.keys(replies).length));
     const result = await resumeRun(
       handle.graph,
       handle.checkpointer,
@@ -215,7 +221,7 @@ async function report(
   const waiting = result.pending.length > 0;
   const trace = tracer(input);
   const proposed = waiting ? [] : result.state.operations.map(describe);
-  trace(
+  trace(() =>
     waiting
       ? haltedLines(
           traceable(session),
