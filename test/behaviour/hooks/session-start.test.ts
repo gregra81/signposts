@@ -218,7 +218,14 @@ describe("the three wake conditions", () => {
   it("wakes on a signpost newer than the index — the git-pull case", async () => {
     const f = withCurrentIndex(fixture());
     mkdirSync(path.join(f.repoRoot, ".signposts", "decision"), { recursive: true });
-    writeFileSync(path.join(f.repoRoot, ".signposts", "decision", "pulled.md"), "---\n---\n");
+    const pulled = path.join(f.repoRoot, ".signposts", "decision", "pulled.md");
+    writeFileSync(pulled, "---\n---\n");
+    // Stated rather than relied on. Both files are written within the same
+    // moment, and `indexIsStale` compares them with a strict `>`: on a
+    // filesystem whose timestamps are coarser than the gap — CI's — the pull
+    // is not newer than the index, and the hook correctly finds nothing to do.
+    const anHourOn = new Date(Date.now() + HOUR_MS);
+    utimesSync(pulled, anHourOn, anHourOn);
 
     expect(JSON.parse(runHook(f).stdout).systemMessage).toBe(
       "🪧 signposts: rebuilding the search index in the background",
