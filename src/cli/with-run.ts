@@ -12,7 +12,7 @@ import type { ExitCode } from "../app.ts";
 import type { ResolvedConfig } from "../core/config/resolve.ts";
 import { pendingProposals } from "../core/graph/pending.ts";
 import type { RunResult } from "../graph/index.ts";
-import { recordRunFinished } from "../io/worker/status-file.ts";
+import { recordRunFinished, recordRunProgress } from "../io/worker/status-file.ts";
 import {
   isUnavailable,
   type OpenedRun,
@@ -87,6 +87,13 @@ export interface SettleInput {
   /** `config.paths.statuslineState` — where the session watermark lives. */
   statusPath: string;
   now: Date;
+  /**
+   * `--first`: this session opens a run, so it starts the count rather than
+   * adding to whatever the last one left. The age guard alone is not enough —
+   * a run abandoned five minutes ago is still inside the window, and without
+   * this its sessions are adopted by the run that replaces it.
+   */
+  isFirst: boolean;
 }
 
 /**
@@ -119,7 +126,25 @@ export async function settle(input: SettleInput): Promise<void> {
     await handle.pendingIndex.indexPending(handle.repo, proposals);
   }
 
+  // Progress before the early return, because the halt is most of a run's
+  // life: a session waiting on a review is the state the statusLine has to
+  // keep rendering, and the stamp it writes here is what stops that line
+  // ageing out while the developer is still answering (07, "Live progress").
+  //
+  // The census goes with it. `threadsWaiting` used to be the worker's alone,
+  // and the worker runs only when a session starts — so a review this halt
+  // parked a minute ago stayed invisible until the next `claude`, which is
+  // precisely the state the developer needs to see. The count comes from
+  // `pendingReviews`, the same source the worker's census uses.
   if (result.pending.length > 0) {
+    recordRunProgress(input.statusPath, {
+      now: input.now,
+      remaining: handle.eligible(input.now).length,
+      sessionFinished: false,
+      found: 0,
+      threadsWaiting: (await handle.pendingReviews(input.now)).length,
+      freshRun: input.isFirst,
+    });
     return;
   }
 
@@ -130,11 +155,36 @@ export async function settle(input: SettleInput): Promise<void> {
     tokenEstimate: result.state.gutterStats.tokenEstimate,
   });
 
+  // `finish` above has already dropped this session out of `eligible`, so what
+  // is left here is the run's remaining work and this session counts as done.
+  const remaining = handle.eligible(input.now).length;
+  recordRunProgress(input.statusPath, {
+    now: input.now,
+    remaining,
+    sessionFinished: true,
+    // Candidates, not operations. `operationsFor` emits more than one entry
+    // per candidate — a `supersede` is a retire plus an add, `both_scoped` a
+    // refine plus an add — so `operations.length` is up to double what a
+    // reviewer will see in the PR. `validated` is grouped by candidate and
+    // every entry in it is partitioned by the gate, so its length is the
+    // number of changes this session actually proposed.
+    //
+    // Not `pendingProposals` either, though it is right here: it counts `add`
+    // alone, deliberately (../core/graph/pending.ts), so a session whose work
+    // was two supersedes and a retire would report nothing found.
+    found: result.state.validated.length,
+    // Retaken here too, and this is the direction that matters: answering the
+    // last review is what takes the count back to zero, and nothing else in
+    // the system would notice until a worker woke.
+    threadsWaiting: (await handle.pendingReviews(input.now)).length,
+    freshRun: input.isFirst,
+  });
+
   // Only once nothing eligible is left, because the watermark is one date for
   // the whole repo: stamping it while an older unprocessed transcript is still
-  // waiting silences the hook about that transcript for good. `finish` above
-  // has already dropped this session out of `eligible`.
-  if (handle.eligible(input.now).length === 0) {
+  // waiting silences the hook about that transcript for good. It clears the
+  // progress with the same write — the run this was tracking is over.
+  if (remaining === 0) {
     recordRunFinished(input.statusPath, session.lastActivityAt);
   }
 }

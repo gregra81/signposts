@@ -2,7 +2,13 @@
 // is exercised in test/behaviour/worker.
 
 import { describe, expect, it } from "vitest";
-import { finishedStatus, runFinishedStatus, runningStatus } from "../../../src/core/worker/status.ts";
+import {
+  finishedStatus,
+  progressIsLive,
+  runFinishedStatus,
+  runningStatus,
+  runProgressStatus,
+} from "../../../src/core/worker/status.ts";
 
 const NOW = new Date("2026-09-09T12:00:00.000Z");
 /** A session's last activity — always older than the run that judged it. */
@@ -135,5 +141,251 @@ describe("runFinishedStatus", () => {
       threadsWaiting: 0,
       lastRunFinishedAt: WATERMARK,
     });
+  });
+});
+
+// A run halted on a review can sit for days, and a reindex is free to happen
+// around it. Both of the worker's writes replace the file whole, so a run the
+// statusLine is rendering has to survive them — exactly as the watermark does.
+describe("the worker carries a run's progress across its own writes", () => {
+  const PROGRESS = {
+    sessionsDone: 1,
+    sessionsTotal: 3,
+    found: 2,
+    updatedAt: "2026-09-09T11:59:00.000Z",
+  };
+
+  it("keeps it while the worker is reindexing", () => {
+    expect(runningStatus(NOW, undefined, PROGRESS).runProgress).toEqual(PROGRESS);
+  });
+
+  it("omits it when there is no run in flight", () => {
+    expect(runningStatus(NOW, WATERMARK)).not.toHaveProperty("runProgress");
+  });
+
+  it("keeps it when the worker exits", () => {
+    const status = finishedStatus({
+      now: NOW,
+      eligibleSessions: 0,
+      threadsWaiting: 0,
+      runProgress: PROGRESS,
+    });
+
+    expect(status.runProgress).toEqual(PROGRESS);
+  });
+
+  it("omits it from a census taken between runs", () => {
+    expect(
+      finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 }),
+    ).not.toHaveProperty("runProgress");
+  });
+});
+
+describe("runFinishedStatus and the run's progress", () => {
+  // The watermark moves only when nothing eligible is left, which is the same
+  // moment the run stops being in flight. Left behind, the progress would sit
+  // on the bar reading "3/3" until it aged out.
+  it("drops the progress with the same write", () => {
+    const previous = {
+      phase: "idle" as const,
+      updatedAt: "2026-09-09T11:59:00.000Z",
+      eligibleSessions: 0,
+      threadsWaiting: 0,
+      runProgress: {
+        sessionsDone: 3,
+        sessionsTotal: 3,
+        found: 5,
+        updatedAt: "2026-09-09T11:59:00.000Z",
+      },
+    };
+
+    expect(runFinishedStatus(previous, FINISHED_THROUGH)).not.toHaveProperty("runProgress");
+  });
+});
+
+describe("runProgressStatus", () => {
+  const live = (updatedAt: string) => ({
+    phase: "idle" as const,
+    updatedAt,
+    eligibleSessions: 0,
+    threadsWaiting: 0,
+    runProgress: { sessionsDone: 1, sessionsTotal: 3, found: 2, updatedAt },
+  });
+
+  it("starts a run at zero done, with what is left as the denominator", () => {
+    const status = runProgressStatus(undefined, {
+      now: NOW,
+      remaining: 3,
+      sessionFinished: false,
+      found: 0,
+      threadsWaiting: 0,
+      freshRun: false,
+    });
+
+    expect(status.runProgress).toEqual({
+      sessionsDone: 0,
+      sessionsTotal: 3,
+      found: 0,
+      updatedAt: "2026-09-09T12:00:00.000Z",
+    });
+  });
+
+  it("counts a finished session and adds what it proposed", () => {
+    const status = runProgressStatus(live("2026-09-09T11:59:00.000Z"), {
+      now: NOW,
+      remaining: 1,
+      sessionFinished: true,
+      found: 4, threadsWaiting: 0, freshRun: false }
+    );
+
+    expect(status.runProgress).toEqual({
+      sessionsDone: 2,
+      sessionsTotal: 3,
+      found: 6,
+      updatedAt: "2026-09-09T12:00:00.000Z",
+    });
+  });
+
+  // A halt is not progress, but it is proof the run is alive — so the stamp
+  // moves and nothing else does. Counting `found` here would count the same
+  // proposals again on every resume of the same session.
+  it("moves only the clock when the session halted", () => {
+    const status = runProgressStatus(live("2026-09-09T11:59:00.000Z"), {
+      now: NOW,
+      remaining: 2,
+      sessionFinished: false,
+      found: 9, threadsWaiting: 0, freshRun: false }
+    );
+
+    expect(status.runProgress).toEqual({
+      sessionsDone: 1,
+      sessionsTotal: 3,
+      found: 2,
+      updatedAt: "2026-09-09T12:00:00.000Z",
+    });
+  });
+
+  // RUN_PROGRESS_STALE_MINUTES: a run abandoned last week must not have its
+  // count adopted by this one.
+  it("starts fresh when the progress it found had aged out", () => {
+    const status = runProgressStatus(live("2026-09-01T00:00:00.000Z"), {
+      now: NOW,
+      remaining: 2,
+      sessionFinished: true,
+      found: 1, threadsWaiting: 0, freshRun: false }
+    );
+
+    expect(status.runProgress).toEqual({
+      sessionsDone: 1,
+      sessionsTotal: 3,
+      found: 1,
+      updatedAt: "2026-09-09T12:00:00.000Z",
+    });
+  });
+
+  // Changed contract. `threadsWaiting` used to be the worker's alone and was
+  // carried through here; a run now retakes the census from the same source
+  // the worker uses, because the worker runs only at session start and a
+  // review parked mid-run was invisible until the next one.
+  it("retakes the census, and carries the worker's own fields through", () => {
+    const previous = {
+      ...live("2026-09-09T11:59:00.000Z"),
+      eligibleSessions: 4,
+      threadsWaiting: 1,
+      lastIndexedAt: "2026-09-09T10:00:00.000Z",
+      lastError: "index rebuild exited 1",
+      lastRunFinishedAt: WATERMARK,
+    };
+    const status = runProgressStatus(previous, {
+      now: NOW,
+      remaining: 0,
+      sessionFinished: true,
+      found: 0, threadsWaiting: 0, freshRun: false }
+    );
+
+    expect(status.eligibleSessions).toBe(0);
+    expect(status.threadsWaiting).toBe(0);
+    // Only the worker can know these two, so they survive untouched.
+    expect(status.lastIndexedAt).toBe("2026-09-09T10:00:00.000Z");
+    expect(status.lastError).toBe("index rebuild exited 1");
+    expect(status.lastRunFinishedAt).toBe(WATERMARK);
+  });
+
+  // The age guard is a proxy for "a different run"; `--first` is the signal
+  // itself. A run abandoned five minutes ago is well inside the window, and
+  // its two sessions must not be adopted by the run that replaces it.
+  it("starts fresh when --first says this session opens a run", () => {
+    const status = runProgressStatus(live("2026-09-09T11:59:00.000Z"), {
+      now: NOW,
+      remaining: 2,
+      sessionFinished: true,
+      found: 1,
+      threadsWaiting: 0,
+      freshRun: true,
+    });
+
+    expect(status.runProgress).toEqual({
+      sessionsDone: 1,
+      sessionsTotal: 3,
+      found: 1,
+      updatedAt: "2026-09-09T12:00:00.000Z",
+    });
+  });
+
+  // `updatedAt` dates the snapshot, and this path retakes both counts on it.
+  it("re-stamps the snapshot it is retaking the census on", () => {
+    const status = runProgressStatus(live("2026-09-09T11:59:00.000Z"), {
+      now: NOW,
+      remaining: 1,
+      sessionFinished: false,
+      found: 0,
+      threadsWaiting: 0,
+      freshRun: false,
+    });
+
+    expect(status.updatedAt).toBe("2026-09-09T12:00:00.000Z");
+  });
+
+  it("refuses counts that are not whole and not positive", () => {
+    const status = runProgressStatus(undefined, {
+      now: NOW,
+      remaining: -3,
+      sessionFinished: true,
+      found: 2.7,
+      threadsWaiting: 0,
+      freshRun: false,
+    });
+
+    expect(status.runProgress).toEqual({
+      sessionsDone: 1,
+      sessionsTotal: 1,
+      found: 2,
+      updatedAt: "2026-09-09T12:00:00.000Z",
+    });
+  });
+});
+
+describe("progressIsLive", () => {
+  const progress = (updatedAt: string) => ({
+    sessionsDone: 1,
+    sessionsTotal: 2,
+    found: 0,
+    updatedAt,
+  });
+
+  it("is false with no progress at all", () => {
+    expect(progressIsLive(undefined, NOW)).toBe(false);
+  });
+
+  it("is true just inside the window", () => {
+    expect(progressIsLive(progress("2026-09-09T11:46:00.000Z"), NOW)).toBe(true);
+  });
+
+  it("is false at the window's edge", () => {
+    expect(progressIsLive(progress("2026-09-09T11:45:00.000Z"), NOW)).toBe(false);
+  });
+
+  it("is false for a stamp that does not parse", () => {
+    expect(progressIsLive(progress("last tuesday"), NOW)).toBe(false);
   });
 });

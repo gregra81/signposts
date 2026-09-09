@@ -2,18 +2,41 @@
 // real SQLite, a temp $HOME and a temp git repo, driven through runCli.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { CLAUDE_MD_POINTER } from "../../../src/core/init/policy.js";
 import { deriveOwnerRepo } from "../../../src/core/git/owner-repo.js";
 import { getOriginUrl } from "../../../src/io/git/remote-origin.js";
 import { openDb } from "../../../src/io/db/migrate.js";
 import { hasConsented } from "../../../src/io/db/repo-state.js";
+import { statuslineScriptPath } from "../../../src/io/init/statusline-file.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createEofStdio, createFakeStdio } from "../helpers/fake-stdio.js";
+
+// `init` installs the compiled statusLine, and refuses to when it is absent —
+// so the artifact has to exist before these run, exactly as it does for a user
+// who installed the package.
+const PACKAGE_ROOT = path.dirname(
+  path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url)))),
+);
+
+beforeAll(() => {
+  execFileSync(process.execPath, [path.join(PACKAGE_ROOT, "scripts", "build-hooks.mjs")], {
+    stdio: "pipe",
+  });
+});
 
 describe("signpost init", () => {
   let homeDir: string;
@@ -69,6 +92,103 @@ describe("signpost init", () => {
 
     expect(exitCode).toBe(0);
     expect(secondStdio.writtenOutput()).toContain("already initialised");
+  });
+
+  // 07-triggering-and-ux.md's second visibility surface. `init` installs it,
+  // and it goes in settings.local.json: the command names an absolute path on
+  // this machine, and a status line is a personal preference — neither belongs
+  // in a file the team shares.
+  it("installs the status line, into the settings file that is not committed", async () => {
+    await runCli(["init"], { config, stdio: createFakeStdio("y") });
+
+    const settings = JSON.parse(
+      readFileSync(path.join(repoRoot, ".claude", "settings.local.json"), "utf8"),
+    );
+    expect(settings.statusLine.type).toBe("command");
+    expect(settings.statusLine.command).toContain("statusline/statusline.js");
+    expect(existsSync(path.join(repoRoot, ".claude", "settings.json"))).toBe(false);
+  });
+
+  // The status line is somewhere the developer may already live. Claude Code
+  // allows one command, so ours has to run theirs rather than replace it.
+  it("wraps a status line that was already configured, and keeps its other fields", async () => {
+    mkdirSync(path.join(repoRoot, ".claude"), { recursive: true });
+    writeFileSync(
+      path.join(repoRoot, ".claude", "settings.local.json"),
+      JSON.stringify({
+        statusLine: { type: "command", command: "~/bin/mystatus.sh", padding: 2 },
+        permissions: { allow: ["Bash"] },
+      }),
+    );
+    const stdio = createFakeStdio("y");
+
+    await runCli(["init"], { config, stdio });
+
+    const settings = JSON.parse(
+      readFileSync(path.join(repoRoot, ".claude", "settings.local.json"), "utf8"),
+    );
+    expect(settings.statusLine.command).toBe(
+      `node '${statuslineScriptPath()}' --wrap '~/bin/mystatus.sh'`,
+    );
+    expect(settings.statusLine.padding).toBe(2);
+    expect(settings.permissions).toEqual({ allow: ["Bash"] });
+    // Said out loud: a tool that edits a settings file in silence is one the
+    // developer discovers when their own status line looks different.
+    expect(stdio.writtenOutput()).toContain("~/bin/mystatus.sh");
+  });
+
+  // A command that is not there exits non-zero, which blanks the bar — and
+  // when it is wrapping, it takes the developer's own status line with it.
+  it("changes nothing when the compiled status line is not on disk", async () => {
+    mkdirSync(path.join(repoRoot, ".claude"), { recursive: true });
+    const settingsFile = path.join(repoRoot, ".claude", "settings.local.json");
+    writeFileSync(settingsFile, JSON.stringify({ statusLine: { type: "command", command: "mine" } }));
+    const built = statuslineScriptPath();
+    const parked = `${built}.parked`;
+    renameSync(built, parked);
+
+    try {
+      await runCli(["init"], { config, stdio: createFakeStdio("y") });
+      expect(JSON.parse(readFileSync(settingsFile, "utf8")).statusLine.command).toBe("mine");
+    } finally {
+      renameSync(parked, built);
+    }
+  });
+
+  // Where a status line almost always is: `~/.claude/settings.json`. Project
+  // local outranks user, so an unwrapped install here would take it away.
+  it("wraps a status line inherited from the user's own settings", async () => {
+    const userSettings = path.join(homeDir, ".claude");
+    mkdirSync(userSettings, { recursive: true });
+    writeFileSync(
+      path.join(userSettings, "settings.json"),
+      JSON.stringify({
+        statusLine: { type: "command", command: "~/.claude/statusline.sh", refreshInterval: 30 },
+      }),
+    );
+
+    await runCli(["init"], { config, stdio: createFakeStdio("y") });
+
+    const settings = JSON.parse(
+      readFileSync(path.join(repoRoot, ".claude", "settings.local.json"), "utf8"),
+    );
+    expect(settings.statusLine.command).toBe(
+      `node '${statuslineScriptPath()}' --wrap '~/.claude/statusline.sh'`,
+    );
+    // Their own pacing comes down with it: the local entry replaces the whole
+    // object, so a field left behind is a field they lose.
+    expect(settings.statusLine.refreshInterval).toBe(30);
+  });
+
+  it("leaves a settings file it cannot parse exactly as it is", async () => {
+    mkdirSync(path.join(repoRoot, ".claude"), { recursive: true });
+    const settingsFile = path.join(repoRoot, ".claude", "settings.local.json");
+    writeFileSync(settingsFile, "{ half an edit");
+
+    const exitCode = await runCli(["init"], { config, stdio: createFakeStdio("y") });
+
+    expect(exitCode).toBe(0);
+    expect(readFileSync(settingsFile, "utf8")).toBe("{ half an edit");
   });
 
   it("declining consent exits 1 and persists no state", async () => {

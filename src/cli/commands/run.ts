@@ -155,6 +155,7 @@ async function report(
     result,
     statusPath: input.config.paths.statuslineState,
     now: new Date(),
+    isFirst: input.isFirst === true,
   });
 
   const waiting = result.pending.length > 0;

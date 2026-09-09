@@ -163,6 +163,44 @@ Both processes key `STATE_DIR` on `sha256(repoRoot)`, and the worker gets its re
 Without that, a checkout reached through a symlink gives the two different state directories and
 they silently share nothing.
 
+## The statusLine
+
+`statusline/statusline.ts` is the second standalone bundle, under the same rule as the hook: it
+imports nothing from `src/` and transcribes the constants it needs. `pnpm build:hooks` strips it to
+`statusline/statusline.js`, which is what the settings entry points at and what `prepack` builds
+into the tarball — the `.js` is gitignored, so `files` in package.json is what puts it there and
+the `.ts` stays out. A developer never runs the build; an end user gets the output.
+
+It reads `status.json` and nothing else — no database, no git subprocess — because it runs on every
+assistant message and on a one-second `refreshInterval`.
+
+It renders one of four things, each true at the moment it renders: a review parked on the developer,
+a run in flight, the worker reindexing, a failure nobody was told about — in that order, because a
+review is the only one of them asking for anything. It says nothing about a backlog. That is the
+hook's message and it is delivered once; a bar that repeats it every few seconds becomes noise.
+
+The progress comes from `settle` (`src/cli/with-run.ts`), for the same reason the watermark does:
+the worker drains no session. A run is a sequence of processes, so the count lives on disk and each
+invocation adds its own session to what the last one left. It ages out after
+`RUN_PROGRESS_STALE_MINUTES`, because closing the terminal between two halts leaves progress behind
+with nothing to finish it, and a bar reading "2/3 sessions" all week is not stale, it is wrong.
+
+Which is why `settle` retakes the census in the same write. A run halted on a review re-stamps
+nothing until the developer answers, so its progress ages out — and `threadsWaiting` used to be
+the worker's alone, written only when a session start happened to wake one. The state the
+developer most has to act on was the state that went blank. Both counts come from the same
+`pendingReviews` the worker's census uses, so a run replaces them with fresher numbers rather than
+competing; `lastIndexedAt` and `lastError` stay the worker's and are carried through.
+
+`init` installs it into `.claude/settings.local.json` rather than `settings.json`: the command holds
+an absolute path to this machine's install, and a status line is a personal preference, so neither
+belongs in a file the team shares. **If the developer already has a statusLine, theirs is wrapped
+rather than replaced** (`--wrap`, and `src/core/init/statusline-settings.ts`): Claude Code allows one
+command, ours runs theirs, prints what it printed, and adds a row underneath. The wrapped command
+stays visible in the settings file so they can see what happened and take it back by deleting one
+thing. Nothing is written at all when the compiled bundle is missing — a command that is not there
+exits non-zero, which blanks the bar and takes their status line down with it.
+
 ## Retire
 
 `retire` fires from `OBSOLETE`, the fifth classification kind: a candidate that withdraws a

@@ -76,9 +76,12 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
   // The watermark is the run commands' half of this file (src/cli/with-run.ts),
   // and both of the writes below replace the file whole. Carry it across or a
   // background reindex silences the hook's memory of what has been judged.
-  const lastRunFinishedAt = readStatus(config.paths.statuslineState)?.lastRunFinishedAt;
+  const previous = readStatus(config.paths.statuslineState);
 
-  writeStatus(config.paths.statuslineState, runningStatus(input.now(), lastRunFinishedAt));
+  writeStatus(
+    config.paths.statuslineState,
+    runningStatus(input.now(), previous?.lastRunFinishedAt, previous?.runProgress),
+  );
 
   let indexedAt: Date | undefined;
   let error: string | undefined;
@@ -107,6 +110,13 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
   } catch (unexpected) {
     error = messageOf(unexpected);
   } finally {
+    // Re-read rather than reuse what was read at the top. A rebuild loads an
+    // ONNX pipeline and embeds the corpus, so minutes can pass here, and only
+    // the worker takes `paths.lockfile` — `run`, `resume` and `review` write
+    // this file throughout. Carrying the opening read forward would put back a
+    // `runProgress` that a run has since cleared, leaving the bar reporting a
+    // finished run's count until it ages out.
+    const current = readStatus(config.paths.statuslineState);
     writeStatus(
       config.paths.statuslineState,
       finishedStatus({
@@ -115,7 +125,8 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
         threadsWaiting,
         indexedAt,
         error,
-        lastRunFinishedAt,
+        lastRunFinishedAt: current?.lastRunFinishedAt,
+        runProgress: current?.runProgress,
       }),
     );
     lock.release();
