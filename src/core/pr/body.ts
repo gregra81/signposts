@@ -54,6 +54,24 @@ function row(operation: Operation): string {
 }
 
 /**
+ * The order rows appear in, whatever order the graph emitted them: grouped by
+ * operation (06-review-and-pr.md, "Body"). A reviewer reads a table of eight
+ * proposals by kind — every new claim together, then everything that changes
+ * something already recorded — because those are different questions and
+ * interleaving them makes the reviewer re-ask which one they are answering.
+ *
+ * Taken from OPERATION_TAGS rather than listed again here, so an operation
+ * added to the union cannot go missing from the body by being left out of a
+ * second list.
+ */
+const OPERATION_ORDER = Object.values(OPERATION_TAGS);
+
+/** Stable within a group: two adds stay in the order the session produced them. */
+function byOperation(operations: readonly Operation[]): Operation[] {
+  return OPERATION_ORDER.flatMap((op) => operations.filter((operation) => operation.op === op));
+}
+
+/**
  * One session's contribution to the body.
  *
  * A session that proposed nothing still gets a line. The alternative is a
@@ -65,7 +83,7 @@ export function prSection(sessionId: string, operations: readonly Operation[]): 
   if (operations.length === 0) {
     return `${heading}\n\nNothing proposed.\n`;
   }
-  const rows = operations.map(row).join("\n");
+  const rows = byOperation(operations).map(row).join("\n");
   return `${heading}\n\n| op | signpost | claim | why |\n| --- | --- | --- | --- |\n${rows}\n`;
 }
 

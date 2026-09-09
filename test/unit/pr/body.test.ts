@@ -97,6 +97,22 @@ describe("prSection", () => {
     expect(prSection("sess-9", [])).toContain("Nothing proposed.");
   });
 
+  it("groups the rows by operation, whatever order the session produced them in", () => {
+    const ops = prSection("sess-1", [REINFORCE, SUPERSEDE, ADD])
+      .split("\n")
+      .filter((line) => line.startsWith("| ") && !line.startsWith("| op") && !line.startsWith("| ---"))
+      .map((line) => line.split(" | ")[0]!.replace("| ", ""));
+
+    expect(ops).toEqual(["add", "reinforce", "supersede"]);
+  });
+
+  it("keeps two of the same operation in the order the session produced them", () => {
+    const second: Operation = { op: "add", signpost: signpost({ id: "second-claim" }) };
+    const section = prSection("sess-1", [ADD, second]);
+
+    expect(section.indexOf(signpost().id)).toBeLessThan(section.indexOf("second-claim"));
+  });
+
   it("gives every operation its own row", () => {
     const rows = prSection("sess-1", [ADD, REINFORCE])
       .split("\n")
