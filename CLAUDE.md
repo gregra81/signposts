@@ -150,7 +150,13 @@ The notice is worded to match: the index is background work, the sessions and re
 developer's.
 
 The worker never writes `lastRunFinishedAt`. That is the watermark the hook uses to stop waking for
-a session already judged, and the worker judges none.
+a session already judged, and the worker judges none. `settle` (`src/cli/with-run.ts`) writes it,
+since `run`, `resume` and `review` are the three commands that finish one. It goes down only once
+the finished session leaves nothing else eligible, and it carries that session's own last activity
+rather than the clock: the watermark is one date for the whole repo, so a wall-clock stamp buries
+every transcript that fell quiet just before it — the backlog nobody has run, and the session the
+developer was sitting in. Both processes write the same file, so each carries the other's fields
+through untouched.
 
 Both processes key `STATE_DIR` on `sha256(repoRoot)`, and the worker gets its repoRoot from
 `process.cwd()`, which Node always reports resolved — so the hook resolves symlinks before hashing.

@@ -12,6 +12,7 @@ import type { ExitCode } from "../app.ts";
 import type { ResolvedConfig } from "../core/config/resolve.ts";
 import { pendingProposals } from "../core/graph/pending.ts";
 import type { RunResult } from "../graph/index.ts";
+import { recordRunFinished } from "../io/worker/status-file.ts";
 import {
   isUnavailable,
   type OpenedRun,
@@ -79,6 +80,15 @@ export async function withRun(
   }
 }
 
+export interface SettleInput {
+  handle: RunHandle;
+  session: RunSession;
+  result: RunResult;
+  /** `config.paths.statuslineState` — where the session watermark lives. */
+  statusPath: string;
+  now: Date;
+}
+
 /**
  * Indexes whatever the session has proposed so far, and records it as finished
  * once it is done.
@@ -96,24 +106,36 @@ export async function withRun(
  * the terminal is the invocation that finishes the session as often as not,
  * and a session that reached `commit` without being recorded stays eligible —
  * so the next run extracts a transcript whose signposts are already in the PR.
+ *
+ * Finishing the last of them also moves the session watermark, which is the
+ * only thing that ever stops the SessionStart hook announcing the same backlog
+ * at every session start: the hook cannot open a database, so `run` and
+ * `review` are what tell it a transcript has been judged.
  */
-export async function settle(
-  handle: RunHandle,
-  session: RunSession,
-  result: RunResult,
-): Promise<void> {
+export async function settle(input: SettleInput): Promise<void> {
+  const { handle, session, result } = input;
   const proposals = pendingProposals(result.state.gated);
   if (proposals.length > 0) {
     await handle.pendingIndex.indexPending(handle.repo, proposals);
   }
 
-  if (result.pending.length === 0) {
-    handle.finish({
-      sessionId: session.sessionId,
-      contentHash: session.contentHash,
-      lastActivityAt: session.lastActivityAt,
-      tokenEstimate: result.state.gutterStats.tokenEstimate,
-    });
+  if (result.pending.length > 0) {
+    return;
+  }
+
+  handle.finish({
+    sessionId: session.sessionId,
+    contentHash: session.contentHash,
+    lastActivityAt: session.lastActivityAt,
+    tokenEstimate: result.state.gutterStats.tokenEstimate,
+  });
+
+  // Only once nothing eligible is left, because the watermark is one date for
+  // the whole repo: stamping it while an older unprocessed transcript is still
+  // waiting silences the hook about that transcript for good. `finish` above
+  // has already dropped this session out of `eligible`.
+  if (handle.eligible(input.now).length === 0) {
+    recordRunFinished(input.statusPath, session.lastActivityAt);
   }
 }
 

@@ -40,7 +40,7 @@ import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { finishedStatus, runningStatus } from "../../core/worker/status.ts";
 import { takeLock } from "../../io/worker/lock.ts";
-import { writeStatus } from "../../io/worker/status-file.ts";
+import { readStatus, writeStatus } from "../../io/worker/status-file.ts";
 import type { OpenRun } from "../run-port.ts";
 import { runIndex } from "./index.ts";
 
@@ -73,7 +73,12 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
     return EXIT_CODES.ok;
   }
 
-  writeStatus(config.paths.statuslineState, runningStatus(input.now()));
+  // The watermark is the run commands' half of this file (src/cli/with-run.ts),
+  // and both of the writes below replace the file whole. Carry it across or a
+  // background reindex silences the hook's memory of what has been judged.
+  const lastRunFinishedAt = readStatus(config.paths.statuslineState)?.lastRunFinishedAt;
+
+  writeStatus(config.paths.statuslineState, runningStatus(input.now(), lastRunFinishedAt));
 
   let indexedAt: Date | undefined;
   let error: string | undefined;
@@ -110,6 +115,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
         threadsWaiting,
         indexedAt,
         error,
+        lastRunFinishedAt,
       }),
     );
     lock.release();

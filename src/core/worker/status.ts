@@ -53,6 +53,17 @@ export interface WorkerStatus {
    * look exactly like one that had nothing to do.
    */
   lastError?: string;
+  /**
+   * The session watermark: activity at or before this has been judged, so the
+   * hook stops waking for it (hooks/session-start.ts, `watermarkMs`).
+   *
+   * It belongs to whatever actually drains a session — `settle` in
+   * src/cli/with-run.ts stamps it, and only once nothing eligible is left. The
+   * worker writes none of it and carries whatever it found forward, because
+   * the worker and the run commands share this file and neither may erase the
+   * other's half of it.
+   */
+  lastRunFinishedAt?: string;
 }
 
 export interface SnapshotInput {
@@ -61,6 +72,8 @@ export interface SnapshotInput {
   threadsWaiting: number;
   indexedAt?: Date | undefined;
   error?: string | undefined;
+  /** Carried forward from the previous snapshot, never minted here. */
+  lastRunFinishedAt?: string | undefined;
 }
 
 /**
@@ -79,24 +92,26 @@ function count(value: number): number {
 }
 
 /** The snapshot written while the worker is still working — counts not yet taken. */
-export function runningStatus(now: Date): WorkerStatus {
+export function runningStatus(now: Date, lastRunFinishedAt?: string): WorkerStatus {
   return {
     phase: WORKER_PHASES.running,
     updatedAt: now.toISOString(),
     eligibleSessions: 0,
     threadsWaiting: 0,
+    ...(lastRunFinishedAt === undefined ? {} : { lastRunFinishedAt }),
   };
 }
 
 /**
  * The snapshot written as the worker exits.
  *
- * Deliberately does NOT carry `lastRunFinishedAt`, the watermark the hook uses
- * to stop waking for a session that has already been judged. Writing it here
- * would be a lie with a long tail: the worker counted those sessions and
- * processed none of them, and a watermark past their last activity would
- * silence the hook about them permanently. It belongs to whatever actually
- * drains a session — see src/cli/commands/run.ts.
+ * Never mints `lastRunFinishedAt`, the watermark the hook uses to stop waking
+ * for a session that has already been judged; it only passes back whatever the
+ * caller read off the previous snapshot. Minting it here would be a lie with a
+ * long tail: the worker counted those sessions and processed none of them, and
+ * a watermark past their last activity would silence the hook about them
+ * permanently. It belongs to whatever actually drains a session — `settle` in
+ * src/cli/with-run.ts.
  */
 export function finishedStatus(input: SnapshotInput): WorkerStatus {
   return {
@@ -106,5 +121,33 @@ export function finishedStatus(input: SnapshotInput): WorkerStatus {
     threadsWaiting: count(input.threadsWaiting),
     ...(input.indexedAt === undefined ? {} : { lastIndexedAt: input.indexedAt.toISOString() }),
     ...(input.error === undefined ? {} : { lastError: input.error }),
+    ...(input.lastRunFinishedAt === undefined
+      ? {}
+      : { lastRunFinishedAt: input.lastRunFinishedAt }),
   };
+}
+
+/**
+ * The previous snapshot with the watermark moved to `finishedThrough`.
+ *
+ * The value is the finished session's own last activity, not the wall clock.
+ * The hook compares it against transcript mtimes, and a wall-clock stamp
+ * silences every transcript that fell quiet just before it — including the
+ * session the developer was sitting in while the run went through.
+ *
+ * `updatedAt` stays where it was, because it dates the worker's census and
+ * this path counts nothing. A file that has no census yet is dated by the
+ * watermark itself, which is the only reading of a clock this path has.
+ */
+export function runFinishedStatus(
+  previous: WorkerStatus | undefined,
+  finishedThrough: Date,
+): WorkerStatus {
+  const base: WorkerStatus = previous ?? {
+    phase: WORKER_PHASES.idle,
+    updatedAt: finishedThrough.toISOString(),
+    eligibleSessions: 0,
+    threadsWaiting: 0,
+  };
+  return { ...base, lastRunFinishedAt: finishedThrough.toISOString() };
 }

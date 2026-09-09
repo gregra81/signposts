@@ -9,7 +9,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { JSON_INDENT } from "../../core/config/constants.ts";
-import type { WorkerStatus } from "../../core/worker/status.ts";
+import { runFinishedStatus, type WorkerStatus } from "../../core/worker/status.ts";
 
 /** Writes the snapshot, creating the state directory if this is the repo's first run. */
 export function writeStatus(statusPath: string, status: WorkerStatus): void {
@@ -29,4 +29,16 @@ export function readStatus(statusPath: string): WorkerStatus | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Moves the session watermark, leaving the worker's census where it is.
+ *
+ * Read-modify-write rather than a plain write: the run commands own
+ * `lastRunFinishedAt` and the worker owns the counts, and the two processes
+ * write the same file, so a wholesale write from either side erases the
+ * other's half.
+ */
+export function recordRunFinished(statusPath: string, finishedThrough: Date): void {
+  writeStatus(statusPath, runFinishedStatus(readStatus(statusPath), finishedThrough));
 }
