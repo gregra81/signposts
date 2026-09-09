@@ -13,6 +13,21 @@ especially anything touching infrastructure, migrations, or deployment — read
 These are things you cannot infer from the code.
 `;
 
+/**
+ * What a token-spending command says when this repo has never consented.
+ *
+ * Consent is a gate, not a paragraph in the README (15-spec.md story 70), and
+ * it has to hold on the manual path too: `run` and `resume` are typed by hand
+ * as often as they are driven by the skill, and neither goes anywhere near
+ * `init`. They refuse rather than prompt because they are answered by a
+ * subagent through one JSON object per invocation — a question asked there is
+ * a question asked of nobody, which is the same reason `review` refuses a
+ * pipe.
+ */
+export const CONSENT_REQUIRED_MESSAGE =
+  "this repo has not consented to signposts running. Run `signpost init` — it says what the " +
+  "tool does, what it costs and where its output goes, and asks once.";
+
 /** An already-consented repo's `init` re-run is a no-op — no prompt, nothing written. */
 export function needsConsentPrompt(hasConsented: boolean): boolean {
   return !hasConsented;

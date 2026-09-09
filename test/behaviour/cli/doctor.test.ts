@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
+import { MODEL_REPO, MODEL_REVISION } from "../../support/model-cache.js";
 
 describe("signpost doctor", () => {
   let homeDir: string;
@@ -82,5 +83,66 @@ describe("signpost doctor", () => {
     await runCli(["doctor"], { config, stdio });
 
     expect(stdio.writtenOutput()).toContain("session-start hook: installed");
+  });
+
+  it("reports a hook installed in settings.local.json, where a personal one goes", async () => {
+    // `init` writes the status line to settings.local.json for the same
+    // reason a hook command holding an absolute path belongs there — reading
+    // only the shared file told a developer their own installed hook was
+    // missing.
+    mkdirSync(path.join(repoRoot, ".claude"), { recursive: true });
+    writeFileSync(
+      path.join(repoRoot, ".claude", "settings.local.json"),
+      JSON.stringify({
+        hooks: { SessionStart: [{ hooks: [{ type: "command", command: "node /opt/signposts/hooks/session-start.js" }] }] },
+      }),
+      "utf8",
+    );
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config, stdio });
+
+    expect(stdio.writtenOutput()).toContain("session-start hook: installed");
+  });
+
+  it("an empty cache directory is cold, not present", async () => {
+    // The directory alone is what the old check looked at, and the first
+    // embedder that ever ran creates it — so an interrupted download reported
+    // a cache that could not load a model.
+    mkdirSync(config.paths.modelCacheDir, { recursive: true });
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config, stdio });
+
+    expect(stdio.writtenOutput()).toContain("embedding model cache: cold");
+  });
+
+  it("the pinned revision in the cache is warm", async () => {
+    const revisionDir = path.join(config.paths.modelCacheDir, MODEL_REPO, MODEL_REVISION);
+    mkdirSync(revisionDir, { recursive: true });
+    writeFileSync(path.join(revisionDir, "tokenizer.json"), "{}", "utf8");
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config, stdio });
+
+    expect(stdio.writtenOutput()).toContain("embedding model cache: warm");
+  });
+
+  it("a vendored model is reported as such, cold shared cache and all", async () => {
+    // 15-spec.md story 57: a restricted network points retrieval at a local
+    // copy, which transformers.js resolves flat and without the revision.
+    const vendored = path.join(repoRoot, "vendor", "models");
+    mkdirSync(path.join(vendored, MODEL_REPO), { recursive: true });
+    writeFileSync(path.join(vendored, MODEL_REPO, "tokenizer.json"), "{}", "utf8");
+    const vendoredConfig = resolveConfig({
+      repoRoot,
+      homeDir,
+      env: { SIGNPOSTS_RETRIEVAL_LOCAL_MODEL_PATH: vendored },
+    });
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config: vendoredConfig, stdio });
+
+    expect(stdio.writtenOutput()).toContain("embedding model cache: vendored");
   });
 });

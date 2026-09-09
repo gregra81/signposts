@@ -24,6 +24,7 @@ import { projectDirName } from "../../../src/core/transcript/project-dir.js";
 import { operationKey } from "../../../src/core/graph/decisions.js";
 import { EXIT_CODES } from "../../../src/core/cli/exit-codes.js";
 import { runCli } from "../helpers/run-cli.js";
+import { giveConsent } from "../helpers/consent.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 import { isModelRequest, type PendingRequest } from "../../../src/graph/index.js";
@@ -142,6 +143,11 @@ describe("two sessions in one run", () => {
       },
     });
     config = { ...config, paths: { ...config.paths, modelCacheDir: testModelCache() } };
+
+    // `run` and `resume` refuse to spend tokens before this repo has
+    // consented (src/cli/consent.ts) — the developer these tests stand in for
+    // answered that once, in `init`.
+    giveConsent(config, repoRoot);
   });
 
   afterEach(() => {

@@ -26,6 +26,16 @@ import { REVIEW_REQUEST_KIND, resumeRun, startRun, type RunResult } from "../../
 import type { RunOutput, SessionRef, SessionsOutput } from "../protocol.ts";
 import type { OpenRun, RunHandle, RunSession } from "../run-port.ts";
 import { fail, namedSession, settle, withRun } from "../with-run.ts";
+import {
+  contextLines,
+  eligibleLine,
+  finishedLines,
+  haltedLines,
+  resumingLine,
+  sessionLine,
+  startingLine,
+  type VerboseSession,
+} from "../../core/cli/verbose.ts";
 
 export interface RunCommandInput {
   config: ResolvedConfig;
@@ -43,12 +53,46 @@ export interface RunCommandInput {
   repliesPath?: string;
   /** First session of a fresh run: drop what the last run left pending. */
   isFirst?: boolean;
+  /**
+   * `--verbose`: narrate what is happening on stderr, for a person driving
+   * the loop without the skill (15-spec.md story 71). stdout is untouched —
+   * it is still exactly one JSON object.
+   */
+  verbose?: boolean;
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
 }
 
 function write(stream: NodeJS.WritableStream, value: unknown): void {
   stream.write(`${JSON.stringify(value, null, JSON_INDENT)}\n`);
+}
+
+/**
+ * The `--verbose` narrator, or a no-op.
+ *
+ * Everything it writes goes to stderr and is prefixed the way `fail` prefixes
+ * its own line, so a terminal holding both a trace and an error reads as one
+ * program talking.
+ */
+function tracer(input: RunCommandInput): (lines: string | readonly string[]) => void {
+  if (input.verbose !== true) {
+    return () => {};
+  }
+  return (lines) => {
+    for (const line of typeof lines === "string" ? [lines] : lines) {
+      input.stderr.write(`signposts: ${line}\n`);
+    }
+  };
+}
+
+/** A session in the shape ../../core/cli/verbose.ts prints, dates already formatted. */
+function traceable(session: RunSession): VerboseSession {
+  return {
+    sessionId: session.sessionId,
+    contentHash: session.contentHash,
+    transcriptPath: session.transcriptPath,
+    lastActivityAt: session.lastActivityAt.toISOString(),
+  };
 }
 
 function toRef(session: RunSession): SessionRef {
@@ -61,8 +105,12 @@ function toRef(session: RunSession): SessionRef {
 
 /** Lists what a run would process, without starting one. */
 export function runSessionsList(input: RunCommandInput): Promise<ExitCode> {
+  const trace = tracer(input);
   return withRun(input, async (handle) => {
-    const output: SessionsOutput = { sessions: handle.eligible(new Date()).map(toRef) };
+    trace(contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
+    const sessions = handle.eligible(new Date());
+    trace([eligibleLine(sessions.length), ...sessions.map((session) => sessionLine(traceable(session)))]);
+    const output: SessionsOutput = { sessions: sessions.map(toRef) };
     write(input.stdout, output);
     return 0;
   });
@@ -70,11 +118,14 @@ export function runSessionsList(input: RunCommandInput): Promise<ExitCode> {
 
 /** Starts (or restarts) one session and runs it to its first halt. */
 export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
+  const trace = tracer(input);
   return withRun(input, async (handle) => {
+    trace(contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
     const session = pick(input, handle);
     if (session === undefined) {
       return fail(input.stderr, "no eligible session to run");
     }
+    trace(startingLine(traceable(session)));
     if (input.isFirst === true) {
       // What the last run left pending describes proposals that have since
       // merged or been rejected; a rejected one left in the index would be
@@ -95,7 +146,9 @@ export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
 
 /** Answers what a halted session asked for and continues it. */
 export function runResume(input: RunCommandInput): Promise<ExitCode> {
+  const trace = tracer(input);
   return withRun(input, async (handle) => {
+    trace(contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
     const session = resuming(input, handle) ?? pick(input, handle);
     if (session === undefined) {
       return fail(
@@ -110,6 +163,7 @@ export function runResume(input: RunCommandInput): Promise<ExitCode> {
     const replies = parseReplies(
       readFileSync(input.repliesPath === "-" ? 0 : input.repliesPath, "utf8"),
     );
+    trace(resumingLine(traceable(session), input.repliesPath, Object.keys(replies).length));
     const result = await resumeRun(
       handle.graph,
       handle.checkpointer,
@@ -159,12 +213,27 @@ async function report(
   });
 
   const waiting = result.pending.length > 0;
+  const trace = tracer(input);
+  const proposed = waiting ? [] : result.state.operations.map(describe);
+  trace(
+    waiting
+      ? haltedLines(
+          traceable(session),
+          result.pending.map((pending) => ({
+            kind: pending.request.kind,
+            node: pending.request.kind === REVIEW_REQUEST_KIND ? undefined : pending.request.node,
+            interruptId: pending.id,
+          })),
+        )
+      : finishedLines(proposed, handle.eligible(new Date()).length),
+  );
+
   const output: RunOutput = {
     sessionId: session.sessionId,
     contentHash: session.contentHash,
     status: waiting ? "waiting" : "finished",
     pending: result.pending,
-    proposed: waiting ? [] : result.state.operations.map(describe),
+    proposed,
   };
   write(input.stdout, output);
   return exitCode(handle, result);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDoctorReport,
   classifyDbIntegrity,
+  classifyModelCache,
   detectSignpostSessionStartHook,
   isNodeVersionSupported,
   type DoctorFacts,
@@ -11,7 +12,7 @@ const BASE_FACTS: DoctorFacts = {
   nodeMajorVersion: 24,
   nodeMinVersion: 24,
   gh: { installed: false, authenticated: false },
-  modelCachePresent: false,
+  modelCache: "cold",
   dbIntegrity: "no-database",
   hookInstalled: false,
 };
@@ -25,6 +26,21 @@ describe("isNodeVersionSupported", () => {
   });
   it("below floor is not supported", () => {
     expect(isNodeVersionSupported(23, 24)).toBe(false);
+  });
+});
+
+describe("classifyModelCache", () => {
+  it("the pinned revision in the shared cache is warm", () => {
+    expect(classifyModelCache({ vendored: false, pinnedRevisionCached: true })).toBe("warm");
+  });
+
+  it("neither cache nor vendored copy is cold", () => {
+    expect(classifyModelCache({ vendored: false, pinnedRevisionCached: false })).toBe("cold");
+  });
+
+  it("a vendored copy wins, cached or not — transformers.js ignores the shared cache then", () => {
+    expect(classifyModelCache({ vendored: true, pinnedRevisionCached: false })).toBe("vendored");
+    expect(classifyModelCache({ vendored: true, pinnedRevisionCached: true })).toBe("vendored");
   });
 });
 
@@ -174,9 +190,12 @@ describe("buildDoctorReport", () => {
     expect(lines[1]).toBe("gh: authenticated");
   });
 
-  it("model cache present vs absent", () => {
-    expect(buildDoctorReport({ ...BASE_FACTS, modelCachePresent: true })[2]).toContain("present");
-    expect(buildDoctorReport({ ...BASE_FACTS, modelCachePresent: false })[2]).toContain("absent");
+  it.each([
+    ["warm", "warm"],
+    ["cold", "cold"],
+    ["vendored", "vendored"],
+  ] as const)("model cache %s", (status, expected) => {
+    expect(buildDoctorReport({ ...BASE_FACTS, modelCache: status })[2]).toContain(expected);
   });
 
   it.each([

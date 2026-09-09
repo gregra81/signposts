@@ -65,6 +65,15 @@ one proposal at a time as a before/after diff with the reason it stopped. Accept
 skip each one. It refuses a stdin that is not a terminal, so nothing automated can answer in your
 place.
 
+Two others you may type yourself. `signpost doctor` checks the machine instead of reporting what
+ought to be true: the running node version against the floor, `gh` auth, whether the embedding
+model is cached for offline use, database integrity, and whether the session-start hook is
+installed. Run it before writing a bug report.
+
+`--verbose` narrates a run on stderr: which transcript it picked, what each halt is waiting on,
+and the exact command that answers it. stdout stays one JSON object, so a pipe through `jq` still
+works. This is how you drive the pipeline by hand, with no plugin and no hook in it.
+
 ## Where this stands
 
 Just getting started. Building it in layers, one PR at a time.
