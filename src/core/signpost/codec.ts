@@ -43,7 +43,11 @@ export function serialiseSignpost(signpost: Signpost): string {
     status: signpost.status,
     provenance: signpost.provenance,
   };
+  // Assigned rather than spread so an absent value stays an absent key:
+  // yaml's stringify omits an undefined, and a `supersedes: null` line would
+  // be noise in every file that never superseded anything.
   frontmatter.supersedes = signpost.supersedes;
+  frontmatter.retiredReason = signpost.retiredReason;
 
   const yamlText = stringifyYaml(frontmatter).trimEnd();
   return `---\n${yamlText}\n---\n\n${signpost.evidence}\n`;

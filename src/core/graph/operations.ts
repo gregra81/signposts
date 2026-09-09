@@ -10,6 +10,7 @@
 //   NOVEL          -> add
 //   DUPLICATE      -> reinforce         (provenance only, never a second file)
 //   REFINEMENT     -> refine
+//   OBSOLETE       -> retire            (the neighbour is retracted, nothing replaces it)
 //   CONTRADICTION  -> depends on the resolution (below)
 //
 // and for a contradiction, keyed on Resolution.outcome:
@@ -94,6 +95,19 @@ function operationsFor(input: OperationsForInput): Operation[] {
       return relatedId === undefined
         ? []
         : [{ op: OPERATION_TAGS.reinforce, id: relatedId, sessionId: input.sessionId, author: input.author }];
+
+    // The retraction case, and the reason it is not a CONTRADICTION: there is
+    // no competing claim to weigh, so there is nothing for `resolve_conflict`
+    // to adjudicate and nothing to `add`. The candidate's only content is
+    // that a neighbour stopped being true, and `retire` is where that lands.
+    //
+    // The rationale carries over as the reason. It is the classifier's
+    // one-sentence account of why the claim is dead, which is exactly what
+    // the reviewer needs and what ends up in the retired file's frontmatter.
+    case CLASSIFICATION_KINDS.OBSOLETE:
+      return relatedId === undefined
+        ? []
+        : [{ op: OPERATION_TAGS.retire, id: relatedId, reason: classification.rationale }];
 
     case CLASSIFICATION_KINDS.REFINEMENT:
       return relatedId === undefined

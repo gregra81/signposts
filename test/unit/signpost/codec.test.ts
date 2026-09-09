@@ -57,6 +57,13 @@ describe("serialiseSignpost", () => {
     expect(serialiseSignpost({ ...VALID, supersedes: ["old-id"] })).toContain("supersedes:\n  - old-id");
   });
 
+  it("includes retiredReason only when present", () => {
+    expect(serialiseSignpost(VALID)).not.toContain("retiredReason");
+    expect(
+      serialiseSignpost({ ...VALID, status: "retired", retiredReason: "The replica was dropped." }),
+    ).toContain("retiredReason: The replica was dropped.");
+  });
+
   it("does not duplicate evidence in the frontmatter", () => {
     const text = serialiseSignpost(VALID);
     const frontmatter = text.slice(0, text.indexOf("\n---\n", 4));
@@ -67,6 +74,14 @@ describe("serialiseSignpost", () => {
 describe("parseSignpost", () => {
   it("round-trips a serialised signpost", () => {
     expect(parseSignpost(serialiseSignpost(VALID))).toEqual(VALID);
+  });
+
+  // The retire path writes a field nothing else does, and a serialiser that
+  // silently dropped it would lose the only part of a retirement worth
+  // keeping.
+  it("round-trips a retired signpost, reason included", () => {
+    const retired = { ...VALID, status: "retired" as const, retiredReason: "Replica dropped in March." };
+    expect(parseSignpost(serialiseSignpost(retired))).toEqual(retired);
   });
 
   it("throws on text with no frontmatter delimiters", () => {

@@ -52,7 +52,17 @@ export const claimSchema = z.string().superRefine((claim, ctx) => {
   }
 });
 
-export const statusSchema = z.enum(["active", "superseded"]);
+// `retired` is the third state, and it is deliberately a status rather than a
+// deletion (03-memory-model.md "Lifecycle"): a retired claim was true once,
+// and the diff that removed its file would take the reason the team believed
+// it along with the claim. Same argument supersede already makes for keeping
+// its old file.
+//
+// Nothing downstream needed changing to accommodate it, which is the point of
+// ACTIVE_STATUS being the filter everywhere: index-doc.ts, `signpost index`
+// and db/neighbours.ts all keep only `active`, so a retired signpost leaves
+// the index, the mirror and retrieval by arriving here.
+export const statusSchema = z.enum(["active", "superseded", "retired"]);
 export type Status = z.infer<typeof statusSchema>;
 
 // Single source of truth for the "active" literal: the schema's own enum,
@@ -69,5 +79,12 @@ export const signpostSchema = z.object({
   provenance: provenanceSchema,
   status: statusSchema,
   supersedes: z.array(z.string()).optional(),
+  /**
+   * Why this claim stopped being true. Written only by `retire`, and the
+   * whole value of retiring rather than deleting: "staging is read-only" going
+   * quiet tells a reader nothing, while "the ETL migration made the replica
+   * writable in March" tells them what changed.
+   */
+  retiredReason: z.string().optional(),
 });
 export type Signpost = z.infer<typeof signpostSchema>;

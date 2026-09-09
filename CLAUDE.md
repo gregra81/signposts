@@ -130,10 +130,16 @@ because nothing rebases the branch and a reused one drifts from the merged corpu
 So a change can still be correct, tested, and unreachable by a user. Say so when that is true of
 what you just wrote.
 
-## A known hole
+## Retire
 
-`retire` is in the operation union, `validate-operations.ts` checks it, and `partition.ts` maps it
-to the `deletes_existing` gate reason. No classification path emits it, so both are unreachable.
+`retire` fires from `OBSOLETE`, the fifth classification kind: a candidate that withdraws a
+neighbour and offers no replacement claim of its own. `CONTRADICTION` is the case where the
+candidate makes its own claim; that resolves to `supersede` and keeps both. The prompt says to
+prefer `CONTRADICTION` when unsure, because a wrong `OBSOLETE` retires a claim that was still true.
+
+Retiring is a status, not a deletion: the file stays with `status: retired` and a `retiredReason`.
+Everything downstream filters on `ACTIVE_STATUS`, so a retired signpost drops out of the index, the
+mirror and retrieval without any of those three needing to know the status exists.
 
 ## Style
 

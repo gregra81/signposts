@@ -180,7 +180,40 @@ describe("buildOperations", () => {
     expect(built[0]?.operations[0]).toMatchObject({ op: "add" });
   });
 
-  it.each(["DUPLICATE", "REFINEMENT"] as const)(
+  // OBSOLETE is the trigger `retire` never had (03-memory-model.md
+  // "Lifecycle"): a candidate that withdraws a neighbour without replacing it.
+  it("turns OBSOLETE into a retire against the neighbour", () => {
+    const built = build([candidate()], {
+      t1: {
+        tempId: "t1",
+        kind: "OBSOLETE",
+        relatedId: "staging-is-read-only-old",
+        rationale: "The replica was dropped entirely in March.",
+      },
+    });
+
+    expect(built).toHaveLength(1);
+    expect(built[0]?.operations).toEqual([
+      {
+        op: "retire",
+        id: "staging-is-read-only-old",
+        reason: "The replica was dropped entirely in March.",
+      },
+    ]);
+  });
+
+  // The distinction the prompt draws: OBSOLETE withdraws, CONTRADICTION
+  // competes. Only the second one records a claim of its own, so only the
+  // second one can produce an `add`.
+  it("adds nothing of its own for OBSOLETE, unlike a resolved contradiction", () => {
+    const built = build([candidate()], {
+      t1: { tempId: "t1", kind: "OBSOLETE", relatedId: "staging-is-read-only-old", rationale: "gone" },
+    });
+
+    expect(built[0]?.operations.map((operation) => operation.op)).toEqual(["retire"]);
+  });
+
+  it.each(["DUPLICATE", "REFINEMENT", "OBSOLETE"] as const)(
     "emits nothing for %s with no relatedId",
     (kind) => {
       const built = build([candidate()], { t1: { tempId: "t1", kind, rationale: "r" } });

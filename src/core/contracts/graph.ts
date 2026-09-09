@@ -99,10 +99,11 @@ export const classificationKindSchema = z.enum([
   "DUPLICATE",
   "REFINEMENT",
   "CONTRADICTION",
+  "OBSOLETE",
 ]);
 export type ClassificationKind = z.infer<typeof classificationKindSchema>;
 
-/** Single source of truth for the four kind literals, for callers switching on them. */
+/** Single source of truth for the five kind literals, for callers switching on them. */
 export const CLASSIFICATION_KINDS = classificationKindSchema.enum;
 
 // `relatedId` is "required unless NOVEL" (12-wire-contracts.md). Expressed as

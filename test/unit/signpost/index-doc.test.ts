@@ -31,6 +31,18 @@ describe("generateIndexDoc", () => {
     expect(doc).toBe("# Signposts\n\nNo active signposts.\n");
   });
 
+  // Retiring is a status change, and this is what makes it behave like a
+  // removal everywhere it matters: the index is current knowledge, and
+  // db/neighbours.ts filters on the same ACTIVE_STATUS.
+  it("excludes retired signposts", () => {
+    const doc = generateIndexDoc([
+      makeSignpost({ id: "dropped", status: "retired", retiredReason: "Replica gone." }),
+      makeSignpost({ id: "kept" }),
+    ]);
+    expect(doc).not.toContain("dropped");
+    expect(doc).toContain("kept");
+  });
+
   it("excludes superseded signposts but includes active ones", () => {
     const doc = generateIndexDoc([
       makeSignpost({ id: "gone", status: "superseded" }),
