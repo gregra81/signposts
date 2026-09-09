@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseCommand } from "../../../src/core/cli/dispatch.js";
 
-const NO_OPTIONS = { isFirst: false };
+const NO_OPTIONS = { isFirst: false, adoptLock: false };
 
 describe("parseCommand", () => {
   it.each([
@@ -25,7 +25,7 @@ describe("the run commands' options", () => {
 
     expect(parsed).toEqual({
       name: "resume",
-      options: { sessionId: "s-1", repliesPath: "-", isFirst: true },
+      options: { sessionId: "s-1", repliesPath: "-", isFirst: true, adoptLock: false },
     });
   });
 
@@ -41,7 +41,10 @@ describe("the run commands' options", () => {
     // --replies it actually was.
     const parsed = parseCommand(["resume", "--replies", "--session", "abc"]);
 
-    expect(parsed).toEqual({ name: "resume", options: { sessionId: "abc", isFirst: false } });
+    expect(parsed).toEqual({
+      name: "resume",
+      options: { sessionId: "abc", isFirst: false, adoptLock: false },
+    });
   });
 
   it("reads --content-hash, the other half of a thread id", () => {
@@ -49,7 +52,7 @@ describe("the run commands' options", () => {
 
     expect(parsed).toEqual({
       name: "resume",
-      options: { sessionId: "s-1", contentHash: "deadbeef", isFirst: false },
+      options: { sessionId: "s-1", contentHash: "deadbeef", isFirst: false, adoptLock: false },
     });
   });
 
@@ -60,13 +63,32 @@ describe("the run commands' options", () => {
   it("ignores --content-hash with no value", () => {
     expect(parseCommand(["resume", "--content-hash", "--first"])).toEqual({
       name: "resume",
-      options: { isFirst: true },
+      options: { isFirst: true, adoptLock: false },
     });
   });
 
   it("takes the value after the flag, wherever the flag sits", () => {
     const parsed = parseCommand(["run", "--first", "--session", "s-2"]);
 
-    expect(parsed).toEqual({ name: "run", options: { sessionId: "s-2", isFirst: true } });
+    expect(parsed).toEqual({
+      name: "run",
+      options: { sessionId: "s-2", isFirst: true, adoptLock: false },
+    });
+  });
+});
+
+describe("worker", () => {
+  // Dispatched but never typed by a person: the SessionStart hook spawns it.
+  it("is a known command", () => {
+    expect(parseCommand(["worker"])).toEqual({ name: "worker", options: NO_OPTIONS });
+  });
+
+  // The hook takes the run lock before spawning, and says so with this flag
+  // rather than leaving the worker to guess from a pid.
+  it("reads --adopt-lock", () => {
+    expect(parseCommand(["worker", "--adopt-lock"])).toEqual({
+      name: "worker",
+      options: { isFirst: false, adoptLock: true },
+    });
   });
 });

@@ -106,8 +106,9 @@ replies keyed on `(node, system, user)` and treats a miss as an error.
 and `.claude/skills/signposts/SKILL.md` — the skill is how the tool is driven, and it is rewritten
 on every accepted `init` so it cannot drift from the CLI it describes.
 
-The CLI is six commands. `doctor`, `init` and `index` stand alone; `sessions`, `run` and `resume`
-are the loop the skill drives, one JSON object per invocation:
+The CLI is seven commands. `doctor`, `init` and `index` stand alone; `sessions`, `run` and `resume`
+are the loop the skill drives, one JSON object per invocation; `worker` is spawned by the hook and
+never typed (see below):
 
 ```
 signpost sessions                                  # eligible transcripts
@@ -129,6 +130,32 @@ because nothing rebases the branch and a reused one drifts from the merged corpu
 
 So a change can still be correct, tested, and unreachable by a user. Say so when that is true of
 what you just wrote.
+
+## The SessionStart hook and its worker
+
+`hooks/session-start.ts` is a standalone bundle that imports nothing from `src/` (the third lint
+rule) and ships pre-compiled by `pnpm build:hooks`, because type-stripping is parse work paid on
+every session start. It checks three conditions with `stat` calls only — eligible transcripts,
+threads waiting, a stale index — takes the run lock, spawns `signpost worker --adopt-lock`
+detached, prints one `systemMessage` and exits. Measured, not asserted: `node scripts/measure-hook.mjs`
+prints the distribution against `HOOK_BUDGET_MS`, and it sits around 23ms against a 50ms budget, of
+which ~18ms is bare Node start-up.
+
+**The worker cannot drain sessions, and that is not an oversight.** Every
+extraction node is a model call, and model calls are answered by the Claude Code session through
+`interrupt()` — a detached process has none, so a run it started would halt on the first `extract`
+and never return. So the worker rebuilds the index (local, free, no credential) and takes a census
+into `status.json`; the hook reads that census because it cannot open a database inside the budget.
+The notice is worded to match: the index is background work, the sessions and reviews are the
+developer's.
+
+The worker never writes `lastRunFinishedAt`. That is the watermark the hook uses to stop waking for
+a session already judged, and the worker judges none.
+
+Both processes key `STATE_DIR` on `sha256(repoRoot)`, and the worker gets its repoRoot from
+`process.cwd()`, which Node always reports resolved — so the hook resolves symlinks before hashing.
+Without that, a checkout reached through a symlink gives the two different state directories and
+they silently share nothing.
 
 ## Retire
 

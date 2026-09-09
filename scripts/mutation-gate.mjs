@@ -41,6 +41,11 @@ const THRESHOLDS = [
   { module: "src/core/errors", break: 95 },
   { module: "src/core/prompts", break: 95 },
   { module: "src/core/review", break: 95 },
+  // The status file the worker writes and the hook reads. Small, and every
+  // branch in it is a field the hook either sees or does not — a surviving
+  // mutant here is a count the hook reads wrong, or the session watermark
+  // written when it must not be (see src/core/worker/status.ts).
+  { module: "src/core/worker", break: 95 },
   // The structured-output schema adapter. A surviving mutant here is a
   // keyword wrongly kept or wrongly stripped, which is a 400 on every call to
   // the node whose schema it mangled.

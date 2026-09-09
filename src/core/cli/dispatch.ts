@@ -11,7 +11,21 @@
 // `review` takes none: it is typed by a person, and everything it acts on it
 // finds for itself in the checkpoint database.
 
-const KNOWN_COMMANDS = ["init", "index", "doctor", "sessions", "run", "resume", "review"] as const;
+// `worker` is dispatched but not typed by a person: the SessionStart hook
+// spawns it (hooks/session-start.ts). It is a command rather than a second
+// binary so that it goes through the one composition root like everything
+// else (R2) — a `bin/signpost-worker.js` building its own ports would be a
+// second place that constructs them.
+const KNOWN_COMMANDS = [
+  "init",
+  "index",
+  "doctor",
+  "sessions",
+  "run",
+  "resume",
+  "review",
+  "worker",
+] as const;
 export type KnownCommand = (typeof KNOWN_COMMANDS)[number];
 
 /** Options the run commands accept; absent for the others. */
@@ -24,6 +38,8 @@ export interface CommandOptions {
   repliesPath?: string;
   /** `--first` — this is the first session of a fresh run. */
   isFirst: boolean;
+  /** `--adopt-lock` — the hook already took the run lock and is handing it over. */
+  adoptLock: boolean;
 }
 
 export type ParsedCommand = { name: KnownCommand; options: CommandOptions } | { name: "unknown" };
@@ -32,6 +48,7 @@ const SESSION_FLAG = "--session";
 const CONTENT_HASH_FLAG = "--content-hash";
 const REPLIES_FLAG = "--replies";
 const FIRST_FLAG = "--first";
+const ADOPT_LOCK_FLAG = "--adopt-lock";
 
 /**
  * A flag's value, or undefined when the next argument is another flag.
@@ -47,10 +64,12 @@ function valueAt(argv: readonly string[], index: number): string | undefined {
 }
 
 function parseOptions(argv: readonly string[]): CommandOptions {
-  const options: CommandOptions = { isFirst: false };
+  const options: CommandOptions = { isFirst: false, adoptLock: false };
   for (const [index, argument] of argv.entries()) {
     if (argument === FIRST_FLAG) {
       options.isFirst = true;
+    } else if (argument === ADOPT_LOCK_FLAG) {
+      options.adoptLock = true;
     } else if (argument === SESSION_FLAG) {
       const value = valueAt(argv, index + 1);
       if (value !== undefined) {
