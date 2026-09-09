@@ -12,7 +12,7 @@ import type { ExitCode } from "../app.ts";
 import type { ResolvedConfig } from "../core/config/resolve.ts";
 import { pendingProposals } from "../core/graph/pending.ts";
 import type { RunResult } from "../graph/index.ts";
-import { recordRunFinished } from "../io/worker/status-file.ts";
+import { recordRunFinished, recordRunProgress } from "../io/worker/status-file.ts";
 import {
   isUnavailable,
   type OpenedRun,
@@ -119,7 +119,17 @@ export async function settle(input: SettleInput): Promise<void> {
     await handle.pendingIndex.indexPending(handle.repo, proposals);
   }
 
+  // Progress before the early return, because the halt is most of a run's
+  // life: a session waiting on a review is the state the statusLine has to
+  // keep rendering, and the stamp it writes here is what stops that line
+  // ageing out while the developer is still answering (07, "Live progress").
   if (result.pending.length > 0) {
+    recordRunProgress(input.statusPath, {
+      now: input.now,
+      remaining: handle.eligible(input.now).length,
+      sessionFinished: false,
+      found: 0,
+    });
     return;
   }
 
@@ -130,11 +140,21 @@ export async function settle(input: SettleInput): Promise<void> {
     tokenEstimate: result.state.gutterStats.tokenEstimate,
   });
 
+  // `finish` above has already dropped this session out of `eligible`, so what
+  // is left here is the run's remaining work and this session counts as done.
+  const remaining = handle.eligible(input.now).length;
+  recordRunProgress(input.statusPath, {
+    now: input.now,
+    remaining,
+    sessionFinished: true,
+    found: result.state.operations.length,
+  });
+
   // Only once nothing eligible is left, because the watermark is one date for
   // the whole repo: stamping it while an older unprocessed transcript is still
-  // waiting silences the hook about that transcript for good. `finish` above
-  // has already dropped this session out of `eligible`.
-  if (handle.eligible(input.now).length === 0) {
+  // waiting silences the hook about that transcript for good. It clears the
+  // progress with the same write — the run this was tracking is over.
+  if (remaining === 0) {
     recordRunFinished(input.statusPath, session.lastActivityAt);
   }
 }

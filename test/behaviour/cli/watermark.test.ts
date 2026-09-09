@@ -173,6 +173,41 @@ describe("the watermark a finished run leaves for the hook", () => {
     expect(status()?.lastRunFinishedAt).toBeUndefined();
   });
 
+  // The other half of the same file: what the statusLine renders while a run
+  // is in flight (07-triggering-and-ux.md, "Live progress"). It is written
+  // here for the reason the watermark is — a run is a sequence of processes,
+  // so the only place the count can live is on disk.
+  it("counts a finished session against what is still waiting", async () => {
+    await runCli(["run"], {
+      config,
+      openRun: seam({ script: AUTO, session: gutteredSession() }, [UNTOUCHED]),
+      stdio: createFakeStdio(),
+    });
+
+    expect(status()?.runProgress).toMatchObject({ sessionsDone: 1, sessionsTotal: 2, found: 1 });
+  });
+
+  it("keeps the line alive while a session is halted on a review", async () => {
+    await runCli(["run"], { config, openRun: seam(gated()), stdio: createFakeStdio() });
+
+    // Nothing has finished, so nothing is counted — but the stamp moves, which
+    // is what stops the bar ageing the run out while the developer answers.
+    expect(status()?.runProgress).toMatchObject({ sessionsDone: 0, sessionsTotal: 1, found: 0 });
+  });
+
+  it("clears the progress once the run is over", async () => {
+    await runCli(["run"], {
+      config,
+      openRun: seam({ script: AUTO, session: gutteredSession() }),
+      stdio: createFakeStdio(),
+    });
+
+    // Nothing eligible is left, so the run the bar was tracking has ended. A
+    // line reading "1/1 sessions" until it ages out is the same claim, stale.
+    expect(status()?.runProgress).toBeUndefined();
+    expect(status()?.lastRunFinishedAt).toBe(LAST_ACTIVITY.toISOString());
+  });
+
   it("keeps the census the worker wrote in the same file", async () => {
     mkdirSync(path.dirname(config.paths.statuslineState), { recursive: true });
     writeFileSync(

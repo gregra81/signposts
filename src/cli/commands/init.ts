@@ -19,6 +19,8 @@ import {
 } from "../../core/init/policy.ts";
 import { readClaudeMd, writeClaudeMd } from "../../io/init/claude-md.ts";
 import { writeSkill } from "../../io/init/skill-file.ts";
+import { installStatusLine } from "../../io/init/statusline-file.ts";
+import { STATUSLINE_OUTCOMES } from "../../core/init/statusline-settings.ts";
 import { promptForConsent } from "../../io/init/consent-prompt.ts";
 import { ensureKnowledgeDir } from "../../io/init/signposts-dir.ts";
 import { openDb } from "../../io/db/migrate.ts";
@@ -80,6 +82,9 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
     stdio.output.write(
       `signposts: already initialised for this repo. Refreshed ${rewritten}.\n`,
     );
+    // Same reason as the skill: the settings entry names the path this build
+    // installed to, and an upgrade moves it.
+    reportStatusLine(stdio, installStatusLine(repoRoot));
     return 0;
   }
 
@@ -110,9 +115,32 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
       return 1;
     }
     stdio.output.write(`signposts: initialised. Wrote ${skillPath} — ask Claude to run signposts.\n`);
+    reportStatusLine(stdio, installStatusLine(repoRoot));
   } else {
     stdio.output.write("signposts: consent declined — nothing persisted.\n");
   }
 
   return consentExitCode(accepted);
+}
+
+/**
+ * Says what happened to the status line, because something did.
+ *
+ * A tool that edits a settings file and says nothing is one the developer
+ * finds out about when their own status line looks different — so the wrapped
+ * command is named back to them, and so is the file to delete it from.
+ */
+function reportStatusLine(stdio: Stdio, install: ReturnType<typeof installStatusLine>): void {
+  if (install === null) {
+    return; // Unparseable or unwritable settings — left alone, and not `init`'s to fail over.
+  }
+  if (install.outcome === STATUSLINE_OUTCOMES.wrapped && install.wrapped !== undefined) {
+    stdio.output.write(
+      `signposts: status line added to ${install.file}, wrapping the one you had (${install.wrapped}).\n`,
+    );
+    return;
+  }
+  if (install.outcome === STATUSLINE_OUTCOMES.installed) {
+    stdio.output.write(`signposts: status line installed in ${install.file}.\n`);
+  }
 }

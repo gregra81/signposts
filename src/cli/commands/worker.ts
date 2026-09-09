@@ -76,9 +76,17 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
   // The watermark is the run commands' half of this file (src/cli/with-run.ts),
   // and both of the writes below replace the file whole. Carry it across or a
   // background reindex silences the hook's memory of what has been judged.
-  const lastRunFinishedAt = readStatus(config.paths.statuslineState)?.lastRunFinishedAt;
+  const previous = readStatus(config.paths.statuslineState);
+  const lastRunFinishedAt = previous?.lastRunFinishedAt;
+  // A run halted on a review can sit for days, and a reindex is free to happen
+  // around it — so the progress the statusLine is rendering has to survive the
+  // worker, exactly as the watermark does.
+  const runProgress = previous?.runProgress;
 
-  writeStatus(config.paths.statuslineState, runningStatus(input.now(), lastRunFinishedAt));
+  writeStatus(
+    config.paths.statuslineState,
+    runningStatus(input.now(), lastRunFinishedAt, runProgress),
+  );
 
   let indexedAt: Date | undefined;
   let error: string | undefined;
@@ -116,6 +124,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
         indexedAt,
         error,
         lastRunFinishedAt,
+        runProgress,
       }),
     );
     lock.release();

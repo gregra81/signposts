@@ -331,3 +331,17 @@ export const LOCK_STALE_MINUTES = 60;
 /** Worker writes state at most this often. */
 export const STATUSLINE_REFRESH_MS = 1000;
 
+/** The same cadence as `statusLine.refreshInterval` takes it: whole seconds. */
+export const STATUSLINE_REFRESH_SECONDS = STATUSLINE_REFRESH_MS / 1000;
+
+/**
+ * How long a run's progress stays believable without being touched.
+ *
+ * Progress is stamped by whatever invocation last moved it, and a run is a
+ * sequence of separate processes: nothing runs a cleanup when the developer
+ * closes the terminal between two halts. Past this, the statusLine stops
+ * rendering it and the next run starts its count from zero rather than
+ * continuing someone else's abandoned one.
+ */
+export const RUN_PROGRESS_STALE_MINUTES = 15;
+

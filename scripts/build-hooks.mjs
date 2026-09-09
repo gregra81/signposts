@@ -1,5 +1,5 @@
 // @ts-check
-// Compiles hooks/ from TypeScript to the `.js` files that
+// Compiles hooks/ and statusline/ from TypeScript to the `.js` files that
 // ship (07-triggering-and-ux.md, "Distribution: a Claude Code plugin").
 //
 // Both directories are standalone zero-dependency bundles — they import
@@ -22,8 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-// statusline/ joins this list when it grows past its placeholder.
-const DIRECTORIES = ["hooks"];
+const DIRECTORIES = ["hooks", "statusline"];
 
 const built = [];
 for (const directory of DIRECTORIES) {
