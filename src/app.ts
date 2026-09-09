@@ -30,6 +30,7 @@ import { runIndex } from "./cli/commands/index.ts";
 import { runDoctor } from "./cli/commands/doctor.ts";
 import { runExtraction, runResume, runSessionsList } from "./cli/commands/run.ts";
 import { runReview } from "./cli/commands/review.ts";
+import { runWorker } from "./cli/commands/worker.ts";
 import type { OpenRun } from "./cli/run-port.ts";
 
 export type { ExitCode };
@@ -60,6 +61,10 @@ export interface App {
   run(argv: string[]): Promise<ExitCode>;
 }
 
+// `worker` is left out deliberately: the hook spawns it, nobody types it, and
+// listing it would invite someone to run the background process by hand
+// expecting it to distil their sessions, which it cannot do (see
+// cli/commands/worker.ts).
 const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|review>\n";
 
 function defaultStdio(): Stdio {
@@ -110,6 +115,15 @@ export function createApp({ config, openRun, stdio }: CreateAppInput): App {
           return runExtraction(runInput);
         case "resume":
           return runResume(runInput);
+        case "worker":
+          return runWorker({
+            config,
+            repoRoot,
+            openRun,
+            stderr: io.error,
+            now: () => new Date(),
+            adoptLock: command.options.adoptLock,
+          });
         case "review":
           return runReview({
             config,

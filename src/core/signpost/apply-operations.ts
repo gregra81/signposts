@@ -144,11 +144,19 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
         break;
       }
 
-      case OPERATION_TAGS.retire:
-        // Unreachable: no classification path emits `retire`
-        // (03-memory-model.md). Refusing beats inventing what a file should
-        // look like once a claim is "no longer true".
-        throw new Error(`retire has no write semantics yet (${operation.id}: ${operation.reason})`);
+      // Like supersede, the file stays. A retired claim was true once, and
+      // the reason it stopped being true is the part a reader cannot recover
+      // from the tree — so it is written onto the file rather than left in a
+      // commit message. Retrieval drops it either way: everything downstream
+      // filters on ACTIVE_STATUS.
+      case OPERATION_TAGS.retire: {
+        const target = existing(operation.id, operation.op);
+        if (target === undefined) {
+          break;
+        }
+        replace({ ...target, status: statusSchema.enum.retired, retiredReason: operation.reason });
+        break;
+      }
     }
   }
 

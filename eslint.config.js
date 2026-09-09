@@ -6,7 +6,9 @@ import signposts from "./eslint-rules/index.js";
 
 export default tseslint.config(
   {
-    ignores: ["node_modules/**", "dist/**", ".stryker-tmp/**"],
+    // hooks/*.js and statusline/*.js are build output (scripts/build-hooks.mjs),
+    // linted and typechecked as the .ts they are stripped from.
+    ignores: ["node_modules/**", "dist/**", ".stryker-tmp/**", "hooks/*.js", "statusline/*.js"],
   },
   tseslint.configs.base,
   {

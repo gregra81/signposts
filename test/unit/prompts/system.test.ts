@@ -24,13 +24,20 @@ const DIGESTS: Record<NodeName, { sha256: string; bytes: number }> = {
     sha256: "0f1accd724348b7d9c09f43757025fd959786a112e1f82a951678102eff6dfe1",
     bytes: 1635,
   },
-  // Updated when the within-run reindex gave classify a `pending` flag on its
-  // neighbours: 14-prompts.md gained the paragraph telling the model what the
-  // flag means, and this is that paragraph's digest. The golden set needs a
-  // re-run against the new prompt (09-evaluation.md).
+  // Updated when OBSOLETE became the fifth classification kind, which is what
+  // finally gives `retire` a trigger (03-memory-model.md "Lifecycle"). The
+  // prompt gained the kind, the CONTRADICTION/OBSOLETE distinction and the
+  // worked pair, because the two are the ones a classifier will confuse and
+  // the cost of confusing them is asymmetric: a wrong OBSOLETE retires a
+  // claim that was still true. The golden set needs a re-run against the new
+  // prompt (09-evaluation.md), and every recorded classify fixture keyed on
+  // the old system turn is now a miss.
+  //
+  // Previously updated when the within-run reindex gave classify a `pending`
+  // flag on its neighbours.
   classify: {
-    sha256: "85d540c5cbbe48f27e0c1a91c9a7965281d63f5ff26a81b8f8273313be25f0d1",
-    bytes: 1746,
+    sha256: "2346a89a15c6d4d44493e76d670c8de8f0b5362ecaf13345ad524116ab39b505",
+    bytes: 2719,
   },
   // Updated when the resolver stopped being handed tools: the prompt named
   // read_file, git_log and grep_repo, and nothing brokers those now that the

@@ -149,7 +149,13 @@ async function report(
   session: RunSession,
   result: RunResult,
 ): Promise<ExitCode> {
-  await settle(handle, session, result);
+  await settle({
+    handle,
+    session,
+    result,
+    statusPath: input.config.paths.statuslineState,
+    now: new Date(),
+  });
 
   const waiting = result.pending.length > 0;
   const output: RunOutput = {

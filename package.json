@@ -16,7 +16,8 @@
     "mutate": "stryker run",
     "mutate:changed": "stryker run --incremental",
     "mutate:gate": "node scripts/mutation-gate.mjs",
-    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run mutate && pnpm run mutate:gate"
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run mutate && pnpm run mutate:gate",
+    "build:hooks": "node scripts/build-hooks.mjs"
   },
   "devDependencies": {
     "@stryker-mutator/core": "9.6.1",

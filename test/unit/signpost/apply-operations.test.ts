@@ -229,9 +229,40 @@ describe("an operation naming something that is not there", () => {
 });
 
 describe("retire", () => {
-  it("refuses, because nothing has decided what a retired file looks like", () => {
-    expect(() =>
-      apply([signpost()], [{ op: "retire", id: "staging-read-only", reason: "no longer true" }]),
-    ).toThrow(/retire has no write semantics/);
+  const retire: Operation = {
+    op: "retire",
+    id: "staging-read-only",
+    reason: "The ETL migration made the replica writable in March.",
+  };
+
+  it("marks the signpost retired and records why", () => {
+    const result = apply([signpost()], [retire]);
+
+    expect(result.corpus).toHaveLength(1);
+    expect(result.corpus[0]?.status).toBe("retired");
+    expect(result.corpus[0]?.retiredReason).toBe(
+      "The ETL migration made the replica writable in March.",
+    );
+    expect(result.changed).toEqual(["staging-read-only"]);
+    expect(result.skipped).toEqual([]);
+  });
+
+  // The point of retiring rather than deleting: the claim and its evidence
+  // stay readable, so the file still says what the team believed and why.
+  it("keeps the file, the claim and the evidence", () => {
+    const result = apply([signpost()], [retire]);
+
+    expect(result.corpus[0]?.claim).toBe("Staging is read only outside the ETL window");
+    expect(result.corpus[0]?.evidence).toBe("A migration failed with a permissions error.");
+    expect(signpostPath(result.corpus[0]!)).toBe("environment/staging-read-only.md");
+  });
+
+  it("skips a retire naming a signpost that is not there", () => {
+    const result = apply([signpost()], [{ ...retire, id: "ghost" }]);
+
+    expect(result.changed).toEqual([]);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0]?.id).toBe("ghost");
+    expect(result.corpus[0]?.status).toBe("active");
   });
 });

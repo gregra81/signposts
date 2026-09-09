@@ -3,3 +3,7 @@ dist/
 .stryker-tmp/
 reports/
 coverage/
+
+# Build output: the pre-compiled hook bundle (scripts/build-hooks.mjs).
+hooks/*.js
+statusline/*.js

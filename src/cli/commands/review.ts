@@ -148,7 +148,13 @@ async function apply(
     { [review.interruptId]: decisions },
   );
 
-  await settle(handle, namedSession(handle, review.sessionId, review.contentHash, now), result);
+  await settle({
+    handle,
+    session: namedSession(handle, review.sessionId, review.contentHash, now),
+    result,
+    statusPath: input.config.paths.statuslineState,
+    now,
+  });
 
   input.stdio.output.write(
     result.pending.length === 0

@@ -114,6 +114,20 @@ DUPLICATE      A neighbour makes the same claim. No new information.
 REFINEMENT     A neighbour makes the same claim, and the candidate is more precise, better scoped,
                or adds a reason or a remedy the existing one lacks.
 CONTRADICTION  A neighbour makes an incompatible claim. Both cannot be true as written.
+OBSOLETE       The candidate says a neighbour's claim no longer holds, and offers no replacement
+               claim of its own. A retraction: "we don't do that any more", "that service is gone",
+               "that constraint was lifted".
+
+OBSOLETE and CONTRADICTION are the pair most easily confused, and the test is what the candidate
+itself asserts. If the candidate makes its own durable claim about the subject, it is a
+CONTRADICTION — both claims go to a resolver, and the winner is recorded. If the candidate only
+withdraws the neighbour and leaves nothing standing in its place, it is OBSOLETE.
+
+  "the staging replica is writable now"        -> CONTRADICTION (a claim of its own)
+  "we dropped the staging replica entirely"    -> OBSOLETE      (nothing replaces it)
+
+Prefer CONTRADICTION when unsure. It keeps both claims in front of a person; OBSOLETE retires the
+neighbour, and retiring a claim that was merely narrowed loses knowledge that was still true.
 
 The neighbours were retrieved by semantic similarity, so they are all ABOUT the same subject.
 Similarity tells you nothing about whether they AGREE. Two claims can be near-identical in wording

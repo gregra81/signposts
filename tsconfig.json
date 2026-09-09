@@ -18,5 +18,6 @@
     "checkJs": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "test", "eslint-rules", "hooks", "statusline", "scripts", "bin"]
+  "include": ["src", "test", "eslint-rules", "hooks", "statusline", "scripts", "bin"],
+  "exclude": ["hooks/*.js", "statusline/*.js"]
 }
