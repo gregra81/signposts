@@ -128,6 +128,60 @@ describe("planStatusLine", () => {
     expect(again.wrapped).toBeUndefined();
   });
 
+  // The case that matters most in practice and the one this module exists for:
+  // a status line almost always lives in ~/.claude/settings.json, and Claude
+  // Code takes the whole value from the highest file that sets it — so writing
+  // ours locally without wrapping would replace theirs outright.
+  it("wraps a status line inherited from a lower-precedence file", () => {
+    const plan = planStatusLine({}, SCRIPT, { type: "command", command: THEIRS });
+
+    expect(plan.outcome).toBe("wrapped");
+    expect(plan.wrapped).toBe(THEIRS);
+    expect(plan.settings.statusLine?.command).toBe(`node '${SCRIPT}' --wrap '${THEIRS}'`);
+  });
+
+  // Replacing the object would drop these, since only one file's value applies.
+  it("carries the inherited entry's own fields down with it", () => {
+    const plan = planStatusLine({}, SCRIPT, {
+      type: "command",
+      command: THEIRS,
+      padding: 2,
+      refreshInterval: 30,
+    });
+
+    expect(plan.settings.statusLine).toMatchObject({ padding: 2, refreshInterval: 30 });
+  });
+
+  it("prefers a status line in the file being written over an inherited one", () => {
+    const plan = planStatusLine(
+      { statusLine: { type: "command", command: "~/bin/local.sh" } },
+      SCRIPT,
+      { type: "command", command: THEIRS },
+    );
+
+    expect(plan.wrapped).toBe("~/bin/local.sh");
+  });
+
+  it("keeps wrapping what our own entry already wraps, not the inherited one", () => {
+    const installed = planStatusLine({}, SCRIPT, { type: "command", command: THEIRS });
+    const again = planStatusLine(installed.settings, SCRIPT, {
+      type: "command",
+      command: "~/bin/something-else.sh",
+    });
+
+    expect(again.outcome).toBe("updated");
+    expect(again.settings.statusLine?.command).toBe(`node '${SCRIPT}' --wrap '${THEIRS}'`);
+  });
+
+  // Ours wrapping nothing must not shadow a line added after we installed.
+  it("picks up an inherited line when ours wraps nothing yet", () => {
+    const installed = planStatusLine({}, SCRIPT);
+    const again = planStatusLine(installed.settings, SCRIPT, { type: "command", command: THEIRS });
+
+    expect(again.outcome).toBe("wrapped");
+    expect(again.settings.statusLine?.command).toBe(`node '${SCRIPT}' --wrap '${THEIRS}'`);
+  });
+
   it("treats an entry with no usable command as an empty slot", () => {
     const plan = planStatusLine({ statusLine: { type: "command", command: "" } }, SCRIPT);
     expect(plan.outcome).toBe("installed");

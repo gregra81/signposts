@@ -8,6 +8,12 @@
 // preference, so putting one in a shared file would change what every
 // colleague's terminal looks like because one of them ran `init`.
 //
+// It reads more files than it writes. A `statusLine` resolves by precedence —
+// local, then project, then user — and Claude Code takes the whole value from
+// the highest level that sets it, so writing one here replaces one in
+// `~/.claude/settings.json` outright. Most people who have a status line have
+// it there, so all three are read and the effective one is what gets wrapped.
+//
 // A settings file we cannot parse is left exactly as it is. It is the
 // developer's file, it may be mid-edit, and rewriting it from a failed parse
 // would drop every setting in it.
@@ -18,6 +24,7 @@ import { fileURLToPath } from "node:url";
 import { JSON_INDENT } from "../../core/config/constants.ts";
 import {
   planStatusLine,
+  type InheritedStatusLine,
   type Settings,
   type StatusLinePlan,
 } from "../../core/init/statusline-settings.ts";
@@ -25,6 +32,8 @@ import {
 /** Claude Code's per-repo config directory, as it appears in a checkout. */
 const CLAUDE_DIRNAME = ".claude";
 const SETTINGS_FILENAME = "settings.local.json";
+/** The file a team shares. Read for an existing statusLine, never written. */
+const SHARED_SETTINGS_FILENAME = "settings.json";
 const STATUSLINE_SCRIPT = path.join("statusline", "statusline.js");
 
 /** <root>/src/io/init/statusline-file.ts -> <root>. */
@@ -57,6 +66,31 @@ function readSettings(file: string): Settings | undefined {
   }
 }
 
+/**
+ * The `statusLine` in force from the files below the one we write: the shared
+ * project settings, then the user's own. First match wins, which is the same
+ * order Claude Code resolves them in.
+ */
+function inheritedStatusLine(repoRoot: string, claudeConfigRoot: string): InheritedStatusLine {
+  const lower = [
+    path.join(repoRoot, CLAUDE_DIRNAME, SHARED_SETTINGS_FILENAME),
+    path.join(claudeConfigRoot, SHARED_SETTINGS_FILENAME),
+  ];
+  for (const file of lower) {
+    const settings = readSettings(file);
+    const candidate = settings?.statusLine;
+    if (
+      typeof candidate === "object" &&
+      candidate !== null &&
+      typeof candidate.command === "string" &&
+      candidate.command !== ""
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 export interface StatusLineInstall extends StatusLinePlan {
   /** Repo-relative, so `init` can name it in what it prints. */
   file: string;
@@ -70,7 +104,10 @@ export interface StatusLineInstall extends StatusLinePlan {
  * consent, `.signposts/`, the skill — is what the tool needs to work at all,
  * and a status line is how it is seen working.
  */
-export function installStatusLine(repoRoot: string): StatusLineInstall | null {
+export function installStatusLine(
+  repoRoot: string,
+  claudeConfigRoot: string,
+): StatusLineInstall | null {
   // Never point the setting at a script that is not there. A missing command
   // exits non-zero, which blanks the bar — and when we are wrapping, that
   // takes the developer's own status line down with it. `pnpm build:hooks`
@@ -86,7 +123,7 @@ export function installStatusLine(repoRoot: string): StatusLineInstall | null {
     return null;
   }
 
-  const plan = planStatusLine(settings, script);
+  const plan = planStatusLine(settings, script, inheritedStatusLine(repoRoot, claudeConfigRoot));
   try {
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, JSON.stringify(plan.settings, null, JSON_INDENT) + "\n", "utf8");

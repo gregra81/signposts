@@ -8,6 +8,7 @@
 // gathers/writes.
 
 import { existsSync } from "node:fs";
+import path from "node:path";
 import type { ExitCode, Stdio } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import {
@@ -84,7 +85,7 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
     );
     // Same reason as the skill: the settings entry names the path this build
     // installed to, and an upgrade moves it.
-    reportStatusLine(stdio, installStatusLine(repoRoot));
+    reportStatusLine(stdio, installStatusLine(repoRoot, claudeConfigRoot(config)));
     return 0;
   }
 
@@ -115,12 +116,23 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
       return 1;
     }
     stdio.output.write(`signposts: initialised. Wrote ${skillPath} — ask Claude to run signposts.\n`);
-    reportStatusLine(stdio, installStatusLine(repoRoot));
+    reportStatusLine(stdio, installStatusLine(repoRoot, claudeConfigRoot(config)));
   } else {
     stdio.output.write("signposts: consent declined — nothing persisted.\n");
   }
 
   return consentExitCode(accepted);
+}
+
+/**
+ * Claude Code's config directory, where the user's own settings live.
+ *
+ * Taken from the transcript root rather than from `homedir()`, because that is
+ * the path the composition root already resolved — `CLAUDE_CONFIG_DIR` moves
+ * both, and reading the environment here would be R7.
+ */
+function claudeConfigRoot(config: ResolvedConfig): string {
+  return path.dirname(config.paths.transcriptRoot);
 }
 
 /**

@@ -14,6 +14,15 @@
 // from now has to be able to see what happened to their status line, and to
 // get it back by deleting one thing.
 //
+// **The one that is already there is usually in a different file.** Settings
+// resolve by precedence — local, then project, then user — and Claude Code
+// takes the whole value from the highest level that sets it, so a `statusLine`
+// we write locally replaces one in `~/.claude/settings.json` outright. Most
+// people who have a status line have it there, which makes the file we write
+// the last place to look for it. So the caller reads the chain and hands the
+// effective setting in as `inherited`; wrapping it also carries its `padding`
+// and `refreshInterval` down, since replacing the object would drop those too.
+//
 // PURE: settings in, settings out. Reading and writing the file is
 // src/io/init/statusline-file.ts.
 
@@ -57,6 +66,12 @@ export interface StatusLinePlan {
   /** The command that was already there and is now wrapped, when there was one. */
   wrapped?: string;
 }
+
+/**
+ * The `statusLine` in force before we touch anything, from whichever file
+ * defines it. Undefined when the developer has none anywhere.
+ */
+export type InheritedStatusLine = StatusLineSetting | undefined;
 
 /**
  * Single-quotes a command for the shell that runs the wrapper.
@@ -106,12 +121,12 @@ export function unwrap(command: string): string | undefined {
   return quoted.slice(1, -1).split(`'\\''`).join("'");
 }
 
-function readSetting(settings: Settings): StatusLineSetting | undefined {
-  const existing = settings.statusLine;
-  if (typeof existing !== "object" || existing === null) {
+/** A `statusLine` entry only counts if it names a command to run. */
+function usable(entry: StatusLineSetting | undefined): StatusLineSetting | undefined {
+  if (typeof entry !== "object" || entry === null) {
     return undefined;
   }
-  return typeof existing.command === "string" && existing.command !== "" ? existing : undefined;
+  return typeof entry.command === "string" && entry.command !== "" ? entry : undefined;
 }
 
 /**
@@ -120,12 +135,24 @@ function readSetting(settings: Settings): StatusLineSetting | undefined {
  * Three cases, and the middle one is the whole point of this module:
  *
  *   - nothing configured    -> ours, with a refresh so a run is visible
- *   - someone else's        -> ours wrapping theirs, their other fields kept
+ *   - someone else's        -> ours wrapping theirs, their other fields kept,
+ *                             whether it was in this file or inherited from a
+ *                             lower-precedence one
  *   - ours from last time   -> the same, with the script path brought up to
  *                             date and whatever it wraps still wrapped
  */
-export function planStatusLine(settings: Settings, scriptPath: string): StatusLinePlan {
-  const existing = readSetting(settings);
+export function planStatusLine(
+  settings: Settings,
+  scriptPath: string,
+  inherited?: InheritedStatusLine,
+): StatusLinePlan {
+  const local = usable(settings.statusLine);
+  // Ours wrapping nothing does not shadow a line the developer has added
+  // since: keep looking down the chain for something to wrap.
+  const existing =
+    local !== undefined && !(isOurs(local.command) && unwrap(local.command) === undefined)
+      ? local
+      : (usable(inherited) ?? local);
 
   if (existing === undefined) {
     return {

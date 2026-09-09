@@ -155,6 +155,31 @@ describe("signpost init", () => {
     }
   });
 
+  // Where a status line almost always is: `~/.claude/settings.json`. Project
+  // local outranks user, so an unwrapped install here would take it away.
+  it("wraps a status line inherited from the user's own settings", async () => {
+    const userSettings = path.join(homeDir, ".claude");
+    mkdirSync(userSettings, { recursive: true });
+    writeFileSync(
+      path.join(userSettings, "settings.json"),
+      JSON.stringify({
+        statusLine: { type: "command", command: "~/.claude/statusline.sh", refreshInterval: 30 },
+      }),
+    );
+
+    await runCli(["init"], { config, stdio: createFakeStdio("y") });
+
+    const settings = JSON.parse(
+      readFileSync(path.join(repoRoot, ".claude", "settings.local.json"), "utf8"),
+    );
+    expect(settings.statusLine.command).toBe(
+      `node '${statuslineScriptPath()}' --wrap '~/.claude/statusline.sh'`,
+    );
+    // Their own pacing comes down with it: the local entry replaces the whole
+    // object, so a field left behind is a field they lose.
+    expect(settings.statusLine.refreshInterval).toBe(30);
+  });
+
   it("leaves a settings file it cannot parse exactly as it is", async () => {
     mkdirSync(path.join(repoRoot, ".claude"), { recursive: true });
     const settingsFile = path.join(repoRoot, ".claude", "settings.local.json");
