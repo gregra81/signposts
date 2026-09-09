@@ -152,15 +152,21 @@ describe("two sessions in one run", () => {
     const stdio = createFakeStdio();
     const exitCode = await runCli(argv, { config, stdio });
     const output = JSON.parse(stdio.writtenOutput()) as RunOutput;
-    // A halt on a review is reported as EXIT_CODES.awaitingHuman rather than
-    // 0 (12-wire-contracts.md, "Exit codes"). Neither is a failure, and this
-    // test is about what the second session retrieves, not about which of the
-    // two it got — so it accepts the one that matches the halt and still
-    // fails on anything else.
+    // Two of the codes here are not failures (12-wire-contracts.md, "Exit
+    // codes"), and this test is about what the second session retrieves, not
+    // about which of them it got. So the expectation is derived from what the
+    // invocation actually did: a halt only a person can answer is
+    // `awaitingHuman`, and the push this setup deliberately breaks leaves the
+    // commit on a branch with no pull request — `prCreationFailed`.
     // `sessions` prints a listing, which has no `pending` at all.
-    const expected = (output.pending ?? []).some((pending) => !isModelRequest(pending.request))
+    const awaitingHuman = (output.pending ?? []).some(
+      (pending) => !isModelRequest(pending.request),
+    );
+    const expected = awaitingHuman
       ? EXIT_CODES.awaitingHuman
-      : EXIT_CODES.ok;
+      : stdio.writtenError().includes("could not push")
+        ? EXIT_CODES.prCreationFailed
+        : EXIT_CODES.ok;
     expect(exitCode, stdio.writtenError()).toBe(expected);
     return output;
   }

@@ -17,6 +17,7 @@
 import type { ExitCode, Stdio } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { OPERATION_TAGS, type HumanDecision } from "../../core/contracts/graph.ts";
+import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import { renderPendingList, type ReviewItem } from "../../core/review/render.ts";
 import { resumeRun } from "../../graph/index.ts";
 import { promptForReview } from "../../io/review/prompt.ts";
@@ -50,7 +51,7 @@ export function runReview(input: ReviewCommandInput): Promise<ExitCode> {
       const pending = await handle.pendingReviews(now);
       if (pending.length === 0) {
         input.stdio.output.write(`${NOTHING}\n`);
-        return 0;
+        return EXIT_CODES.ok;
       }
 
       input.stdio.output.write(
@@ -68,12 +69,25 @@ export function runReview(input: ReviewCommandInput): Promise<ExitCode> {
         const quit = await reviewOne(input, handle, review, now);
         if (quit) {
           input.stdio.output.write("Stopped. What you did not answer is still waiting.\n");
-          return 0;
+          return settled(handle);
         }
       }
-      return 0;
+      return settled(handle);
     },
   );
+}
+
+/**
+ * What answering a review reports to whatever ran it.
+ *
+ * The exit code table is the CLI's, not `run`'s (12-wire-contracts.md, "Exit
+ * codes"): answering the last review in the terminal is as often as not the
+ * invocation that reaches `commit`, so it is also the one that can push a
+ * branch and fail to open its pull request. Reporting 0 for that would tell a
+ * wrapper the work is on the forge when it is not.
+ */
+function settled(handle: RunHandle): ExitCode {
+  return handle.prNotOpened() === null ? EXIT_CODES.ok : EXIT_CODES.prCreationFailed;
 }
 
 /**

@@ -4,7 +4,7 @@
 // necessary, stated one at a time.
 
 import { describe, expect, it } from "vitest";
-import { manualPrCommand } from "../../../src/core/pr/manual-command.js";
+import { manualPrCommand, manualPushCommand } from "../../../src/core/pr/manual-command.js";
 
 const BRANCH = "signposts/greg/2026-09-05";
 
@@ -36,6 +36,14 @@ describe("the manual pull request command", () => {
     // to be closed, escaped and reopened.
     expect(command({ body: "the ETL job's window" })).toContain(
       `--body 'the ETL job'\\''s window'`,
+    );
+  });
+
+  it("gives the push the same branch the port pushed", () => {
+    // A push that failed leaves the commit local, and this is the half of
+    // the recovery that has to run before any `gh pr create` can work.
+    expect(manualPushCommand("signposts/greg/2026-09-05")).toBe(
+      "git push --set-upstream origin signposts/greg/2026-09-05",
     );
   });
 

@@ -60,3 +60,15 @@ export function manualPrArgv(input: ManualPrInput): string[] {
 export function manualPrCommand(input: ManualPrInput): string {
   return manualPrArgv(input).map(shellQuote).join(" ");
 }
+
+/**
+ * `git push --set-upstream origin <branch>` — the push the commit port ran
+ * and could not finish.
+ *
+ * Runnable from the developer's own checkout, not only from the worktree: the
+ * worktree is a linked one (src/io/git/worktree.ts), so the branch ref is in
+ * the same repository and points at the same commit.
+ */
+export function manualPushCommand(branch: string): string {
+  return ["git", "push", "--set-upstream", "origin", branch].map(shellQuote).join(" ");
+}

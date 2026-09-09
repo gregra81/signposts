@@ -33,6 +33,7 @@ import {
   type HarnessOptions,
 } from "../helpers/graph-harness.js";
 import { createEofStdio, createScriptedStdio } from "../helpers/fake-stdio.js";
+import { EXIT_CODES } from "../../../src/core/cli/exit-codes.js";
 import { runCli } from "../helpers/run-cli.js";
 
 const EXISTING = existingSignpost();
@@ -127,7 +128,7 @@ async function runToCompletion(): Promise<void> {
  * `eligible` returns nothing, as it would for a transcript that is not on this
  * machine — the review must not need the transcript to answer a halt.
  */
-function openRunWith(harness: Harness): OpenRun {
+function openRunWith(harness: Harness, prNotOpened: string | null = null): OpenRun {
   return async ({ warn }) => {
     const { checkpointer, close } = openCheckpointer(checkpointPath);
     const graph = buildExtractionGraph({ ports: harness, checkpointer });
@@ -139,9 +140,9 @@ function openRunWith(harness: Harness): OpenRun {
       index: harness.index,
       eligible: () => [],
       finish: (session) => finished.push(session),
-      // `review` is a person at a terminal; nothing here is about the exit
-      // code a run reports for a pull request it could not open.
-      prNotOpened: () => null,
+      // What the commit port left undone, if anything — answering the last
+      // review is often the invocation that commits.
+      prNotOpened: () => prNotOpened,
       pendingReviews: (now) =>
         listPendingReviews({ graph, checkpointer, repo: RUN_INPUT.repo, now, warn }),
       close,
@@ -193,6 +194,23 @@ describe("signpost review", () => {
     // Otherwise the next run extracts a transcript whose signposts are already
     // in the branch.
     expect(finished.map((session) => session.sessionId)).toEqual([RUN_INPUT.sessionId]);
+  });
+
+  it("reports the pull request it could not open, rather than a clean 0", async () => {
+    // Accepting here is what carries the thread through `commit`, so this is
+    // the invocation that pushed the branch and failed to open its PR. A
+    // wrapper reading `$?` must not be told the work is on the forge
+    // (12-wire-contracts.md, "Exit codes").
+    await haltForReview();
+    const command = "git push --set-upstream origin signposts/greg/2026-09-05";
+
+    const exitCode = await runCli(["review"], {
+      config,
+      stdio: createScriptedStdio(["a"]),
+      openRun: openRunWith(makeHarness(gatedOptions()), command),
+    });
+
+    expect(exitCode).toBe(EXIT_CODES.prCreationFailed);
   });
 
   it("commits nothing when the developer rejects, and does not ask again", async () => {

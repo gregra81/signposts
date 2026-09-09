@@ -305,6 +305,10 @@ describe("the commit port", () => {
       { op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR },
     ]);
     expect(warnings.join("\n")).toContain("could not push");
+    // The branch already has a pull request from sess-1, so what is missing
+    // is the push and only the push — `gh pr create` for a branch that has
+    // one is an error, or a second PR on a fork.
+    expect(manualCommands).toEqual([`git push --set-upstream origin ${BRANCH}`]);
     const unpushed = git(worktreeDir, "rev-parse", "HEAD");
 
     git(repoRoot, "remote", "set-url", "origin", remote);
@@ -318,6 +322,22 @@ describe("the commit port", () => {
       "signposts: 1 from session sess-2",
       "signposts: 1 from session sess-1",
     ]);
+  });
+
+  it("reports a push that failed before any pull request existed as work with no PR", async () => {
+    // The worse of the two outcomes: the commit is on the local branch and
+    // nothing carries it. Reporting nothing here exited 0, while the milder
+    // failure — pushed, `gh` unavailable — exited 4
+    // (12-wire-contracts.md, "Exit codes").
+    git(repoRoot, "remote", "set-url", "origin", path.join(root, "no-such-remote.git"));
+
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    expect(manualCommands).toHaveLength(1);
+    const argv = ranThroughShell(manualCommands[0]!.split(" && ")[1]!);
+    expect(argv.slice(0, 4)).toEqual(["pr", "create", "--head", BRANCH]);
+    expect(argv[argv.indexOf("--body") + 1]).toContain(signpost().claim);
+    expect(manualCommands[0]).toContain(`git push --set-upstream origin ${BRANCH}`);
   });
 
   it("catches up with the branch when everything here is already pushed", async () => {
@@ -477,6 +497,10 @@ describe("the commit port", () => {
       { op: "add", signpost: signpost({ id: "mine", claim: "A claim from this machine" }) },
     ]);
     expect(warnings.join("\n")).toContain("could not push");
+    // The branch already has a pull request from sess-1, so what is missing
+    // is the push and only the push — `gh pr create` for a branch that has
+    // one is an error, or a second PR on a fork.
+    expect(manualCommands).toEqual([`git push --set-upstream origin ${BRANCH}`]);
     const unpushed = git(worktreeDir, "rev-parse", "HEAD");
 
     // The same developer's other machine commits to the branch and pushes.
