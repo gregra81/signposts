@@ -20,8 +20,9 @@ import type { ExitCode } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { JSON_INDENT } from "../../core/config/constants.ts";
 import { parseReplies } from "../../core/cli/replies.ts";
+import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import { OPERATION_TAGS } from "../../core/contracts/graph.ts";
-import { resumeRun, startRun, type RunResult } from "../../graph/index.ts";
+import { REVIEW_REQUEST_KIND, resumeRun, startRun, type RunResult } from "../../graph/index.ts";
 import type { RunOutput, SessionRef, SessionsOutput } from "../protocol.ts";
 import type { OpenRun, RunHandle, RunSession } from "../run-port.ts";
 import { fail, namedSession, settle, withRun } from "../with-run.ts";
@@ -159,7 +160,32 @@ async function report(
     proposed: waiting ? [] : result.state.operations.map(describe),
   };
   write(input.stdout, output);
-  return 0;
+  return exitCode(handle, result);
+}
+
+/**
+ * What the invocation reports to whatever ran it (12-wire-contracts.md, "Exit
+ * codes").
+ *
+ * Neither of the two non-zero codes here is a failure, and that is the whole
+ * point of them: a hook or a CI step that treats non-zero as fatal must not
+ * raise an alarm because a person has a review to answer, or because the work
+ * is safely committed on a branch that `gh` was not around to open a pull
+ * request for. Both are reported alongside the same JSON object every other
+ * outcome prints — `status` and `pending` are unchanged, the exit code is the
+ * part a caller that does not parse JSON can still read.
+ *
+ * A halt on a model call is *not* one of them: the session driving the loop
+ * answers those itself, and it is told to by `status: "waiting"`.
+ */
+function exitCode(handle: RunHandle, result: RunResult): ExitCode {
+  if (handle.prNotOpened() !== null) {
+    return EXIT_CODES.prCreationFailed;
+  }
+  if (result.pending.some((pending) => pending.request.kind === REVIEW_REQUEST_KIND)) {
+    return EXIT_CODES.awaitingHuman;
+  }
+  return EXIT_CODES.ok;
 }
 
 function describe(operation: RunResult["state"]["operations"][number]): string {

@@ -56,6 +56,11 @@ Every command prints one JSON object. A run advances one halt at a time.
    - \`finished\` — \`proposed\` lists what went into the branch and PR. Move to
      the next session.
 
+**Exit codes.** \`4\` and \`5\` are not failures: \`5\` means the run halted on a
+\`human_review\` and \`4\` means the proposals are committed to the branch and no
+pull request carries them yet (the command that finishes it is on stderr).
+Report those as they are. Only \`1\` is a failure.
+
 ## Answering a halt
 
 Each \`pending\` entry is \`{ "id": "...", "request": { ... } }\`. Write your answers

@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { projectDirName } from "../../../src/core/transcript/project-dir.js";
 import { operationKey } from "../../../src/core/graph/decisions.js";
+import { EXIT_CODES } from "../../../src/core/cli/exit-codes.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
@@ -150,8 +151,24 @@ describe("two sessions in one run", () => {
   async function invoke(argv: string[]): Promise<RunOutput> {
     const stdio = createFakeStdio();
     const exitCode = await runCli(argv, { config, stdio });
-    expect(exitCode, stdio.writtenError()).toBe(0);
-    return JSON.parse(stdio.writtenOutput()) as RunOutput;
+    const output = JSON.parse(stdio.writtenOutput()) as RunOutput;
+    // Two of the codes here are not failures (12-wire-contracts.md, "Exit
+    // codes"), and this test is about what the second session retrieves, not
+    // about which of them it got. So the expectation is derived from what the
+    // invocation actually did: a halt only a person can answer is
+    // `awaitingHuman`, and the push this setup deliberately breaks leaves the
+    // commit on a branch with no pull request — `prCreationFailed`.
+    // `sessions` prints a listing, which has no `pending` at all.
+    const awaitingHuman = (output.pending ?? []).some(
+      (pending) => !isModelRequest(pending.request),
+    );
+    const expected = awaitingHuman
+      ? EXIT_CODES.awaitingHuman
+      : stdio.writtenError().includes("could not push")
+        ? EXIT_CODES.prCreationFailed
+        : EXIT_CODES.ok;
+    expect(exitCode, stdio.writtenError()).toBe(expected);
+    return output;
   }
 
   /** Answers one halt the way the skill would, and continues the session. */

@@ -27,6 +27,7 @@ import { formatZodError } from "../../core/errors/format-zod-error.ts";
 import { INDEX_FILENAME, SIGNPOSTS_DIRNAME } from "../../core/config/constants.ts";
 import { branchPrefix, pickBranch } from "../../core/git/branch.ts";
 import { commitMessage, prBody, prLabels, prSection, PR_TITLE } from "../../core/pr/body.ts";
+import { manualPrCommand, manualPushCommand } from "../../core/pr/manual-command.ts";
 import { applyOperations, signpostPath } from "../../core/signpost/apply-operations.ts";
 import { parseSignpost, serialiseSignpost } from "../../core/signpost/codec.ts";
 import { generateIndexDoc } from "../../core/signpost/index-doc.ts";
@@ -45,6 +46,16 @@ export interface CommitPortInput {
   forge: Forge;
   /** Where a step that could not finish says so. */
   warn: (message: string) => void;
+  /**
+   * Called when the commits are on the branch and no pull request carries
+   * them, with the command that opens one by hand.
+   *
+   * Separate from `warn` because it is not only a message: it is what the CLI
+   * turns into EXIT_CODES.prCreationFailed, and a caller that treats non-zero
+   * as fatal has to be able to tell it from a real failure
+   * (12-wire-contracts.md, "Exit codes").
+   */
+  prNotOpened: (command: string) => void;
   /** ISO date, from the injected clock — `reinforce` records it. */
   today: () => string;
 }
@@ -107,9 +118,23 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
 
       const pushed = push(input.worktreeDir, branch);
       if (!pushed.ok) {
+        // The same state as a `gh` that could not open the pull request, and
+        // worse: the commit is on the local branch and nothing carries it.
+        // So it reports the same thing (12-wire-contracts.md, "Exit codes").
+        // Saying nothing here exited 0 for the outcome where the work never
+        // left the machine, while the milder failure below exited 4.
+        const command =
+          cycle.openPr === null
+            ? `${manualPushCommand(branch)} && ${createPrCommand(branch, operations)}`
+            : // The branch already has a pull request; pushing puts the
+              // commit on it. Sending anyone to `gh pr create` for a branch
+              // that has one is an error, or a second PR on a fork.
+              manualPushCommand(branch);
         input.warn(
-          `signposts: wrote ${String(written.length)} file(s) to ${branch} but could not push: ${pushed.output}`,
+          `signposts: wrote ${String(written.length)} file(s) to ${branch} but could not push ` +
+            `(${pushed.output}). Run:\n${command}`,
         );
+        input.prNotOpened(command);
         return;
       }
 
@@ -201,6 +226,21 @@ function writeCorpus(
 }
 
 /**
+ * The `gh pr create` a developer runs for a branch that has no pull request.
+ *
+ * The body this run would have posted goes into it, not a summary of it: a
+ * pull request opened by hand is the same pull request, and re-typing the
+ * proposal table is not something a developer will do.
+ */
+function createPrCommand(branch: string, operations: CommitInput): string {
+  return manualPrCommand({
+    branch,
+    title: PR_TITLE,
+    body: prBody("", prSection(operations.sessionId, operations.operations)),
+  });
+}
+
+/**
  * One open PR per developer: commit onto the existing one and update its
  * body, or open the first.
  *
@@ -236,13 +276,18 @@ async function openOrUpdatePr(
     await input.forge.setLabels(open, prLabels(operations.operations));
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    if (open === null) {
+      const command = createPrCommand(branch, operations);
+      input.warn(
+        `signposts: pushed ${branch}, but could not open its pull request (${reason}). Run:\n${command}`,
+      );
+      input.prNotOpened(command);
+      return;
+    }
     input.warn(
-      open === null
-        ? `signposts: pushed ${branch}, but could not open its pull request (${reason}). ` +
-            `Run: gh pr create --head ${branch} --title ${JSON.stringify(PR_TITLE)}`
-        : `signposts: pushed ${branch} and its commit is on pull request #${String(open)}, ` +
-            `but that pull request could not be updated (${reason}). ` +
-            `The body and labels are stale; the commit is not.`,
+      `signposts: pushed ${branch} and its commit is on pull request #${String(open)}, ` +
+        `but that pull request could not be updated (${reason}). ` +
+        `The body and labels are stale; the commit is not.`,
     );
   }
 }

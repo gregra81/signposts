@@ -23,6 +23,7 @@
 // the same way they substitute ports.
 
 import type { ResolvedConfig } from "./core/config/resolve.ts";
+import type { ExitCode } from "./core/cli/exit-codes.ts";
 import { parseCommand } from "./core/cli/dispatch.ts";
 import { runInit } from "./cli/commands/init.ts";
 import { runIndex } from "./cli/commands/index.ts";
@@ -31,7 +32,7 @@ import { runExtraction, runResume, runSessionsList } from "./cli/commands/run.ts
 import { runReview } from "./cli/commands/review.ts";
 import type { OpenRun } from "./cli/run-port.ts";
 
-export type ExitCode = 0 | 1;
+export type { ExitCode };
 
 export interface Stdio {
   input: NodeJS.ReadableStream;
