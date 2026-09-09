@@ -174,16 +174,23 @@ the `.ts` stays out. A developer never runs the build; an end user gets the outp
 It reads `status.json` and nothing else — no database, no git subprocess — because it runs on every
 assistant message and on a one-second `refreshInterval`.
 
-It renders one of four things, each true at the moment it renders: a run in flight, the worker
-reindexing, a review parked on the developer, a failure nobody was told about. It says nothing
-about a backlog. That is the hook's message and it is delivered once; a bar that repeats it every
-few seconds becomes noise.
+It renders one of four things, each true at the moment it renders: a review parked on the developer,
+a run in flight, the worker reindexing, a failure nobody was told about — in that order, because a
+review is the only one of them asking for anything. It says nothing about a backlog. That is the
+hook's message and it is delivered once; a bar that repeats it every few seconds becomes noise.
 
 The progress comes from `settle` (`src/cli/with-run.ts`), for the same reason the watermark does:
 the worker drains no session. A run is a sequence of processes, so the count lives on disk and each
 invocation adds its own session to what the last one left. It ages out after
 `RUN_PROGRESS_STALE_MINUTES`, because closing the terminal between two halts leaves progress behind
 with nothing to finish it, and a bar reading "2/3 sessions" all week is not stale, it is wrong.
+
+Which is why `settle` retakes the census in the same write. A run halted on a review re-stamps
+nothing until the developer answers, so its progress ages out — and `threadsWaiting` used to be
+the worker's alone, written only when a session start happened to wake one. The state the
+developer most has to act on was the state that went blank. Both counts come from the same
+`pendingReviews` the worker's census uses, so a run replaces them with fresher numbers rather than
+competing; `lastIndexedAt` and `lastError` stay the worker's and are carried through.
 
 `init` installs it into `.claude/settings.local.json` rather than `settings.json`: the command holds
 an absolute path to this machine's install, and a status line is a personal preference, so neither

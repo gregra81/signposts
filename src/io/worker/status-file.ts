@@ -48,13 +48,20 @@ export function recordRunFinished(statusPath: string, finishedThrough: Date): vo
 }
 
 /**
- * Moves the run's progress, leaving the worker's census where it is — the same
- * read-modify-write as `recordRunFinished`, and for the same reason: two
- * processes share this file and neither owns all of it.
+ * Moves the run's progress and retakes the census, the same read-modify-write
+ * as `recordRunFinished` and for the same reason: two processes share this
+ * file and neither owns all of it. `lastIndexedAt` and `lastError` are the
+ * worker's and are carried through untouched.
  */
 export function recordRunProgress(
   statusPath: string,
-  progress: { now: Date; remaining: number; sessionFinished: boolean; found: number },
+  progress: {
+    now: Date;
+    remaining: number;
+    sessionFinished: boolean;
+    found: number;
+    threadsWaiting: number;
+  },
 ): void {
   writeStatus(statusPath, runProgressStatus(readStatus(statusPath), progress));
 }

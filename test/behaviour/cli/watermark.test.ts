@@ -18,7 +18,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import type { WorkerStatus } from "../../../src/core/worker/status.js";
 import { buildExtractionGraph } from "../../../src/graph/index.js";
-import type { FinishedSession, OpenRun, RunHandle, RunSession } from "../../../src/cli/run-port.js";
+import type {
+  FinishedSession,
+  OpenRun,
+  PendingReview,
+  RunHandle,
+  RunSession,
+} from "../../../src/cli/run-port.js";
 import { looksEligible, watermarkMs } from "../../../hooks/session-start.ts";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { runCli } from "../helpers/run-cli.js";
@@ -81,6 +87,9 @@ describe("the watermark a finished run leaves for the hook", () => {
    * disappears from it once `finish` has recorded it, so `settle` can tell a
    * drained backlog from one it has only made a dent in.
    */
+  /** What `pendingReviews` reports — the checkpoint database's parked halts. */
+  let parkedReviews: PendingReview[] = [];
+
   function seam(options: HarnessOptions, alsoWaiting: RunSession[] = []): OpenRun {
     const ports = makeHarness(options);
     const checkpointer = new MemorySaver();
@@ -97,7 +106,7 @@ describe("the watermark a finished run leaves for the hook", () => {
         ),
       finish: (session) => finished.push(session),
       prNotOpened: () => null,
-      pendingReviews: () => Promise.resolve([]),
+      pendingReviews: () => Promise.resolve(parkedReviews),
       close: () => {},
     };
     return () => Promise.resolve({ handle });
@@ -112,6 +121,7 @@ describe("the watermark a finished run leaves for the hook", () => {
   }
 
   beforeEach(() => {
+    parkedReviews = [];
     repoRoot = mkdtempSync(path.join(tmpdir(), "signposts-watermark-"));
     config = resolveConfig({
       repoRoot,
@@ -208,11 +218,32 @@ describe("the watermark a finished run leaves for the hook", () => {
     expect(status()?.lastRunFinishedAt).toBe(LAST_ACTIVITY.toISOString());
   });
 
-  it("keeps the census the worker wrote in the same file", async () => {
+  // The reason `settle` writes this at all. The worker takes the census, and
+  // the worker runs only when a session starts — so a review parked a minute
+  // ago used to be invisible until the next `claude`, which is the one state
+  // the developer has to act on.
+  it("records a parked review without waiting for a worker to count it", async () => {
+    parkedReviews = [
+      {
+        threadId: "t-1",
+        sessionId: SESSION.sessionId,
+        contentHash: SESSION.contentHash,
+        interruptId: "i-1",
+        waitingSince: LAST_ACTIVITY,
+        needsHuman: [],
+      },
+    ];
+
+    await runCli(["run"], { config, openRun: seam(gated()), stdio: createFakeStdio() });
+
+    expect(status()?.threadsWaiting).toBe(1);
+  });
+
+  it("takes it back to zero when the last review is answered", async () => {
     mkdirSync(path.dirname(config.paths.statuslineState), { recursive: true });
     writeFileSync(
       config.paths.statuslineState,
-      JSON.stringify({ phase: "idle", updatedAt: "2026-09-01T08:00:00.000Z", eligibleSessions: 1, threadsWaiting: 3 }),
+      JSON.stringify({ phase: "idle", updatedAt: "2026-09-01T08:00:00.000Z", eligibleSessions: 0, threadsWaiting: 2 }),
     );
 
     await runCli(["run"], {
@@ -221,8 +252,37 @@ describe("the watermark a finished run leaves for the hook", () => {
       stdio: createFakeStdio(),
     });
 
-    // Two processes, one file. `threadsWaiting` is what the hook's review
-    // notice is built from, and only the worker can count it.
-    expect(status()).toMatchObject({ threadsWaiting: 3, lastRunFinishedAt: LAST_ACTIVITY.toISOString() });
+    // Nothing else in the system would notice until a worker woke.
+    expect(status()?.threadsWaiting).toBe(0);
+  });
+
+  it("keeps what only the worker can know", async () => {
+    mkdirSync(path.dirname(config.paths.statuslineState), { recursive: true });
+    writeFileSync(
+      config.paths.statuslineState,
+      JSON.stringify({
+        phase: "idle",
+        updatedAt: "2026-09-01T08:00:00.000Z",
+        eligibleSessions: 1,
+        threadsWaiting: 3,
+        lastIndexedAt: "2026-09-01T07:00:00.000Z",
+        lastError: "index rebuild exited 1",
+      }),
+    );
+
+    await runCli(["run"], {
+      config,
+      openRun: seam({ script: AUTO, session: gutteredSession() }),
+      stdio: createFakeStdio(),
+    });
+
+    // Two processes, one file. The counts a run can retake for itself it does;
+    // whether the index was rebuilt, and what went wrong doing it, only the
+    // worker knows, so a run must carry those through untouched.
+    expect(status()).toMatchObject({
+      lastIndexedAt: "2026-09-01T07:00:00.000Z",
+      lastError: "index rebuild exited 1",
+      lastRunFinishedAt: LAST_ACTIVITY.toISOString(),
+    });
   });
 });

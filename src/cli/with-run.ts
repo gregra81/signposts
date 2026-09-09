@@ -123,12 +123,19 @@ export async function settle(input: SettleInput): Promise<void> {
   // life: a session waiting on a review is the state the statusLine has to
   // keep rendering, and the stamp it writes here is what stops that line
   // ageing out while the developer is still answering (07, "Live progress").
+  //
+  // The census goes with it. `threadsWaiting` used to be the worker's alone,
+  // and the worker runs only when a session starts — so a review this halt
+  // parked a minute ago stayed invisible until the next `claude`, which is
+  // precisely the state the developer needs to see. The count comes from
+  // `pendingReviews`, the same source the worker's census uses.
   if (result.pending.length > 0) {
     recordRunProgress(input.statusPath, {
       now: input.now,
       remaining: handle.eligible(input.now).length,
       sessionFinished: false,
       found: 0,
+      threadsWaiting: (await handle.pendingReviews(input.now)).length,
     });
     return;
   }
@@ -148,6 +155,10 @@ export async function settle(input: SettleInput): Promise<void> {
     remaining,
     sessionFinished: true,
     found: result.state.operations.length,
+    // Retaken here too, and this is the direction that matters: answering the
+    // last review is what takes the count back to zero, and nothing else in
+    // the system would notice until a worker woke.
+    threadsWaiting: (await handle.pendingReviews(input.now)).length,
   });
 
   // Only once nothing eligible is left, because the watermark is one date for

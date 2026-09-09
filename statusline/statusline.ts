@@ -196,6 +196,16 @@ function liveProgress(status: WorkerStatus, nowMs: number): RunProgress | undefi
  * failure nobody has been told about yet.
  */
 export function statusLine(status: WorkerStatus, nowMs: number): string {
+  // Above the run's progress deliberately. A parked review is the one state
+  // where nothing moves until the developer does something, and it is the
+  // state that outlasts everything else here — a run halted on one re-stamps
+  // no progress, so the progress row would age out and leave the bar blank at
+  // exactly the moment it had something to ask for.
+  const waiting = whole(status.threadsWaiting);
+  if (waiting > 0) {
+    return `${PREFIX}${plural(waiting, "change")} ${agrees(waiting, "need")} your review`;
+  }
+
   const progress = liveProgress(status, nowMs);
   if (progress !== undefined) {
     const done = whole(progress.sessionsDone);
@@ -205,14 +215,10 @@ export function statusLine(status: WorkerStatus, nowMs: number): string {
   }
 
   // The worker only ever reindexes (it cannot answer a model call), so this is
-  // the one thing that is genuinely happening in the background.
+  // the one thing that is genuinely happening in the background. Below the
+  // run and the review because it is the only row nobody has to act on.
   if (status.phase === WORKER_PHASE_RUNNING) {
     return `${PREFIX}indexing`;
-  }
-
-  const waiting = whole(status.threadsWaiting);
-  if (waiting > 0) {
-    return `${PREFIX}${plural(waiting, "change")} ${agrees(waiting, "need")} your review`;
   }
 
   // A detached worker's stderr goes to /dev/null, so without this a worker

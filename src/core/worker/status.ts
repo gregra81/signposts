@@ -81,7 +81,14 @@ export interface WorkerStatus {
    * something to run, not to report work done.
    */
   eligibleSessions: number;
-  /** Threads parked on `human_review`. Only the developer can answer these. */
+  /**
+   * Threads parked on `human_review`. Only the developer can answer these.
+   *
+   * Written by the worker's census and by `settle` (src/cli/with-run.ts), both
+   * from `pendingReviews` over the checkpoint database. `settle` writes it
+   * because the worker only runs when a session starts: without that, a review
+   * a run parked five minutes ago is invisible until the next `claude`.
+   */
   threadsWaiting: number;
   /** Set when the worker rebuilt the search index this run. Absent when it was already current. */
   lastIndexedAt?: string;
@@ -225,7 +232,13 @@ export function runFinishedStatus(
  */
 export function runProgressStatus(
   previous: WorkerStatus | undefined,
-  input: { now: Date; remaining: number; sessionFinished: boolean; found: number },
+  input: {
+    now: Date;
+    remaining: number;
+    sessionFinished: boolean;
+    found: number;
+    threadsWaiting: number;
+  },
 ): WorkerStatus {
   const base: WorkerStatus = previous ?? {
     phase: WORKER_PHASES.idle,
@@ -237,6 +250,14 @@ export function runProgressStatus(
   const sessionsDone = (carried?.sessionsDone ?? 0) + (input.sessionFinished ? 1 : 0);
   return {
     ...base,
+    // The census, retaken. It used to be the worker's alone, which left the
+    // one number the developer needs — a review parked on them — written only
+    // when a SessionStart happened to wake a worker. A run has the same
+    // database open and knows the answer the moment it halts, so it says so.
+    // Both counts come from the same source the worker's census does, so this
+    // replaces that count with a fresher one rather than competing with it.
+    eligibleSessions: count(input.remaining),
+    threadsWaiting: count(input.threadsWaiting),
     runProgress: {
       sessionsDone,
       sessionsTotal: sessionsDone + count(input.remaining),

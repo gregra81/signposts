@@ -213,8 +213,15 @@ describe("runProgressStatus", () => {
   });
 
   it("starts a run at zero done, with what is left as the denominator", () => {
-    expect(runProgressStatus(undefined, { now: NOW, remaining: 3, sessionFinished: false, found: 0 })
-      .runProgress).toEqual({
+    const status = runProgressStatus(undefined, {
+      now: NOW,
+      remaining: 3,
+      sessionFinished: false,
+      found: 0,
+      threadsWaiting: 0,
+    });
+
+    expect(status.runProgress).toEqual({
       sessionsDone: 0,
       sessionsTotal: 3,
       found: 0,
@@ -227,8 +234,8 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 1,
       sessionFinished: true,
-      found: 4,
-    });
+      found: 4, threadsWaiting: 0 }
+    );
 
     expect(status.runProgress).toEqual({
       sessionsDone: 2,
@@ -246,8 +253,8 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 2,
       sessionFinished: false,
-      found: 9,
-    });
+      found: 9, threadsWaiting: 0 }
+    );
 
     expect(status.runProgress).toEqual({
       sessionsDone: 1,
@@ -264,8 +271,8 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 2,
       sessionFinished: true,
-      found: 1,
-    });
+      found: 1, threadsWaiting: 0 }
+    );
 
     expect(status.runProgress).toEqual({
       sessionsDone: 1,
@@ -275,22 +282,31 @@ describe("runProgressStatus", () => {
     });
   });
 
-  it("leaves the census and the watermark where they were", () => {
+  // Changed contract. `threadsWaiting` used to be the worker's alone and was
+  // carried through here; a run now retakes the census from the same source
+  // the worker uses, because the worker runs only at session start and a
+  // review parked mid-run was invisible until the next one.
+  it("retakes the census, and carries the worker's own fields through", () => {
     const previous = {
       ...live("2026-09-09T11:59:00.000Z"),
       eligibleSessions: 4,
       threadsWaiting: 1,
+      lastIndexedAt: "2026-09-09T10:00:00.000Z",
+      lastError: "index rebuild exited 1",
       lastRunFinishedAt: WATERMARK,
     };
     const status = runProgressStatus(previous, {
       now: NOW,
       remaining: 0,
       sessionFinished: true,
-      found: 0,
-    });
+      found: 0, threadsWaiting: 0 }
+    );
 
-    expect(status.eligibleSessions).toBe(4);
-    expect(status.threadsWaiting).toBe(1);
+    expect(status.eligibleSessions).toBe(0);
+    expect(status.threadsWaiting).toBe(0);
+    // Only the worker can know these two, so they survive untouched.
+    expect(status.lastIndexedAt).toBe("2026-09-09T10:00:00.000Z");
+    expect(status.lastError).toBe("index rebuild exited 1");
     expect(status.lastRunFinishedAt).toBe(WATERMARK);
   });
 
@@ -300,6 +316,7 @@ describe("runProgressStatus", () => {
       remaining: -3,
       sessionFinished: true,
       found: 2.7,
+      threadsWaiting: 0,
     });
 
     expect(status.runProgress).toEqual({

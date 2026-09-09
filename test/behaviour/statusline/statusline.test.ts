@@ -197,6 +197,24 @@ describe("progress during a run", () => {
     expect(render(f).stdout.trim()).toBe("🪧 signposts: last run failed — run `signpost doctor`");
   });
 
+  // Above the progress row deliberately: a run halted on a review re-stamps no
+  // progress, so the progress ages out and this is what has to be left saying
+  // something. It is also the only row asking the developer to do anything.
+  it("puts a parked review above a run in flight", () => {
+    const f = withStatus(fixture(), { ...progress(1, 2, 3, 4), threadsWaiting: 1 });
+
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
+  });
+
+  it("shows the review after the run's progress has aged out", () => {
+    const f = withStatus(fixture(), {
+      ...progress(RUN_PROGRESS_STALE_MINUTES + 1, 2, 3, 4),
+      threadsWaiting: 1,
+    });
+
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
+  });
+
   it("renders one row and no more", () => {
     const f = withStatus(fixture(), {
       ...progress(1, 2, 3, 4),
