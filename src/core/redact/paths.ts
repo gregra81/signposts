@@ -30,12 +30,20 @@ import path from "node:path";
 /**
  * `repoRoot`-relative when the path is inside the repo; unchanged otherwise.
  *
- * Unchanged, rather than dropped, for anything above the root: those still go
- * through the redactor chain like any other text, and pseudonymisation is what
- * takes a person's name out of `/Users/dana@acme.example/...`. This function
- * has one job, which is the repo's own paths — the ones `scope.paths` and
- * `pathOverlapBoost` are built from, and the ones a home directory prefix was
- * making unusable.
+ * This function has one job, which is the repo's own paths — the ones
+ * `scope.paths` and `pathOverlapBoost` are built from, and the ones a home
+ * directory prefix was making unusable.
+ *
+ * **A path above the root still leaves the machine whole, and that is a known
+ * limit rather than a thing this closes.** It goes through the redactor chain
+ * like any other text, but the chain matches secrets and email addresses, and
+ * a bare username is neither: measured, `/Users/dana/other-repo/src/config.ts`
+ * comes back unchanged. Not a regression — the entropy pattern never matched
+ * it either, since `Users/dana/other` is sixteen characters — but 02-ingestion.md
+ * wants no absolute path leaving at all, and closing that means one rule for
+ * the whole field (a placeholder plus the basename, or the home prefix passed
+ * in the way repoRoot is). 18-end-to-end-gaps.md item 4 asked only for the
+ * repo-relative half.
  */
 export function repoRelativePath(filePath: string, repoRoot: string): string {
   if (!path.isAbsolute(filePath)) {

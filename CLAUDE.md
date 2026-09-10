@@ -46,6 +46,10 @@ them instead of around them.
 there. When you hit this and the collision is coincidental, the fix is a named constant for your
 value, never a reference to the unrelated one that happens to share it.
 
+One thing it does not do: a path *above* `repoRoot` is left alone, and the redactor chain does not
+catch a bare username in it — `/Users/dana/other-repo/src/config.ts` leaves the machine whole. Known
+limit, recorded in the module and in 18-end-to-end-gaps.md item 4, not something that file closes.
+
 **`no-io-in-core`** — under `src/core/`, every Node builtin is an error unless it is on a short
 allowlist (`path`, `url`, `util`, `buffer`, and `crypto` for hashing only), and so are
 `process.*`, `Date.now()`, `new Date()` and `Math.random()`. An allowlist rather than a list of

@@ -5,9 +5,9 @@
     "rootDir": "src",
     "outDir": "dist",
     "rewriteRelativeImportExtensions": true,
-    "sourceMap": true,
-    "allowJs": false,
-    "checkJs": false
+    "sourceMap": true
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

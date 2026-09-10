@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { formatZodError, summariseIssues } from "../../../src/core/errors/format-zod-error.js";
+import {
+  describeError,
+  formatZodError,
+  summariseIssues,
+} from "../../../src/core/errors/format-zod-error.js";
 
 describe("formatZodError", () => {
   it("formats a single issue as one path: message line", () => {
@@ -59,5 +63,29 @@ describe("summariseIssues", () => {
 
   it("is empty for no issues", () => {
     expect(summariseIssues([])).toBe("");
+  });
+});
+
+// The two-branch "unknown -> a line a person can read" was written out
+// separately in three modules, each free to drift on how a schema failure
+// renders — which is the one thing this module exists to decide.
+describe("describeError", () => {
+  it("renders a ZodError through formatZodError, not through its own toString", () => {
+    const result = z.object({ k: z.number() }).safeParse({ k: "nope" });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+
+    expect(describeError(result.error)).toBe(formatZodError(result.error));
+    // zod's own rendering is a multi-line JSON dump; this is the summary.
+    expect(describeError(result.error)).not.toContain("\n");
+  });
+
+  it("takes an ordinary Error's message", () => {
+    expect(describeError(new Error("could not push"))).toBe("could not push");
+  });
+
+  it("stringifies a value that is not an Error at all", () => {
+    expect(describeError("plain string")).toBe("plain string");
+    expect(describeError(undefined)).toBe("undefined");
   });
 });

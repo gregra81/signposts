@@ -104,6 +104,17 @@ export interface CommitOutcome {
   url: string | null;
   /** Why there is no pull request, or why it could not be updated. Null if all is well. */
   reason: string | null;
+  /**
+   * The command that finishes the job by hand, when one is outstanding.
+   *
+   * On the outcome rather than in a callback of its own. It used to be both —
+   * a `prNotOpened(command)` for the exit code and a `committed(outcome)` for
+   * stdout, called one after the other at every failure site, which is two
+   * records of one event free to disagree. The exit code reads this field now
+   * (src/cli/run-port.ts), so the JSON and the code cannot tell different
+   * stories.
+   */
+  manualCommand: string | null;
 }
 
 /**

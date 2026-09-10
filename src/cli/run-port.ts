@@ -67,8 +67,11 @@ export interface RunHandle {
    * Where this invocation's proposals went — the branch, the pull request, or
    * the reason there is none — or null when nothing was committed.
    *
-   * Read off the handle for the same reason `prNotOpened` is: the commit port
-   * is what discovers it, and it belongs to this invocation.
+   * Read off the handle rather than carried in the graph's state: the commit
+   * port is what discovers it, and it belongs to this invocation — a later
+   * process cannot retry a `gh` that is still missing. `manualCommand` on it
+   * is what the run commands turn into an exit code once the run has come back
+   * (12-wire-contracts.md, "Exit codes").
    */
   commitOutcome(): CommitOutcome | null;
   /** Records a session as processed, and the repo as past its bootstrap run. */
@@ -83,17 +86,6 @@ export interface RunHandle {
    * not calling it at all cost.
    */
   syncCorpus(): Promise<{ failures: string[] }>;
-  /**
-   * The `gh pr create` command for work this invocation committed and could
-   * not open a pull request for, or null when nothing is outstanding.
-   *
-   * It is read off the handle rather than carried in the graph's state: the
-   * commit port is what discovers it, it belongs to this invocation (a later
-   * process cannot retry a `gh` that is still missing), and the run commands
-   * only need it to choose an exit code once the run has come back
-   * (12-wire-contracts.md, "Exit codes").
-   */
-  prNotOpened(): string | null;
   /**
    * Threads in this repo halted on a review, longest-waiting first. Reads the
    * checkpoint database rather than any record kept by the run that halted —

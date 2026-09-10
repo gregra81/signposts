@@ -48,14 +48,11 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
     return { reason: NO_AUTHOR };
   }
 
-  // One invocation's worth of "the work is committed and has no pull
-  // request". The commit port writes it, the run command reads it back to
-  // choose its exit code — see RunHandle.prNotOpened.
-  let prNotOpened: string | null = null;
-
-  // Where this invocation's proposals went, for the JSON object the run
-  // command prints. Last write wins: a `run` is one session, and a `resume`
-  // that reaches `commit` is one session too.
+  // Where this invocation's proposals went: the branch, the pull request, the
+  // reason there is none, and the command that would finish it by hand. The
+  // commit port writes it; the run command prints it and derives its exit code
+  // from it. Last write wins — a `run` is one session, and a `resume` that
+  // reaches `commit` is one session too.
   let commitOutcome: CommitOutcome | null = null;
 
   const db = openDb(config.paths.dbPath);
@@ -82,9 +79,6 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
         author,
         forge: ghForge(config.paths.worktreeDir),
         warn,
-        prNotOpened: (command) => {
-          prNotOpened = command;
-        },
         committed: (outcome) => {
           commitOutcome = outcome;
         },
@@ -101,7 +95,6 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
       pendingIndex: ports.pendingIndex,
       index: ports.index,
 
-      prNotOpened: () => prNotOpened,
       commitOutcome: () => commitOutcome,
 
       eligible: (now) =>
@@ -114,16 +107,14 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
 
       pendingReviews: (now) => listPendingReviews({ graph, checkpointer, repo, now, warn }),
 
-      syncCorpus: async () => {
-        const { failures } = await syncCorpus({
+      syncCorpus: () =>
+        syncCorpus({
           db,
           repo,
           knowledgeDir: config.paths.knowledgeDir,
           modelCacheDir: config.paths.modelCacheDir,
           retrieval: config.retrieval,
-        });
-        return { failures };
-      },
+        }),
 
       finish: (session) => {
         // The first run in a repo gates everything to a person, whatever its

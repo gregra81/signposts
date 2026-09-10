@@ -23,8 +23,7 @@
 // `shouldReindex` first and returns without constructing an embedder when the
 // corpus hash and the embedding model both match.
 
-import { ZodError } from "zod";
-import { formatZodError } from "../../core/errors/format-zod-error.ts";
+import { describeError } from "../../core/errors/format-zod-error.ts";
 import { parseSignpost } from "../../core/signpost/codec.ts";
 import { contentHashFor } from "../../core/signpost/content-hash.ts";
 import { ACTIVE_STATUS, type Signpost } from "../../core/signpost/schema.ts";
@@ -65,7 +64,7 @@ export async function syncCorpus(input: SyncCorpusInput): Promise<SyncCorpusResu
     try {
       parsed.push(parseSignpost(file.content));
     } catch (error) {
-      failures.push(`skipping ${file.path}: ${messageOf(error)}`);
+      failures.push(`skipping ${file.path}: ${describeError(error)}`);
     }
   }
 
@@ -89,11 +88,4 @@ export async function syncCorpus(input: SyncCorpusInput): Promise<SyncCorpusResu
   });
 
   return { parsed, failures };
-}
-
-function messageOf(error: unknown): string {
-  if (error instanceof ZodError) {
-    return formatZodError(error);
-  }
-  return error instanceof Error ? error.message : String(error);
 }

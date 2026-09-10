@@ -9,9 +9,10 @@
 // 18-end-to-end-gaps.md item 9 for what an installed copy did before it
 // existed: nothing, quietly.
 //
-// `dist/` first, because it is what a published tarball ships and `src/` is
-// not in it. A checkout that has run the build has both, and running the built
-// copy there is the same code — one that a developer can delete.
+// `dist/` first for the reason above, not because `src/` is absent — the
+// tarball ships both, because a consumer running through `tsx` imports `src/`
+// directly (CLAUDE.md, "Language and imports"). In a checkout that has built,
+// both are here and either would work; the built one skips type stripping.
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,8 +21,8 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const built = path.join(root, "dist", "io", "production-app.js");
 const source = path.join(root, "src", "io", "production-app.ts");
 
-const entry = existsSync(built) ? built : source;
-if (!existsSync(entry)) {
+const entry = [built, source].find((candidate) => existsSync(candidate));
+if (entry === undefined) {
   process.stderr.write(
     `signposts: neither ${path.relative(root, built)} nor ${path.relative(root, source)} is here. ` +
       "An installed copy is missing its build; a clone needs `pnpm install && pnpm build`.\n",

@@ -276,7 +276,7 @@ async function report(
  * answers those itself, and it is told to by `status: "waiting"`.
  */
 function exitCode(handle: RunHandle, result: RunResult): ExitCode {
-  if (handle.prNotOpened() !== null) {
+  if (handle.commitOutcome()?.manualCommand != null) {
     return EXIT_CODES.prCreationFailed;
   }
   if (result.pending.some((pending) => pending.request.kind === REVIEW_REQUEST_KIND)) {

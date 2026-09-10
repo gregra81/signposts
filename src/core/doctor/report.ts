@@ -212,24 +212,25 @@ function hookLine(facts: DoctorFacts): string {
   }
 }
 
-function authorLine(facts: DoctorFacts): string {
-  return facts.git.authorEmail === null
-    ? "git author: git config user.email is not set — `sessions`, `run` and `resume` all refuse to run without it"
-    : `git author: ${facts.git.authorEmail}`;
-}
-
-function originLine(facts: DoctorFacts): string {
-  return facts.git.repo === null
-    ? "git origin: no 'origin' remote, or none that yields an owner/name — `init` and `index` refuse to run without it"
-    : `git origin: ${facts.git.repo}`;
+/** A git fact as its value, or as the reason its absence stops the loop. */
+function gitLine(label: string, value: string | null, absent: string): string {
+  return `${label}: ${value ?? absent}`;
 }
 
 /** One line per fact, in the order 15-spec.md's story 72 lists them. */
 export function buildDoctorReport(facts: DoctorFacts): string[] {
   return [
     nodeLine(facts),
-    authorLine(facts),
-    originLine(facts),
+    gitLine(
+      "git author",
+      facts.git.authorEmail,
+      "git config user.email is not set — `sessions`, `run` and `resume` all refuse to run without it",
+    ),
+    gitLine(
+      "git origin",
+      facts.git.repo,
+      "no 'origin' remote, or none that yields an owner/name — `init` and `index` refuse to run without it",
+    ),
     ghLine(facts),
     modelCacheLine(facts),
     dbIntegrityLine(facts),

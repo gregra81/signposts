@@ -19,8 +19,9 @@ export function getOriginUrl(repoRoot: string): string | null {
 /**
  * The `"owner/name"` repo key (12-wire-contracts.md) derived from
  * `repoRoot`'s `origin` git remote, or `null` when there's no origin or it
- * doesn't parse. Only `init`/`index` call this — `doctor` never needs a
- * repo key (R5), so it must stay free of any GitHub-origin requirement.
+ * doesn't parse. `init` and `index` need it and refuse to run without it;
+ * `doctor` only reports it (18-end-to-end-gaps.md item 7), so this must stay
+ * free of any GitHub-origin requirement — `doctor` runs in any repo (R5).
  */
 export function resolveRepo(repoRoot: string): string | null {
   const originUrl = getOriginUrl(repoRoot);

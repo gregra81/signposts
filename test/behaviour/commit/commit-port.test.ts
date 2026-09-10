@@ -89,8 +89,12 @@ describe("the commit port", () => {
       author: AUTHOR,
       forge,
       warn: (message) => warnings.push(message),
-      prNotOpened: (command) => manualCommands.push(command),
-      committed: (outcome) => outcomes.push(outcome),
+      committed: (outcome) => {
+        outcomes.push(outcome);
+        if (outcome.manualCommand !== null) {
+          manualCommands.push(outcome.manualCommand);
+        }
+      },
       today: () => TODAY,
     });
   }
@@ -263,7 +267,7 @@ describe("the commit port", () => {
       await apply("sess-1", [{ op: "add", signpost: signpost() }]);
 
       expect(outcomes).toEqual([
-        { branch: BRANCH, pr: 1, url: `${FAKE_PR_URL_PREFIX}1`, reason: null },
+        { branch: BRANCH, pr: 1, url: `${FAKE_PR_URL_PREFIX}1`, reason: null, manualCommand: null },
       ]);
     });
 
@@ -273,7 +277,13 @@ describe("the commit port", () => {
 
       // The second session found the pull request by listing, which reports a
       // number and nothing else.
-      expect(outcomes[1]).toEqual({ branch: BRANCH, pr: 1, url: null, reason: null });
+      expect(outcomes[1]).toEqual({
+        branch: BRANCH,
+        pr: 1,
+        url: null,
+        reason: null,
+        manualCommand: null,
+      });
     });
 
     it("reports nothing at all for a session that committed nothing", async () => {
@@ -299,8 +309,12 @@ describe("the commit port", () => {
         setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
       },
       warn: (message) => warnings.push(message),
-      prNotOpened: (command) => manualCommands.push(command),
-      committed: (outcome) => outcomes.push(outcome),
+      committed: (outcome) => {
+        outcomes.push(outcome);
+        if (outcome.manualCommand !== null) {
+          manualCommands.push(outcome.manualCommand);
+        }
+      },
       today: () => TODAY,
     });
 
@@ -423,8 +437,12 @@ describe("the commit port", () => {
         setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
       },
       warn: (message) => warnings.push(message),
-      prNotOpened: (command) => manualCommands.push(command),
-      committed: (outcome) => outcomes.push(outcome),
+      committed: (outcome) => {
+        outcomes.push(outcome);
+        if (outcome.manualCommand !== null) {
+          manualCommands.push(outcome.manualCommand);
+        }
+      },
       today: () => TODAY,
     });
 
@@ -496,8 +514,12 @@ describe("the commit port", () => {
       author: "greg.rashkevitch@example.com",
       forge,
       warn: (message) => warnings.push(message),
-      prNotOpened: (command) => manualCommands.push(command),
-      committed: (outcome) => outcomes.push(outcome),
+      committed: (outcome) => {
+        outcomes.push(outcome);
+        if (outcome.manualCommand !== null) {
+          manualCommands.push(outcome.manualCommand);
+        }
+      },
       today: () => TODAY,
     });
 

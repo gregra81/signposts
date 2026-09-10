@@ -20,10 +20,9 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { ZodError } from "zod";
 import type { Forge, ForgeBranch } from "../forge/forge.ts";
 import type { CommitInput, CommitOutcome, CommitPort } from "../../graph/ports.ts";
-import { formatZodError } from "../../core/errors/format-zod-error.ts";
+import { describeError } from "../../core/errors/format-zod-error.ts";
 import { INDEX_FILENAME, SIGNPOSTS_DIRNAME } from "../../core/config/constants.ts";
 import { branchPrefix, pickBranch } from "../../core/git/branch.ts";
 import { commitMessage, prBody, prLabels, prSection, PR_TITLE } from "../../core/pr/body.ts";
@@ -47,23 +46,16 @@ export interface CommitPortInput {
   /** Where a step that could not finish says so. */
   warn: (message: string) => void;
   /**
-   * Called when the commits are on the branch and no pull request carries
-   * them, with the command that opens one by hand.
+   * Called once per session that committed anything, with where the work went:
+   * the branch, the pull request, the reason there is none, and the command
+   * that would finish it by hand.
    *
-   * Separate from `warn` because it is not only a message: it is what the CLI
-   * turns into EXIT_CODES.prCreationFailed, and a caller that treats non-zero
-   * as fatal has to be able to tell it from a real failure
-   * (12-wire-contracts.md, "Exit codes").
-   */
-  prNotOpened: (command: string) => void;
-  /**
-   * Called once per session that committed anything, with where the work went.
-   *
-   * Separate from `prNotOpened`, which is a single string chosen to be pasted
-   * into a shell and is what the exit code is built from. This is the whole
-   * outcome, success included, because stdout said nothing at all about the
-   * branch or the pull request and stdout is the contract
-   * (18-end-to-end-gaps.md, item 5).
+   * One callback, not two. `manualCommand` is what the CLI turns into
+   * EXIT_CODES.prCreationFailed — a caller that treats non-zero as fatal has to
+   * tell that from a real failure (12-wire-contracts.md, "Exit codes") — and
+   * the same record is what stdout prints, because stdout said nothing at all
+   * about the branch or the pull request before (18-end-to-end-gaps.md, item
+   * 5). Two callbacks meant two records of one event.
    */
   committed: (outcome: CommitOutcome) => void;
   /** ISO date, from the injected clock — `reinforce` records it. */
@@ -144,8 +136,13 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
           `signposts: wrote ${String(written.length)} file(s) to ${branch} but could not push ` +
             `(${pushed.output}). Run:\n${command}`,
         );
-        input.prNotOpened(command);
-        input.committed({ branch, pr: cycle.openPr, url: null, reason: `could not push: ${pushed.output}` });
+        input.committed({
+          branch,
+          pr: cycle.openPr,
+          url: null,
+          reason: `could not push: ${pushed.output}`,
+          manualCommand: command,
+        });
         return;
       }
 
@@ -200,7 +197,7 @@ function readCorpus(knowledgeDir: string): Signpost[] {
     try {
       return parseSignpost(file.content);
     } catch (error) {
-      const detail = error instanceof ZodError ? formatZodError(error) : String(error);
+      const detail = describeError(error);
       // Unlike `signpost index`, which skips a bad file and carries on, this
       // refuses: the corpus is about to be edited, and applying operations
       // against a corpus missing one of its members can write a duplicate id
@@ -280,18 +277,15 @@ async function openOrUpdatePr(
   let url: string | null = null;
 
   try {
-    const existed = open !== null;
-    if (!existed) {
+    if (open === null) {
       const created = await input.forge.openPr({ branch, title: PR_TITLE, body: prBody("", section) });
       open = created.number;
       url = created.url;
+    } else {
+      await input.forge.updatePr(open, prBody(await input.forge.readPrBody(open), section));
     }
 
-    if (existed) {
-      await input.forge.updatePr(open!, prBody(await input.forge.readPrBody(open!), section));
-    }
-
-    await input.forge.setLabels(open!, prLabels(operations.operations));
+    await input.forge.setLabels(open, prLabels(operations.operations));
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     if (open === null) {
@@ -299,8 +293,13 @@ async function openOrUpdatePr(
       input.warn(
         `signposts: pushed ${branch}, but could not open its pull request (${reason}). Run:\n${command}`,
       );
-      input.prNotOpened(command);
-      input.committed({ branch, pr: null, url: null, reason: `could not open a pull request: ${reason}` });
+      input.committed({
+        branch,
+        pr: null,
+        url: null,
+        reason: `could not open a pull request: ${reason}`,
+        manualCommand: command,
+      });
       return;
     }
     input.warn(
@@ -313,9 +312,11 @@ async function openOrUpdatePr(
       pr: open,
       url,
       reason: `the pull request body and labels are stale: ${reason}`,
+      // The commit is on the pull request; nothing is left to run by hand.
+      manualCommand: null,
     });
     return;
   }
 
-  input.committed({ branch, pr: open, url, reason: null });
+  input.committed({ branch, pr: open, url, reason: null, manualCommand: null });
 }

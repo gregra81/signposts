@@ -9,6 +9,7 @@ import type { ExitCode } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { indexExitCode } from "../../core/cli/index-exit-code.ts";
 import { generateIndexDoc } from "../../core/signpost/index-doc.ts";
+import type { Signpost } from "../../core/signpost/schema.ts";
 import { openDb } from "../../io/db/migrate.ts";
 import { syncCorpus } from "../../io/signpost/sync-corpus.ts";
 import { ensureKnowledgeDir } from "../../io/init/signposts-dir.ts";
@@ -80,7 +81,7 @@ export async function runIndex({ config, repoRoot, stderr }: RunIndexInput): Pro
  * empty corpus and no file is the one case that writes nothing: there is no
  * index to publish, and the absence is what lets the merge land.
  */
-function writeIndexDoc(config: ResolvedConfig, parsed: Parameters<typeof generateIndexDoc>[0]): void {
+function writeIndexDoc(config: ResolvedConfig, parsed: readonly Signpost[]): void {
   if (parsed.length === 0 && !existsSync(config.paths.indexFile)) {
     return;
   }

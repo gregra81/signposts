@@ -87,7 +87,7 @@ export function runReview(input: ReviewCommandInput): Promise<ExitCode> {
  * wrapper the work is on the forge when it is not.
  */
 function settled(handle: RunHandle): ExitCode {
-  return handle.prNotOpened() === null ? EXIT_CODES.ok : EXIT_CODES.prCreationFailed;
+  return handle.commitOutcome()?.manualCommand == null ? EXIT_CODES.ok : EXIT_CODES.prCreationFailed;
 }
 
 /**

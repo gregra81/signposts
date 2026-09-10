@@ -50,12 +50,10 @@ export const REVIEW_REQUEST_KIND = "human_review";
  * warning. An agent driving the loop by SKILL.md looped there forever
  * (18-end-to-end-gaps.md, item 3).
  */
-export interface GatedReviewItem {
+export type GatedReviewItem = GatedOperations["needsHuman"][number] & {
   /** What the resume value files this operation's decision under. */
   key: string;
-  operation: GatedOperations["needsHuman"][number]["operation"];
-  reason: GatedOperations["needsHuman"][number]["reason"];
-}
+};
 
 /** What a reviewer is shown when the run halts. */
 export interface ReviewRequest {

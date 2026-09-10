@@ -28,9 +28,8 @@
     "mutate:gate": "node scripts/mutation-gate.mjs",
     "verify": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run mutate && pnpm run mutate:gate",
     "build:hooks": "node scripts/build-hooks.mjs",
-    "prepack": "tsc -p tsconfig.build.json && node scripts/build-hooks.mjs",
-    "build": "tsc -p tsconfig.build.json && node scripts/build-hooks.mjs",
-    "build:src": "tsc -p tsconfig.build.json"
+    "prepack": "pnpm build",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-hooks.mjs"
   },
   "devDependencies": {
     "@stryker-mutator/core": "9.6.1",

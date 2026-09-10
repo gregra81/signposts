@@ -72,7 +72,7 @@ describe("what a run reports to whatever ran it", () => {
   let eligibleCalls: number;
 
   /** A run seam over the scripted graph, saying what its commit port left undone. */
-  function seam(options: HarnessOptions, prNotOpened: string | null = null): OpenRun {
+  function seam(options: HarnessOptions, manualCommand: string | null = null): OpenRun {
     const ports = makeHarness(options);
     const checkpointer = new MemorySaver();
     const handle: RunHandle = {
@@ -86,8 +86,10 @@ describe("what a run reports to whatever ran it", () => {
         return [SESSION];
       },
       finish: () => {},
-      prNotOpened: () => prNotOpened,
-      commitOutcome: () => null,
+      commitOutcome: () =>
+        manualCommand === null
+          ? null
+          : { branch: "signposts/greg/2026-09-10", pr: null, url: null, reason: "no forge", manualCommand },
       syncCorpus: () => Promise.resolve({ failures: [] }),
       pendingReviews: () => Promise.resolve([]),
       close: () => {},

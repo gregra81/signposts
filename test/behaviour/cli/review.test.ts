@@ -128,7 +128,7 @@ async function runToCompletion(): Promise<void> {
  * `eligible` returns nothing, as it would for a transcript that is not on this
  * machine — the review must not need the transcript to answer a halt.
  */
-function openRunWith(harness: Harness, prNotOpened: string | null = null): OpenRun {
+function openRunWith(harness: Harness, manualCommand: string | null = null): OpenRun {
   return async ({ warn }) => {
     const { checkpointer, close } = openCheckpointer(checkpointPath);
     const graph = buildExtractionGraph({ ports: harness, checkpointer });
@@ -142,8 +142,10 @@ function openRunWith(harness: Harness, prNotOpened: string | null = null): OpenR
       finish: (session) => finished.push(session),
       // What the commit port left undone, if anything — answering the last
       // review is often the invocation that commits.
-      prNotOpened: () => prNotOpened,
-      commitOutcome: () => null,
+      commitOutcome: () =>
+        manualCommand === null
+          ? null
+          : { branch: "signposts/greg/2026-09-10", pr: null, url: null, reason: "no forge", manualCommand },
       syncCorpus: () => Promise.resolve({ failures: [] }),
       pendingReviews: (now) =>
         listPendingReviews({ graph, checkpointer, repo: RUN_INPUT.repo, now, warn }),
