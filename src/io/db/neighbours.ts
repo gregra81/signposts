@@ -8,6 +8,12 @@
 // Hard filters (repo, status='active') are applied inside the queries
 // themselves — never a similarity floor. If the fused, filtered result is
 // empty or short of k, that is returned as-is; nothing pads it out.
+//
+// `is_pending` is the one filter that differs by caller, so it is an option
+// rather than part of the constant below: the write path must see what an
+// earlier session in the same run proposed (06-review-and-pr.md), and the read
+// path must not — a proposal a person may still reject is not recorded
+// knowledge (./search-signposts.ts).
 
 import type Database from "better-sqlite3";
 import { combineScore } from "../../core/retrieval/combine-score.ts";
@@ -21,7 +27,22 @@ import { ACTIVE_STATUS, scopeSchema, type Scope } from "../../core/signpost/sche
 // Shared by both queries below — the "hard filter" half of the "Hard
 // filters (repo, status='active')" contract, kept in one place so the two
 // prepared statements can't drift apart.
-const ACTIVE_IN_REPO_FILTER = "signpost_id IN (SELECT id FROM signposts WHERE repo = ? AND status = ?)";
+const ACTIVE_IN_REPO_FILTER = "signpost_id IN (SELECT id FROM signposts WHERE repo = ? AND status = ?";
+
+/** Both queries take the same filter, with or without the pending half. */
+function activeInRepoFilter(includePending: boolean): string {
+  return `${ACTIVE_IN_REPO_FILTER}${includePending ? "" : " AND is_pending = 0"})`;
+}
+
+export interface RankOptions {
+  /**
+   * Whether rows a run has proposed and not merged are eligible. Defaults to
+   * true, which is the write path's contract: `classify` is shown them.
+   */
+  includePending: boolean;
+}
+
+const WRITE_PATH_OPTIONS: RankOptions = { includePending: true };
 
 export interface NeighbourCandidate {
   /** Already-normalised, already-embedded claim text — see normalize.ts / the embedder. */
@@ -57,13 +78,50 @@ interface SignpostIdRow {
   signpost_id: string;
 }
 
-interface SignpostRow {
+/**
+ * Exported for the read path (./search-signposts.ts), which projects the same
+ * row into 12-wire-contracts.md's MCP shape. `category` and `confidence` are
+ * selected for that consumer alone: a neighbour is judged on its claim, and
+ * neither field reaches the classify prompt.
+ */
+export interface SignpostRow {
   id: string;
   claim: string;
   evidence: string;
+  category: string;
+  confidence: number;
   scope_json: string;
   is_pending: number;
   pending_review: number;
+}
+
+/** A row, its parsed scope, and the score it was ranked on — see rankSignposts. */
+export interface RankedRow {
+  row: SignpostRow;
+  /** Parsed once here, because the ranking needs it for the path-overlap boost. */
+  scope: Scope;
+  score: number;
+}
+
+/**
+ * A row's scope, or `undefined` when the column no longer parses — the row is
+ * then dropped rather than thrown on, exactly as ./signposts.ts's `toSignpost`
+ * already does and for the same reason it learned to: `JSON.parse` and
+ * `scopeSchema.parse` both throw, this runs once per candidate on the write
+ * path and once per query on the read path, and one row written by an older
+ * build took down every retrieval in that repo until someone worked out that
+ * `signpost index` needed re-running. On the read path it would not even have
+ * said that much: the MCP server catches the throw and answers "nothing".
+ */
+function parseScope(scopeJson: string): Scope | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(scopeJson);
+  } catch {
+    return undefined;
+  }
+  const parsed = scopeSchema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
 
 /** Which of the two pending states a proposed row is in — see Neighbour.pending. */
@@ -84,6 +142,29 @@ export function findNeighbours(
   candidate: NeighbourCandidate,
   k: number,
 ): Neighbour[] {
+  return rankSignposts(db, repo, candidate, k).map(({ row, scope }) => ({
+    id: row.id,
+    claim: row.claim,
+    evidence: row.evidence,
+    scope,
+    ...(row.is_pending === 1 ? { pending: pendingStateOf(row) } : {}),
+  }));
+}
+
+/**
+ * The retrieval itself, shared with the read path (./search-signposts.ts):
+ * the two vary only in what they project out of the row, and a second copy of
+ * the two queries is a second place for the hard filter to drift.
+ *
+ * Returns at most `k` rows, highest combined score first.
+ */
+export function rankSignposts(
+  db: Database.Database,
+  repo: string,
+  candidate: NeighbourCandidate,
+  k: number,
+  options: RankOptions = WRITE_PATH_OPTIONS,
+): RankedRow[] {
   if (k <= 0) {
     return [];
   }
@@ -93,7 +174,7 @@ export function findNeighbours(
       `SELECT signpost_id
        FROM signpost_vec
        WHERE repo = ? AND claim_embedding MATCH ? AND k = ?
-         AND ${ACTIVE_IN_REPO_FILTER}
+         AND ${activeInRepoFilter(options.includePending)}
        ORDER BY distance`,
     )
     .all(repo, vectorToBlob(candidate.embedding), k, repo, ACTIVE_STATUS) as SignpostIdRow[];
@@ -107,7 +188,7 @@ export function findNeighbours(
             `SELECT signpost_id
              FROM signpost_fts
              WHERE repo = ? AND signpost_fts MATCH ?
-               AND ${ACTIVE_IN_REPO_FILTER}
+               AND ${activeInRepoFilter(options.includePending)}
              ORDER BY bm25(signpost_fts)
              LIMIT ?`,
           )
@@ -125,7 +206,7 @@ export function findNeighbours(
   const placeholders = ids.map(() => "?").join(", ");
   const signpostRows = db
     .prepare(
-      `SELECT id, claim, evidence, scope_json, is_pending, pending_review FROM signposts WHERE repo = ? AND id IN (${placeholders})`,
+      `SELECT id, claim, evidence, category, confidence, scope_json, is_pending, pending_review FROM signposts WHERE repo = ? AND id IN (${placeholders})`,
     )
     .all(repo, ...ids) as SignpostRow[];
   const rowsById = new Map(signpostRows.map((row) => [row.id, row]));
@@ -136,20 +217,14 @@ export function findNeighbours(
       if (!row) {
         return null;
       }
-      const scope = scopeSchema.parse(JSON.parse(row.scope_json));
+      const scope = parseScope(row.scope_json);
+      if (scope === undefined) {
+        return null;
+      }
       const boost = pathOverlapBoost(candidate.paths, scope.paths);
-      const combined = combineScore(entry.score, boost);
-      const neighbour: Neighbour = {
-        id: row.id,
-        claim: row.claim,
-        evidence: row.evidence,
-        scope,
-        ...(row.is_pending === 1 ? { pending: pendingStateOf(row) } : {}),
-      };
-      return { neighbour, combined };
+      return { row, scope, score: combineScore(entry.score, boost) };
     })
-    .filter((entry): entry is { neighbour: Neighbour; combined: number } => entry !== null)
-    .sort((a, b) => b.combined - a.combined)
-    .slice(0, k)
-    .map((entry) => entry.neighbour);
+    .filter((entry): entry is RankedRow => entry !== null)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k);
 }

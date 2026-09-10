@@ -11,6 +11,9 @@
   "files": [
     "bin/",
     "src/",
+    ".claude-plugin/",
+    "commands/",
+    "hooks/hooks.json",
     "hooks/session-start.js",
     "statusline/statusline.js",
     "README.md"
@@ -45,6 +48,7 @@
     "@huggingface/transformers": "^4.2.0",
     "@langchain/langgraph": "^1.4.12",
     "@langchain/langgraph-checkpoint-sqlite": "^1.0.4",
+    "@modelcontextprotocol/server": "^2.0.0",
     "better-sqlite3": "^13.0.3",
     "sqlite-vec": "^0.1.9",
     "yaml": "^2.9.0",

@@ -33,6 +33,7 @@ import { runDoctor } from "./cli/commands/doctor.ts";
 import { runExtraction, runResume, runSessionsList } from "./cli/commands/run.ts";
 import { runReview } from "./cli/commands/review.ts";
 import { runWorker } from "./cli/commands/worker.ts";
+import { runMcp } from "./cli/commands/mcp.ts";
 import type { OpenRun } from "./cli/run-port.ts";
 
 export type { ExitCode };
@@ -63,10 +64,11 @@ export interface App {
   run(argv: string[]): Promise<ExitCode>;
 }
 
-// `worker` is left out deliberately: the hook spawns it, nobody types it, and
-// listing it would invite someone to run the background process by hand
-// expecting it to distil their sessions, which it cannot do (see
-// cli/commands/worker.ts).
+// `worker` and `mcp` are left out deliberately: the hook spawns one and the
+// plugin manifest starts the other, nobody types either, and listing `worker`
+// would invite someone to run the background process by hand expecting it to
+// distil their sessions, which it cannot do (see cli/commands/worker.ts).
+// `mcp` typed at a terminal is a server talking JSON-RPC to a keyboard.
 const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|review> [--verbose]\n";
 
 function defaultStdio(): Stdio {
@@ -134,6 +136,8 @@ export function createApp({ config, openRun, stdio }: CreateAppInput): App {
             now: () => new Date(),
             adoptLock: command.options.adoptLock,
           });
+        case "mcp":
+          return runMcp({ config, repoRoot, stderr: io.error, stdin: io.input });
         case "review":
           return runReview({
             config,
