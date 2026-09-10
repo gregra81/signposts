@@ -6,9 +6,13 @@
 // checkout that may never have consented (R3), and a search that creates a
 // database is a search that writes state on behalf of someone who only asked
 // what the repo knows. So this opens read-only, refuses to create, and reports
-// "no" rather than throwing for every reason it might fail — a missing file, a
-// corrupt one, a schema that is not the one this build reads (older, or
-// written by a newer install).
+// rather than throws.
+//
+// **It reports which failure it was.** An absent file and a database this
+// build cannot read are different things to say — "no index has been built
+// here yet, which is expected on a fresh clone" is true of the first and
+// misleading about the second, where the honest answer names the schema. A
+// single `null` for both collapsed them into the friendlier wrong one.
 //
 // The sqlite-vec extension still has to be loaded into this connection before
 // `signpost_vec` can be queried, exactly as ./migrate.ts documents: the vec0
@@ -18,28 +22,34 @@ import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import { SCHEMA_VERSION, readUserVersion } from "./migrate.ts";
 
-/**
- * The database at `dbPath`, or `null` when there is nothing this build can
- * read there. Never creates, never migrates, never throws.
- */
-export function openReadOnlyDb(dbPath: string): Database.Database | null {
+export type OpenedReadOnlyDb =
+  | { status: "open"; db: Database.Database }
+  /** No file. Nothing has run in this checkout — the cold clone. */
+  | { status: "missing" }
+  /** A file this build cannot read: corrupt, not SQLite, or another schema version. */
+  | { status: "unreadable" };
+
+/** Never creates, never migrates, never throws. */
+export function openReadOnlyDb(dbPath: string): OpenedReadOnlyDb {
   let db: Database.Database;
   try {
     db = new Database(dbPath, { readonly: true, fileMustExist: true });
   } catch {
-    return null; // No file yet: the cold clone, before the first index build.
+    return { status: "missing" };
   }
 
   try {
     sqliteVec.load(db);
+    // A schema older than this build, or written by a newer install: either
+    // way the queries below it were written against a different shape.
     if (readUserVersion(db) !== SCHEMA_VERSION) {
       db.close();
-      return null;
+      return { status: "unreadable" };
     }
-    return db;
+    return { status: "open", db };
   } catch {
     // Corrupt, not SQLite at all, or an extension that will not load here.
     db.close();
-    return null;
+    return { status: "unreadable" };
   }
 }

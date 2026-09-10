@@ -2,13 +2,25 @@
 // (./neighbours.ts), projected into 12-wire-contracts.md's MCP shape, plus
 // the check that says whether the index is worth searching at all.
 //
+// **Merged rows only, on both halves.** `signposts` holds two kinds of row:
+// what `signpost index` mirrored off disk, and what a run has proposed and not
+// yet merged (`is_pending = 1`, ./pending-index.ts). The second kind exists so
+// `classify` can see what an earlier session in the same run proposed; it is
+// not recorded team knowledge, and a proposal a person may still reject must
+// not come back to a reader as though it were. It also must not count towards
+// the corpus hash: `rebuildIndex` is fed the rows parsed off disk, so a corpus
+// hash taken over pending rows too disagrees with `index_meta` from the moment
+// a run proposes anything — which reported the whole index stale, and pointed
+// the reader at `signpost index`, whose run would have deleted the in-flight
+// run's pending rows.
+//
 // **Fresh is measured against the mirror, not against disk.** `shouldReindex`
-// compares the corpus hash recorded in `index_meta` with the hash of the rows
-// in `signposts` — so this reports stale exactly when the vectors and the FTS
-// rows no longer describe what the mirror holds, which is the condition
-// `signpost index` acts on (./vector-index.ts). A `git pull` that brings a
-// teammate's markdown in leaves both halves agreeing until an `index` run
-// picks the files up, and that run is not this process's to trigger: the
+// compares the corpus hash recorded in `index_meta` with the hash of the
+// merged rows in `signposts` — so this reports stale exactly when the vectors
+// and the FTS rows no longer describe what the mirror holds, which is the
+// condition `signpost index` acts on (./vector-index.ts). A `git pull` that
+// brings a teammate's markdown in leaves both halves agreeing until an `index`
+// run picks the files up, and that run is not this process's to trigger: the
 // session-start hook wakes the worker for it (05-retrieval.md, "The
 // `SessionStart` hook builds it") at the same moment a Claude session — and
 // therefore this server — starts. Re-hashing every file on disk per query
@@ -34,33 +46,46 @@ interface IndexMetaRow {
 }
 
 /**
- * Whether `repo`'s vector/FTS index matches the signposts recorded for it —
- * the same decision, on the same inputs, that `rebuildIndex` makes before it
- * rebuilds anything.
+ * What state `repo`'s vector/FTS index is in.
+ *
+ * `missing` and `stale` are separate because they are separate things to tell
+ * a reader, and one of them is the ordinary case: `signpost init` creates the
+ * database and does not index, so a repo that has consented and nothing more
+ * has a database, no `index_meta` row, and nothing recorded. Folding that into
+ * `shouldReindex` — which answers true for it, since a missing index is one of
+ * its three triggers — told that repo its index was "out of date with the
+ * recorded signposts" when it had recorded none.
  */
-export function indexIsCurrent(db: Database.Database, repo: string): boolean {
-  const corpus = db
-    .prepare("SELECT id, content_hash FROM signposts WHERE repo = ? AND status = ?")
-    .all(repo, ACTIVE_STATUS) as CorpusRow[];
+export type IndexState = "missing" | "stale" | "current";
 
+export function indexState(db: Database.Database, repo: string): IndexState {
   const meta = db.prepare("SELECT corpus_hash, embedding_model FROM index_meta WHERE repo = ?").get(repo) as
     | IndexMetaRow
     | undefined;
+  if (meta === undefined) {
+    return "missing";
+  }
 
-  return !shouldReindex({
-    indexExists: meta !== undefined,
-    storedCorpusHash: meta?.corpus_hash ?? null,
+  const corpus = db
+    .prepare("SELECT id, content_hash FROM signposts WHERE repo = ? AND status = ? AND is_pending = 0")
+    .all(repo, ACTIVE_STATUS) as CorpusRow[];
+
+  const stale = shouldReindex({
+    indexExists: true,
+    storedCorpusHash: meta.corpus_hash,
     currentCorpusHash: computeCorpusHash(corpus),
-    storedEmbeddingModel: meta?.embedding_model ?? null,
+    storedEmbeddingModel: meta.embedding_model,
     currentEmbeddingModel: EMBEDDING_MODEL,
   });
+
+  return stale ? "stale" : "current";
 }
 
 /**
- * Up to `limit` active signposts for `query`, best first. `paths` is the
- * caller's working set, fed to the same path-overlap boost the write path
- * uses — a signpost scoped to a file you are editing outranks a near-peer
- * that is not.
+ * Up to `limit` merged, active signposts for `query`, best first. `paths` is
+ * the caller's working set, fed to the same path-overlap boost the write path
+ * uses — a signpost scoped to a file you are editing outranks a near-peer that
+ * is not.
  */
 export function searchSignposts(
   db: Database.Database,
@@ -68,7 +93,7 @@ export function searchSignposts(
   candidate: NeighbourCandidate,
   limit: number,
 ): SignpostHit[] {
-  return rankSignposts(db, repo, candidate, limit).map(({ row, score }) => ({
+  return rankSignposts(db, repo, candidate, limit, { includePending: false }).map(({ row, score }) => ({
     id: row.id,
     claim: row.claim,
     category: row.category,

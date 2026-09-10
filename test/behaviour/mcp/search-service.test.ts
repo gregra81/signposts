@@ -211,13 +211,91 @@ describe("the search_signposts read path", () => {
     expect(output.diagnostic).toBe(diagnosticFor(SEARCH_UNAVAILABLE.no_repo));
   });
 
-  it("reports an unreadable database instead of throwing it into the turn", async () => {
+  it("reports an unreadable database as unreadable, not as one that was never built", async () => {
+    // A file that is not SQLite, a corrupt one and a schema from another build
+    // are all "this build cannot read it" — which is a different thing to tell
+    // a developer than "expected on a fresh clone, and not an error".
     mkdirSync(path.dirname(config.paths.dbPath), { recursive: true });
     writeFileSync(config.paths.dbPath, "this is not a SQLite file", "utf8");
 
     const output = await search("anything at all");
 
     expect(output.results).toEqual([]);
+    expect(output.diagnostic).toBe(diagnosticFor(SEARCH_UNAVAILABLE.unreadable));
+  });
+
+  it("tells a repo that has only consented that nothing is indexed, not that its index is stale", async () => {
+    // `init` creates the database and never indexes (src/cli/commands/init.ts),
+    // so this is the state every repo passes through on its way in: a database,
+    // no index_meta row, and nothing recorded.
+    openDb(config.paths.dbPath).close();
+
+    const output = await search("can I run migrations against staging");
+
+    expect(output.results).toEqual([]);
     expect(output.diagnostic).toBe(diagnosticFor(SEARCH_UNAVAILABLE.no_index));
   });
+
+  it(
+    "keeps answering while a run holds unmerged proposals, and does not return them",
+    async () => {
+      writeSignpostFile(STAGING);
+      await buildIndex();
+
+      // What `indexPending` writes between the sessions of a run: active, in
+      // the index so `classify` can retrieve it, is_pending = 1, and
+      // index_meta deliberately untouched (src/io/db/pending-index.ts).
+      const db = openDb(config.paths.dbPath);
+      db.prepare(
+        `INSERT INTO signposts
+           (id, repo, claim, category, evidence, scope_json, confidence, status, provenance_json,
+            is_pending, pending_review, content_hash, embedding_model, embedding_dim)
+         VALUES (?, ?, ?, 'gotcha', ?, ?, 0.9, 'active', '{}', 1, 1, 'hash-pending', '', 0)`,
+      ).run(
+        "proposed-not-merged",
+        REPO,
+        "A claim a person has not accepted yet.",
+        "evidence",
+        JSON.stringify({ repo: REPO }),
+      );
+      db.close();
+
+      const output = await search("is it safe to apply schema changes to the pre-production environment");
+
+      // The merged index is current — a proposal nobody accepted must not make
+      // the whole corpus unsearchable, and the diagnostic that would have said
+      // so tells the reader to run `signpost index`, which deletes the pending
+      // rows of the run still using them.
+      expect(output.diagnostic).toBeUndefined();
+      expect(output.results.map((hit) => hit.id)).toContain(STAGING.id);
+      expect(output.results.map((hit) => hit.id)).not.toContain("proposed-not-merged");
+    },
+    60_000,
+  );
+
+  it(
+    "drops a row whose scope no longer parses rather than answering nothing",
+    async () => {
+      writeSignpostFile(STAGING);
+      writeSignpostFile(PRISMA);
+      await buildIndex();
+
+      // A row written by an older build. `JSON.parse` and `scopeSchema.parse`
+      // both throw, and on this path a throw becomes an empty result for every
+      // query in the repo — see src/io/db/neighbours.ts's parseScope.
+      const db = openDb(config.paths.dbPath);
+      db.prepare("UPDATE signposts SET scope_json = ? WHERE repo = ? AND id = ?").run(
+        "{not json at all",
+        REPO,
+        PRISMA.id,
+      );
+      db.close();
+
+      const output = await search("is it safe to apply schema changes to the pre-production environment");
+
+      expect(output.results.map((hit) => hit.id)).toContain(STAGING.id);
+      expect(output.results.map((hit) => hit.id)).not.toContain(PRISMA.id);
+    },
+    60_000,
+  );
 });

@@ -245,8 +245,16 @@ Three things it does not do:
 - **It does not open the database for writing.** `openDb` creates and migrates; a reader must do
   neither (R3), so `src/io/db/read-only.ts` opens read-only and reports "no" instead of throwing.
 - **It does not re-hash the corpus on disk.** Stale means `shouldReindex` disagreeing with the
-  mirror — the same decision `signpost index` makes. Disk drift is the worker's to fix, and it
-  wakes at the same session start this server does.
+  merged rows in the mirror — the same decision `signpost index` makes, over the same rows it is
+  fed. Pending rows are excluded from both the hash and the results: a proposal a person may still
+  reject is not recorded knowledge, and counting one made the whole index read as stale for the
+  length of a run, while pointing the reader at the `signpost index` that would have deleted it.
+  Disk drift is the worker's to fix, and it wakes at the same session start this server does.
+- **It does not treat every failure as the same failure.** No file is a checkout nothing has run
+  in; a file this build cannot read is a schema worth naming; a database with no `index_meta` row
+  is a repo that has consented and not indexed, which is where `init` leaves every repo. Each gets
+  its own diagnostic, because the friendly one ("expected on a fresh clone") is a lie about the
+  other two.
 - **It does not trust the working directory.** Claude Code documents which variables a manifest
   may substitute but not the cwd a server is spawned in, so the manifest passes
   `SIGNPOSTS_REPO_ROOT` and `src/io/production-app.ts` resolves it (realpath, for the same reason

@@ -26,6 +26,9 @@ import { resolveConfig } from "../core/config/resolve.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
 import { openRun } from "./open-run.ts";
 
+/** Set by `.claude-plugin/plugin.json` to `${CLAUDE_PROJECT_DIR}` — see below. */
+const REPO_ROOT_ENV_VAR = "SIGNPOSTS_REPO_ROOT";
+
 /**
  * The repository this invocation is about.
  *
@@ -43,6 +46,15 @@ import { openRun } from "./open-run.ts";
  * `process.cwd()` is always reported resolved, and a checkout reached through
  * a symlink would otherwise hash to a second, empty state directory.
  *
+ * A path that does not resolve is used as given and said out loud. "Fails
+ * later with its own message" holds for the commands a person types; it does
+ * not hold for `mcp`, the caller this override exists for, where a wrong value
+ * is a state directory nothing has ever written and a tool that answers "no
+ * search index has been built in this checkout yet" forever. That is the
+ * silent failure this whole function is here to prevent, so the one case it
+ * cannot prevent gets a line on stderr — the MCP server's stderr is where its
+ * diagnostics already go, and stdout is the JSON-RPC wire.
+ *
  * Read here, at the composition root, and nowhere below it (R7).
  */
 function resolveRepoRoot(override: string | undefined): string {
@@ -52,12 +64,17 @@ function resolveRepoRoot(override: string | undefined): string {
   try {
     return realpathSync(override);
   } catch {
-    return override; // A path that does not exist fails later, with its own message.
+    process.stderr.write(
+      `signposts: ${REPO_ROOT_ENV_VAR}=${override} does not resolve to a directory — using it as given, ` +
+        `which is very likely a repository nothing has recorded anything for.
+`,
+    );
+    return override;
   }
 }
 
 export function buildProductionApp(): App {
-  const repoRoot = resolveRepoRoot(process.env["SIGNPOSTS_REPO_ROOT"]);
+  const repoRoot = resolveRepoRoot(process.env[REPO_ROOT_ENV_VAR]);
   const homeDir = os.homedir();
 
   const config = resolveConfig({

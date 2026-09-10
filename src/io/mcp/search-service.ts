@@ -26,7 +26,7 @@ import {
 } from "../../core/mcp/search-tool.ts";
 import { normalize } from "../../core/retrieval/normalize.ts";
 import { openReadOnlyDb } from "../db/read-only.ts";
-import { indexIsCurrent, searchSignposts } from "../db/search-signposts.ts";
+import { indexState, searchSignposts } from "../db/search-signposts.ts";
 import { createEmbedder, type Embedder } from "../embed/embedder.ts";
 import { resolveRepo } from "../git/remote-origin.ts";
 
@@ -81,13 +81,27 @@ export function createSearchService({ config, repoRoot, warn }: CreateSearchServ
           return unavailableOutput(SEARCH_UNAVAILABLE.no_repo);
         }
 
-        const db = openReadOnlyDb(config.paths.dbPath);
-        if (db === null) {
+        // Two different things to say, and one of them is not a fault: no
+        // file at all is a checkout nothing has run in, while a file this
+        // build cannot read is a schema worth naming (../db/read-only.ts).
+        const opened = openReadOnlyDb(config.paths.dbPath);
+        if (opened.status === "missing") {
           return unavailableOutput(SEARCH_UNAVAILABLE.no_index);
         }
+        if (opened.status === "unreadable") {
+          return unavailableOutput(SEARCH_UNAVAILABLE.unreadable);
+        }
 
+        const db = opened.db;
         try {
-          if (!indexIsCurrent(db, repo)) {
+          // `init` creates the database and does not index, so "there is a
+          // database" and "there is an index" are separate questions and a
+          // repo that has only consented is in the first state, not stale.
+          const state = indexState(db, repo);
+          if (state === "missing") {
+            return unavailableOutput(SEARCH_UNAVAILABLE.no_index);
+          }
+          if (state === "stale") {
             return unavailableOutput(SEARCH_UNAVAILABLE.stale_index);
           }
 
