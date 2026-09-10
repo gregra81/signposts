@@ -68,10 +68,12 @@ plain `node`, which refuses to strip types beneath `node_modules`. `signposts-ev
 scripts through `tsx` for exactly this reason.
 
 It is also why distribution has a build step even though development does not. `pnpm build`
-(`prepack` runs it) strips `src/**/*.ts` into `dist/`, rewriting the relative `.ts` specifiers to
-`.js` as it goes — those extensions are what make the checkout runnable without a build, and they
-name files that do not exist in `dist/`. `bin/signpost.js` prefers `dist/` and falls back to
-`src/`, so one wrapper serves both layouts.
+(`prepack` runs it) compiles `src/` into `dist/` with `tsconfig.build.json`, whose one interesting
+setting is `rewriteRelativeImportExtensions`: those `.ts` extensions are what make the checkout
+runnable without a build, and they name files that do not exist in `dist/`. `tsc` rewrites them,
+so there is no hand-written build script — an earlier version of this used
+`stripTypeScriptTypes` and a regex over the specifiers, which was a worse `tsc`. `bin/signpost.js`
+prefers `dist/` and falls back to `src/`, so one wrapper serves both layouts.
 
 The tarball ships **both** trees. `dist/` is what an installed copy runs; `src/` stays because a
 consumer running through `tsx` imports it directly, which is what `signposts-eval` does. Dropping

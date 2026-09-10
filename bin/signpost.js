@@ -5,9 +5,9 @@
 // The one branch is the two layouts this file has to start from. In a checkout
 // there is no build and the modules are `src/**/*.ts`, which Node strips at
 // startup. Under `node_modules` it refuses to strip anything, so an installed
-// copy runs the pre-stripped `dist/` that `prepack` builds
-// (scripts/build-src.mjs, and 18-end-to-end-gaps.md item 9 for what an
-// installed copy did before it existed: nothing, quietly).
+// copy runs `dist/`, which `prepack` compiles with `tsconfig.build.json` — see
+// 18-end-to-end-gaps.md item 9 for what an installed copy did before it
+// existed: nothing, quietly.
 //
 // `dist/` first, because it is what a published tarball ships and `src/` is
 // not in it. A checkout that has run the build has both, and running the built
