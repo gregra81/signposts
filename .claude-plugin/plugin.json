@@ -6,16 +6,24 @@
     "name": "Greg Rashkevitch"
   },
   "license": "MIT",
-  "keywords": ["knowledge", "memory", "retrieval", "code-review"],
+  "keywords": [
+    "knowledge",
+    "memory",
+    "retrieval",
+    "code-review"
+  ],
   "hooks": "./hooks/hooks.json",
   "commands": "./commands/",
   "mcpServers": {
     "signposts": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/signpost.js", "mcp"],
+      "command": "signpost",
+      "args": [
+        "mcp"
+      ],
       "env": {
         "SIGNPOSTS_REPO_ROOT": "${CLAUDE_PROJECT_DIR}"
       }
     }
-  }
+  },
+  "version": "0.1.0"
 }

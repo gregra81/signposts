@@ -96,9 +96,21 @@ const REPO_HASH_LENGTH = 12;
  *
  * A missing entry point is not an error: the hook finds nothing to spawn and
  * exits silently, exactly as it does when there is no work.
+ *
+ * "Missing" means more than the wrapper file being absent. A plugin is
+ * installed by cloning its repository, and a clone of this one carries neither
+ * `node_modules` nor the compiled `dist/` — both are build output, both are
+ * gitignored — so `bin/signpost.js` is there and the worker it starts dies at
+ * its first import, with its stderr going to /dev/null because the worker is
+ * spawned detached. The hook had already taken the run lock by then, and the
+ * worker is what releases it, so the lock sat for LOCK_STALE_MINUTES and the
+ * hook said nothing for an hour after every wake (18-end-to-end-gaps.md, item
+ * 10). Two extra `stat` calls are what tell the two apart.
  */
 const WORKER_ENV_VAR = "SIGNPOSTS_WORKER";
 const DEFAULT_WORKER = path.join("bin", "signpost.js");
+/** What `bin/signpost.js` imports, in the two layouts it can be started from. */
+const WORKER_MODULES = [path.join("dist", "io", "production-app.js"), path.join("src", "io", "production-app.ts")];
 /**
  * `--adopt-lock` tells the worker the run lock is already taken and is its to
  * release. The hook takes it before spawning, because the decision *not* to
@@ -490,8 +502,18 @@ function packageRoot(): string {
 /** The worker's entry point, or null when it is not installed — see WORKER_ENV_VAR. */
 export function resolveWorker(env: NodeJS.ProcessEnv, root: string): string | null {
   const override = env[WORKER_ENV_VAR];
-  const entry = override === undefined || override === "" ? path.join(root, DEFAULT_WORKER) : override;
-  return exists(entry) ? entry : null;
+  if (override !== undefined && override !== "") {
+    // A stub, in the timing harness and the behaviour tests. Taken at its word
+    // — it is not the application and has none of the application's layout.
+    return exists(override) ? override : null;
+  }
+
+  const entry = path.join(root, DEFAULT_WORKER);
+  if (!exists(entry)) {
+    return null;
+  }
+  // The wrapper alone is not a working install; see WORKER_ENV_VAR's comment.
+  return WORKER_MODULES.some((module) => exists(path.join(root, module))) ? entry : null;
 }
 
 function spawnWorker(worker: string, repoRoot: string): void {

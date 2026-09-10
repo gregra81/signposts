@@ -61,11 +61,17 @@ may not import from `src/`.
 
 Node 24 with native type stripping, so **erasable syntax only**: no `enum`, no parameter
 properties, no `namespace`. Relative imports carry the `.ts` extension, because that is the file
-that exists at runtime. There is no build step and no `dist/`.
+that exists at runtime. A checkout needs no build step; a tarball does — see below.
 
 That last point has a consequence worth knowing: another package cannot import this one under
 plain `node`, which refuses to strip types beneath `node_modules`. `signposts-eval` runs its
 scripts through `tsx` for exactly this reason.
+
+It is also why distribution has a build step even though development does not. `pnpm build`
+(`prepack` runs it) strips `src/**/*.ts` into `dist/`, rewriting the relative `.ts` specifiers to
+`.js` as it goes — those extensions are what make the checkout runnable without a build, and they
+name files that do not exist in `dist/`. `bin/signpost.js` prefers `dist/` and falls back to
+`src/`, so one wrapper serves both layouts. The tarball ships `dist/` and not `src/`.
 
 ## Tests
 
@@ -215,16 +221,23 @@ fails as "installed, and nothing happened".
 `.claude/settings.local.json` — see the statusLine section above; that is a platform limit, not an
 oversight.
 
-**`doctor` does not see a plugin-installed hook.** It looks for one in the three settings files,
-which is where a hook had to be before this, so a plugin user is told "not installed" about a hook
-firing on every session. The manifest test records that as a known gap.
+**A plugin is installed by cloning its repository, and a clone carries no code that runs.** No
+`node_modules`, and neither compiled bundle — `hooks/*.js`, `statusline/*.js` and `dist/` are all
+build output and all gitignored. `better-sqlite3` is native, so vendoring is not on the table
+either. So the manifest points at nothing inside the clone: it names `signpost` and
+`signpost-session-start`, the two binaries a global `npm i -g signposts` puts on PATH. The plugin
+carries the wiring; the npm package carries the code, and the README says to install it first.
 
-**A plugin installed from a git clone has neither `node_modules` nor the compiled bundles**
-(`hooks/*.js` and `statusline/*.js` are build output and gitignored), so a clone needs
-`pnpm install && pnpm build:hooks` before it works. Publishing to npm does not fix it either:
-`node` refuses to strip types beneath `node_modules`, so `bin/signpost.js` — which imports
-`src/**/*.ts` — cannot run from a global install at all. That is the same constraint the language
-section describes, reached from the other side, and it gates distribution rather than this repo.
+The hook takes this seriously because the failure was silent. `hooks/session-start.js` is
+zero-dependency and ran fine from a clone, took the run lock, and spawned a worker that died at its
+first import with its stderr going to `/dev/null` — and the worker is what releases the lock, so
+the lock sat for `LOCK_STALE_MINUTES` after every wake. `resolveWorker` now checks that the wrapper
+has something to import before it is willing to spawn it.
+
+**`doctor` knows what an enabled plugin looks like.** It reads `enabledPlugins` in the same three
+settings files it already read for a hand-installed hook, and reports which of the two routes the
+hook came by. A plugin loaded with `--plugin-dir` leaves no trace in any of them, which is why the
+absent case says "not found in settings or in an enabled plugin" rather than "not installed".
 
 ## The MCP server
 
