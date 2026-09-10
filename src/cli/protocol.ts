@@ -7,6 +7,7 @@
 // answering never requires knowing anything signposts did not just say.
 
 import type { PendingRequest } from "../graph/index.ts";
+import type { CommitOutcome } from "../graph/ports.ts";
 
 /** Everything about a session the caller hands back to continue it. */
 export interface SessionRef {
@@ -37,4 +38,17 @@ export interface RunOutput {
   pending: PendingRequest[];
   /** What a finished session proposed, one line each. Empty while waiting. */
   proposed: string[];
+  /**
+   * Where those proposals went: the branch, the pull request, or the reason
+   * there is none. Null when this invocation committed nothing — it halted,
+   * or the session produced no operations.
+   *
+   * A run whose push failed used to print `"status": "finished"` with a list
+   * of proposals and exit 0, with the warning on stderr and stdout saying
+   * nothing about it, while SKILL.md closes by telling the user about "the
+   * pull request" (18-end-to-end-gaps.md, item 5). Nothing else reports it:
+   * `signpost status` was going to, and it is neither built nor specced any
+   * more.
+   */
+  commit: CommitOutcome | null;
 }

@@ -20,6 +20,7 @@ import {
 import { buildThreadId } from "../../../src/core/graph/thread-id.js";
 import type { RunResult } from "../../../src/graph/index.js";
 import { operationKey } from "../../../src/core/graph/decisions.js";
+import type { Operation } from "../../../src/core/contracts/graph.js";
 import {
   CHECKPOINT_FILENAME,
   STATE_VERSION,
@@ -621,3 +622,53 @@ describe("an unrecognised state version", () => {
     expect(result.state.version).toBe(STATE_VERSION);
   });
 });
+
+// 18-end-to-end-gaps.md, item 3. The halt payload carried `{operation, reason}`
+// and no key, while the resume value is keyed by `operationKey` — so an
+// answerer holding only the payload had to know the key format and derive it.
+// Answering with the signpost ids, the only identifiers in the payload, was
+// accepted and discarded, and the node re-halted on the same operations with
+// no error and exit 0. That is a loop, not a failure.
+describe("answering a review from what the halt printed", () => {
+  const parts = {
+    repo: RUN_INPUT.repo,
+    sessionId: RUN_INPUT.sessionId,
+    contentHash: RUN_INPUT.contentHash,
+  };
+
+  it("puts the answering key on every needsHuman entry", async () => {
+    const first = freshProcess(gatedOptions());
+
+    const halted = await startRun(first.graph, first.checkpointer, RUN_INPUT);
+    const [request] = halted.pending;
+
+    expect(request!.request).toMatchObject({ kind: "human_review" });
+    const { needsHuman } = request!.request as { needsHuman: { key: string; operation: Operation }[] };
+    expect(needsHuman).not.toHaveLength(0);
+    for (const entry of needsHuman) {
+      expect(entry.key).toBe(operationKey(entry.operation));
+    }
+  });
+
+  it("refuses a decision map whose keys match no outstanding operation", async () => {
+    const first = freshProcess(gatedOptions());
+    const halted = await startRun(first.graph, first.checkpointer, RUN_INPUT);
+    const id = haltId(halted);
+    const [gated] = halted.state.gated.needsHuman;
+
+    const second = freshProcess(gatedOptions());
+    await expect(
+      // The signpost id alone — what item 3 found an agent naturally sends.
+      resumeRun(second.graph, second.checkpointer, parts, {
+        [id]: { [signpostIdOf(gated!.operation)]: { decision: "accept", decidedAt: "2026-08-30" } },
+      }),
+    ).rejects.toThrow("human_review: no gated operation is keyed");
+
+    expect(second.ports.commit.applied).toEqual([]);
+  });
+});
+
+/** The identifier a needsHuman entry actually shows: the signpost, not the key. */
+function signpostIdOf(operation: Operation): string {
+  return operation.op === "add" ? operation.signpost.id : operation.id;
+}

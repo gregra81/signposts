@@ -213,7 +213,7 @@ describe("operationSchema", () => {
   it.each([
     ["add", { op: "add", signpost: signpost() }],
     ["reinforce", { op: "reinforce", id: "known", sessionId: "s1", author: "dev@acme.example" }],
-    ["refine", { op: "refine", id: "known" }],
+    ["refine", { op: "refine", id: "known", sessionId: "s1", author: "dev@acme.example" }],
     ["supersede", { op: "supersede", id: "known", replacement: signpost("newer") }],
     ["retire", { op: "retire", id: "known", reason: "obsolete" }],
   ])("accepts a well-formed %s", (_name, operation) => {

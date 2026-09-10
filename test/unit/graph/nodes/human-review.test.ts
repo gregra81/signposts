@@ -12,7 +12,7 @@ import { graphState } from "../../../behaviour/helpers/graph-harness.js";
 import type { HumanDecision, Operation } from "../../../../src/core/contracts/graph.js";
 
 const RETIRE: Operation = { op: "retire", id: "staging-writable", reason: "Superseded." };
-const REFINE: Operation = { op: "refine", id: "etl-window", evidence: "Narrowed." };
+const REFINE: Operation = { op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "etl-window", evidence: "Narrowed." };
 
 const ACCEPT: HumanDecision = { decision: "accept", decidedAt: "2026-08-27T09:00:00.000Z" };
 

@@ -143,6 +143,8 @@ function openRunWith(harness: Harness, prNotOpened: string | null = null): OpenR
       // What the commit port left undone, if anything — answering the last
       // review is often the invocation that commits.
       prNotOpened: () => prNotOpened,
+      commitOutcome: () => null,
+      syncCorpus: () => Promise.resolve({ failures: [] }),
       pendingReviews: (now) =>
         listPendingReviews({ graph, checkpointer, repo: RUN_INPUT.repo, now, warn }),
       close,

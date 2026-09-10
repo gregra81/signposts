@@ -101,7 +101,7 @@ describe("validateOperations", () => {
   it.each([
     ["supersede", { op: "supersede" as const, id: "ghost", replacement: signpost() }],
     ["retire", { op: "retire" as const, id: "ghost", reason: "obsolete" }],
-    ["refine", { op: "refine" as const, id: "ghost", claim: "A sharper claim" }],
+    ["refine", { op: "refine" as const, sessionId: "sess-r", author: "greg@example.com", id: "ghost", claim: "A sharper claim" }],
     ["reinforce", { op: "reinforce" as const, id: "ghost", sessionId: "s1", author: "dev@acme.example" }],
   ])("rejects a %s pointing at an id that does not exist", (_name, operation) => {
     const result = validateOperations({
@@ -122,7 +122,7 @@ describe("validateOperations", () => {
 
   it("rejects a second operation targeting a signpost an earlier candidate already claimed", () => {
     const first = group({ tempId: "a", operations: [{ op: "retire", id: "staging-read-only", reason: "obsolete" }] });
-    const second = group({ tempId: "b", operations: [{ op: "refine", id: "staging-read-only", claim: "Sharper" }] });
+    const second = group({ tempId: "b", operations: [{ op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "staging-read-only", claim: "Sharper" }] });
     const result = validateOperations({ built: [first, second], existingIds: EXISTING });
     expect(result.valid.map((c) => c.tempId)).toEqual(["a"]);
     expect(result.errors[0]).toContain("a second time");
@@ -133,7 +133,7 @@ describe("validateOperations", () => {
       built: [
         group({
           operations: [
-            { op: "refine", id: "tabs-not-spaces", claim: "Sharper" },
+            { op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "tabs-not-spaces", claim: "Sharper" },
             { op: "retire", id: "tabs-not-spaces", reason: "obsolete" },
           ],
         }),
@@ -148,11 +148,11 @@ describe("validateOperations", () => {
   it("does not let a failed candidate block a later one from the same target", () => {
     const failing = group({
       tempId: "a",
-      operations: [{ op: "refine", id: "staging-read-only", claim: "x".repeat(CLAIM_MAX_CHARS + 1) }],
+      operations: [{ op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "staging-read-only", claim: "x".repeat(CLAIM_MAX_CHARS + 1) }],
     });
     const good = group({
       tempId: "b",
-      operations: [{ op: "refine", id: "staging-read-only", claim: "A sharper claim" }],
+      operations: [{ op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "staging-read-only", claim: "A sharper claim" }],
     });
     const result = validateOperations({ built: [failing, good], existingIds: EXISTING });
     expect(result.valid.map((c) => c.tempId)).toEqual(["b"]);
@@ -161,7 +161,7 @@ describe("validateOperations", () => {
   it.each([
     ["add", (glob: string) => ({ op: "add" as const, signpost: signpost({ scope: { repo: "acme/api", paths: [glob] } }) })],
     ["supersede", (glob: string) => ({ op: "supersede" as const, id: "tabs-not-spaces", replacement: signpost({ scope: { repo: "acme/api", paths: [glob] } }) })],
-    ["refine", (glob: string) => ({ op: "refine" as const, id: "tabs-not-spaces", scope: { repo: "acme/api", paths: [glob] } })],
+    ["refine", (glob: string) => ({ op: "refine" as const, sessionId: "sess-r", author: "greg@example.com", id: "tabs-not-spaces", scope: { repo: "acme/api", paths: [glob] } })],
   ])("rejects an unparseable scope glob on %s", (_name, make) => {
     const result = validateOperations({
       built: [group({ operations: [make("src/[abc")] })],

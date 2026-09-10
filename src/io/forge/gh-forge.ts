@@ -77,7 +77,7 @@ export function ghForge(cwd: string): Forge {
         }));
     },
 
-    async openPr(input: { branch: string; title: string; body: string }): Promise<number> {
+    async openPr(input: { branch: string; title: string; body: string }): Promise<{ number: number; url: string }> {
       const url = gh(cwd, [
         "pr",
         "create",
@@ -96,7 +96,7 @@ export function ghForge(cwd: string): Forge {
       if (!Number.isInteger(number) || number <= 0) {
         throw new GhCliError(`gh pr create did not return a pull request URL: ${url}`);
       }
-      return number;
+      return { number, url };
     },
 
     async readPrBody(prNumber: number): Promise<string> {

@@ -82,6 +82,31 @@ export interface CommitInput {
 }
 
 /**
+ * Where a session's proposals ended up, in the terms a person cares about.
+ *
+ * `RunOutput` used to be `{sessionId, contentHash, status, pending, proposed}`
+ * and nothing else, so a run whose push failed printed `"status": "finished"`
+ * with a list of proposals and exited 0. The warning was on stderr, and stdout
+ * is the contract — while SKILL.md closes by telling the user "which sessions
+ * ran, what was proposed, and the pull request". There may be no pull request,
+ * and nothing in the JSON said so (18-end-to-end-gaps.md, item 5).
+ *
+ * `pr` is null on two quite different outcomes and `reason` is what separates
+ * them: a push that failed, and a push that worked with a forge that did not.
+ * `url` is set only when this invocation opened the pull request — `gh pr
+ * create` prints it, and a PR found by listing gives a number and no URL.
+ */
+export interface CommitOutcome {
+  branch: string;
+  /** The pull request the commit is on, once there is one. */
+  pr: number | null;
+  /** Its URL, when this invocation is the one that opened it. */
+  url: string | null;
+  /** Why there is no pull request, or why it could not be updated. Null if all is well. */
+  reason: string | null;
+}
+
+/**
  * Node 10: write markdown, regenerate the index, reindex embeddings, open or
  * update the PR. A port because all of that is git, filesystem and forge work
  * that belongs outside the graph.

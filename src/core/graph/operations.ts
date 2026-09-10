@@ -116,6 +116,8 @@ function operationsFor(input: OperationsForInput): Operation[] {
             {
               op: OPERATION_TAGS.refine,
               id: relatedId,
+              sessionId: input.sessionId,
+              author: input.author,
               claim: candidate.claim,
               evidence: candidate.evidence,
               scope: candidate.scope,
@@ -164,7 +166,13 @@ function contradictionOperations(input: OperationsForInput, relatedId: string | 
     return [];
   }
   return [
-    { op: OPERATION_TAGS.refine, id: relatedId, scope: existingScope },
+    {
+      op: OPERATION_TAGS.refine,
+      id: relatedId,
+      sessionId: input.sessionId,
+      author: input.author,
+      scope: existingScope,
+    },
     { op: OPERATION_TAGS.add, signpost: toSignpost(input, newScope) },
   ];
 }

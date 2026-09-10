@@ -85,7 +85,19 @@ export const redactTokens: Redactor = (text) => {
 
 /**
  * Generic high-entropy strings: ENTROPY_MIN_LEN+ contiguous base64/hex-set
- * characters. No boundary lookarounds — a quantified character class is
+ * characters.
+ *
+ * **`/` is not in the class**, and base64 is the poorer for it. It was, and
+ * that made every deep file path a match: thirty-two path characters with no
+ * dot, dash or underscore among them is an ordinary
+ * `src/main/java/com/acme/payments/gateway/RetryPolicy.java`, which came out
+ * as `[REDACTED:high-entropy].java` — the filename gone with it
+ * (18-end-to-end-gaps.md, item 4). A base64 blob long enough to matter still
+ * has thirty-two other characters to match on, and the home directory in an
+ * absolute path — the reason 02-ingestion.md wants paths redacted at all — is
+ * handled where it can be handled properly, by ./paths.ts.
+ *
+ * No boundary lookarounds — a quantified character class is
  * already greedy and already starts at the earliest position that can
  * begin a match, so an explicit boundary assertion adds nothing but a way
  * to misfire: an optional trailing `={0,2}` combined with a lookahead
@@ -95,7 +107,7 @@ export const redactTokens: Redactor = (text) => {
  * simultaneously satisfiable).
  */
 export const redactHighEntropy: Redactor = (text) => {
-  const highEntropyRe = new RegExp(`[A-Za-z0-9+/]{${ENTROPY_MIN_LEN},}={0,2}`, "g");
+  const highEntropyRe = new RegExp(`[A-Za-z0-9+]{${ENTROPY_MIN_LEN},}={0,2}`, "g");
   return text.replace(highEntropyRe, placeholderFor("high-entropy"));
 };
 

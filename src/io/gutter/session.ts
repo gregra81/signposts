@@ -19,13 +19,17 @@
 // reachable, email pseudonymisation included. `filesTouched` goes through the
 // same pass — those are absolute paths lifted verbatim out of `tool_use`
 // inputs, and a path is as capable of carrying a secret or a person's name as
-// the prose around it.
+// the prose around it. They are made repo-relative first
+// (src/core/redact/paths.ts): that is what removes the home directory, and it
+// leaves behind exactly the path `scope.paths` and `pathOverlapBoost` are
+// built from.
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { gutterTurns } from "../../core/gutter/gutter.ts";
 import { toGutterInputTurn } from "../../core/gutter/input.ts";
 import { estimateGutteredSessionTokens } from "../../core/gutter/tokens.ts";
+import { repoRelativePath } from "../../core/redact/paths.ts";
 import { safeRedact, wireRedactors } from "../../core/redact/redact.ts";
 import { readTranscript } from "../transcript/read.ts";
 import { KNOWN_LINE_TYPES } from "../../core/contracts/schema.ts";
@@ -86,11 +90,14 @@ function redactOne(text: string, redactors: readonly Redactor[]): string {
 function redactTurns(
   turns: GutteredTurn[],
   redactors: readonly Redactor[],
+  repoRoot: string,
 ): { turns: GutteredTurn[]; redactionCount: number } {
   let redactionCount = 0;
   const redacted = turns.map((turn) => {
     const text = redactOne(turn.text, redactors);
-    const filesTouched = turn.filesTouched?.map((file) => redactOne(file, redactors));
+    const filesTouched = turn.filesTouched?.map((file) =>
+      redactOne(repoRelativePath(file, repoRoot), redactors),
+    );
     if (text !== turn.text || filesTouched?.some((file, i) => file !== turn.filesTouched?.[i]) === true) {
       redactionCount += 1;
     }
@@ -139,7 +146,11 @@ export async function gutterSession(
     throw new Error(`${transcriptPath}: no usable transcript lines`);
   }
 
-  const { turns, redactionCount } = redactTurns(gutterTurns(inputTurns), wireRedactors(scope.repoRoot));
+  const { turns, redactionCount } = redactTurns(
+    gutterTurns(inputTurns),
+    wireRedactors(scope.repoRoot),
+    scope.repoRoot,
+  );
 
   return {
     sessionId,

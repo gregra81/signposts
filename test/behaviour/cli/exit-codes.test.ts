@@ -87,6 +87,8 @@ describe("what a run reports to whatever ran it", () => {
       },
       finish: () => {},
       prNotOpened: () => prNotOpened,
+      commitOutcome: () => null,
+      syncCorpus: () => Promise.resolve({ failures: [] }),
       pendingReviews: () => Promise.resolve([]),
       close: () => {},
     };

@@ -2,7 +2,7 @@
 // real SQLite, real embedder, driven through runCli.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -74,8 +74,15 @@ describe("signpost index", () => {
     writeFileSync(path.join(config.paths.knowledgeDir, `${s.id}.md`), serialiseSignpost(s), "utf8");
   }
 
+  // It used to write "No active signposts." here, and that file was the whole
+  // of 18-end-to-end-gaps.md item 1: `init` then `index` is the documented
+  // setup order, so every fresh repo got an *untracked* `.signposts/index.md`,
+  // and the first pull request adds a tracked one. Git refuses that merge
+  // outright, at the last step of the loop, with `rm .signposts/index.md` as a
+  // workaround nothing tells anyone about. An index of nothing publishes
+  // nothing, so the absence is the correct output.
   it(
-    "zero signposts: index.md says so, no rows mirrored",
+    "zero signposts: no index.md is created, no rows mirrored",
     async () => {
       const exitCode = await runCli(["index"], {
         config,
@@ -84,7 +91,7 @@ describe("signpost index", () => {
       });
 
       expect(exitCode).toBe(0);
-      expect(readFileSync(config.paths.indexFile, "utf8")).toBe("# Signposts\n\nNo active signposts.\n");
+      expect(existsSync(config.paths.indexFile)).toBe(false);
 
       const db = openDb(config.paths.dbPath);
       try {
@@ -93,6 +100,24 @@ describe("signpost index", () => {
       } finally {
         db.close();
       }
+    },
+    120_000,
+  );
+
+  // The other half of item 1: skipping the write must not mean never writing.
+  // Once the first pull request merges, `index.md` is tracked, and `index`
+  // regenerating it from the same corpus the branch generated it from is what
+  // keeps the checkout clean rather than perpetually dirty.
+  it(
+    "an index.md that is already there is rewritten even when the corpus emptied",
+    async () => {
+      mkdirSync(config.paths.knowledgeDir, { recursive: true });
+      writeFileSync(config.paths.indexFile, "# Signposts\n\n- stale-entry\n", "utf8");
+
+      const exitCode = await runCli(["index"], { config, stdio: createFakeStdio() });
+
+      expect(exitCode).toBe(0);
+      expect(readFileSync(config.paths.indexFile, "utf8")).toBe("# Signposts\n\nNo active signposts.\n");
     },
     120_000,
   );

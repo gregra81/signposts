@@ -202,6 +202,15 @@ export const operationSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal(OPERATION_TAGS.refine),
     id: z.string(),
+    // Carried for the same reason `reinforce` carries them, and a REAL git
+    // email for the same reason too. A refine rewrote the claim, the evidence
+    // and the scope and touched provenance not at all, so the file ended up
+    // with one session's evidence quote filed under another session's
+    // `session_ids` and a `last_reinforced` that had not moved — a quote
+    // attributed to a session that never said it (18-end-to-end-gaps.md,
+    // item 6). `reinforce` unions both and changes strictly less.
+    sessionId: z.string(),
+    author: z.string(),
     claim: claimSchema.optional(),
     evidence: z.string().optional(),
     scope: scopeSchema.optional(),

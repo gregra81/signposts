@@ -86,6 +86,10 @@ describe("buildOperations", () => {
       {
         op: "refine",
         id: "staging-is-read-only-old",
+        // A refinement is provenance too — the session that sharpened the
+        // claim also restated it (18-end-to-end-gaps.md, item 6).
+        sessionId: SESSION,
+        author: AUTHOR,
         claim: "Staging is read only",
         evidence: "Stated after a failed write.",
         scope: { repo: "acme/api" },
@@ -141,6 +145,8 @@ describe("buildOperations", () => {
     expect(built[0]?.operations[0]).toEqual({
       op: "refine",
       id: "staging-is-read-only-old",
+      sessionId: SESSION,
+      author: AUTHOR,
       scope: { repo: "acme/api", paths: ["web/**"] },
     });
     expect(built[0]?.operations[1]).toHaveProperty("signpost.scope.paths", ["etl/**"]);

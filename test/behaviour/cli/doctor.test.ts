@@ -37,7 +37,7 @@ describe("signpost doctor", () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  it("against an uninitialised repo: reports no database yet, hook not installed", async () => {
+  it("against an uninitialised repo: reports no database yet, hook nowhere it can see", async () => {
     const stdio = createFakeStdio();
 
     const exitCode = await runCli(["doctor"], {
@@ -52,7 +52,7 @@ describe("signpost doctor", () => {
     expect(output).toContain("gh:");
     expect(output).toContain("embedding model cache:");
     expect(output).toContain("no database yet");
-    expect(output).toContain("session-start hook: not installed");
+    expect(output).toContain("session-start hook: not found in settings or in an enabled plugin");
   });
 
   it("against an initialised repo: reports db ok after `init` has created it", async () => {

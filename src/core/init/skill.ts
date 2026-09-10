@@ -83,8 +83,9 @@ wrong shape fails the resume.
 subagent answer it. Return to the main session, show the developer each entry in
 \`needsHuman\` (the operation and why it was gated), and ask them to accept, reject
 or edit each one. Then resume with
-\`{ "<id>": { "<operation key>": { "decision": "accept", "decidedAt": "<ISO 8601>" } } }\`,
-using the same keys the request used.
+\`{ "<id>": { "<key>": { "decision": "accept", "decidedAt": "<ISO 8601>" } } }\`,
+where \`<key>\` is the \`key\` field on that \`needsHuman\` entry — copied, not
+derived. A key naming no outstanding operation is an error, not a silent skip.
 
 The developer can also answer these later themselves, by typing
 \`signpost review\` at their own terminal. **Never run that command**, in the main

@@ -14,6 +14,7 @@
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import type { ResolvedConfig } from "../core/config/resolve.ts";
 import type { ExtractionGraph, GraphPorts, ReviewRequest } from "../graph/index.ts";
+import type { CommitOutcome } from "../graph/ports.ts";
 
 /** One eligible transcript — what `sessions` lists and `run` picks from. */
 export interface RunSession {
@@ -62,8 +63,26 @@ export interface RunHandle {
   index: GraphPorts["index"];
   /** Eligible sessions for this repo, oldest activity first. */
   eligible(now: Date): RunSession[];
+  /**
+   * Where this invocation's proposals went — the branch, the pull request, or
+   * the reason there is none — or null when nothing was committed.
+   *
+   * Read off the handle for the same reason `prNotOpened` is: the commit port
+   * is what discovers it, and it belongs to this invocation.
+   */
+  commitOutcome(): CommitOutcome | null;
   /** Records a session as processed, and the repo as past its bootstrap run. */
   finish(session: FinishedSession): void;
+  /**
+   * Brings the mirror and the index up to the signposts on disk, and reports
+   * any file that would not parse.
+   *
+   * Only ever called at the start of a run (`run --first`), because it deletes
+   * every row the corpus does not contain and a pending row never is — see
+   * src/io/signpost/sync-corpus.ts, and 18-end-to-end-gaps.md item 2 for what
+   * not calling it at all cost.
+   */
+  syncCorpus(): Promise<{ failures: string[] }>;
   /**
    * The `gh pr create` command for work this invocation committed and could
    * not open a pull request for, or null when nothing is outstanding.

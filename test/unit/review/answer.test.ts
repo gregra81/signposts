@@ -41,6 +41,8 @@ const SUPERSEDE: Operation = {
 };
 const REFINE: Operation = {
   op: OPERATION_TAGS.refine,
+  sessionId: "sess-r",
+  author: "greg@example.com",
   id: "staging-writable",
   claim: "Staging is writable only at night",
   evidence: "Narrowed after the ETL change.",
@@ -127,7 +129,7 @@ describe("editableText", () => {
   });
 
   it("offers nothing for a scope-only refine", () => {
-    expect(editableText({ op: OPERATION_TAGS.refine, id: "staging-writable" })).toEqual({});
+    expect(editableText({ op: OPERATION_TAGS.refine, sessionId: "sess-r", author: "greg@example.com", id: "staging-writable" })).toEqual({});
   });
 
   it("offers nothing for an operation with no wording", () => {

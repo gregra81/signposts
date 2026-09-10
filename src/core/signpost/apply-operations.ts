@@ -54,7 +54,7 @@ export interface AppliedOperations {
 export interface ApplyOperationsInput {
   corpus: readonly Signpost[];
   operations: readonly Operation[];
-  /** ISO date, from the injected clock. Only `reinforce` records it. */
+  /** ISO date, from the injected clock. `reinforce` and `refine` record it. */
   now: string;
 }
 
@@ -118,6 +118,14 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
       // Only the fields the operation names. A refine that carried no claim
       // is narrowing the scope of a contradiction resolved `both_scoped`, and
       // overwriting the claim with an absent one would erase it.
+      //
+      // Provenance moves with them, the same union `reinforce` does. It used
+      // to be left alone entirely, so a session that refined someone else's
+      // signpost put its own evidence quote in the file under the original
+      // session's `session_ids`, with `last_reinforced` unchanged — the quote
+      // attributed to a session that never said it (18-end-to-end-gaps.md,
+      // item 6). A refinement is a session restating the claim as well as
+      // sharpening it, which is exactly what `reinforce` records.
       case OPERATION_TAGS.refine: {
         const target = existing(operation.id, operation.op);
         if (target === undefined) {
@@ -128,6 +136,12 @@ export function applyOperations(input: ApplyOperationsInput): AppliedOperations 
           ...(operation.claim === undefined ? {} : { claim: operation.claim }),
           ...(operation.evidence === undefined ? {} : { evidence: operation.evidence }),
           ...(operation.scope === undefined ? {} : { scope: operation.scope }),
+          provenance: {
+            ...target.provenance,
+            session_ids: union(target.provenance.session_ids, operation.sessionId),
+            authors: union(target.provenance.authors, operation.author),
+            last_reinforced: input.now,
+          },
         });
         break;
       }

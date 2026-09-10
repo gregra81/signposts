@@ -1,25 +1,16 @@
 // `signpost index` (R4): read every `.signposts/**/*.md`, parse, mirror
 // active signposts into the `signposts` table, rebuild the vector/FTS
-// index, regenerate `index.md`. Thin orchestration: parsing is
-// src/core/signpost/codec.ts, filtering uses the existing ACTIVE_STATUS
-// constant, index generation is src/core/signpost/index-doc.ts — nothing
-// new to decide here beyond wiring those together.
+// index, regenerate `index.md`. Thin orchestration: the first three are
+// src/io/signpost/sync-corpus.ts, which the run path calls too, and index
+// generation is src/core/signpost/index-doc.ts.
 
-import { writeFileSync } from "node:fs";
-import { ZodError } from "zod";
+import { existsSync, writeFileSync } from "node:fs";
 import type { ExitCode } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { indexExitCode } from "../../core/cli/index-exit-code.ts";
-import { formatZodError } from "../../core/errors/format-zod-error.ts";
-import { parseSignpost } from "../../core/signpost/codec.ts";
-import { contentHashFor } from "../../core/signpost/content-hash.ts";
 import { generateIndexDoc } from "../../core/signpost/index-doc.ts";
-import type { Signpost } from "../../core/signpost/schema.ts";
-import { ACTIVE_STATUS } from "../../core/signpost/schema.ts";
 import { openDb } from "../../io/db/migrate.ts";
-import { rebuildIndex, type ActiveSignpost } from "../../io/db/vector-index.ts";
-import { mirrorSignposts } from "../../io/db/signposts.ts";
-import { readSignpostFiles } from "../../io/signpost/read-dir.ts";
+import { syncCorpus } from "../../io/signpost/sync-corpus.ts";
 import { ensureKnowledgeDir } from "../../io/init/signposts-dir.ts";
 import { resolveRepo } from "../../io/git/remote-origin.ts";
 
@@ -41,26 +32,6 @@ export async function runIndex({ config, repoRoot, stderr }: RunIndexInput): Pro
     return 1;
   }
 
-  const files = readSignpostFiles(config.paths.knowledgeDir);
-  const parsed: Signpost[] = [];
-  let anyFileFailed = false;
-  for (const file of files) {
-    try {
-      parsed.push(parseSignpost(file.content));
-    } catch (error) {
-      anyFileFailed = true;
-      const message =
-        error instanceof ZodError
-          ? formatZodError(error)
-          : error instanceof Error
-            ? error.message
-            : String(error);
-      stderr.write(`signposts: skipping ${file.path}: ${message}\n`);
-    }
-  }
-  const active = parsed.filter((signpost) => signpost.status === ACTIVE_STATUS);
-  const activeWithHash = active.map((signpost) => ({ signpost, contentHash: contentHashFor(signpost) }));
-
   let db;
   try {
     db = openDb(config.paths.dbPath);
@@ -68,27 +39,51 @@ export async function runIndex({ config, repoRoot, stderr }: RunIndexInput): Pro
     stderr.write(`signposts: database at ${config.paths.dbPath} is corrupt or unreadable.\n`);
     return 1;
   }
-  try {
-    mirrorSignposts(db, repo, activeWithHash);
 
-    const activeSignposts: ActiveSignpost[] = activeWithHash.map(({ signpost, contentHash }) => ({
-      id: signpost.id,
-      content_hash: contentHash,
-      claim: signpost.claim,
-      evidence: signpost.evidence,
-    }));
-    await rebuildIndex(db, {
+  let result;
+  try {
+    result = await syncCorpus({
+      db,
+      repo,
+      knowledgeDir: config.paths.knowledgeDir,
       modelCacheDir: config.paths.modelCacheDir,
       retrieval: config.retrieval,
-      repo,
-      signposts: activeSignposts,
     });
   } finally {
     db.close();
   }
 
+  for (const failure of result.failures) {
+    stderr.write(`signposts: ${failure}\n`);
+  }
+
+  writeIndexDoc(config, result.parsed);
+
+  return indexExitCode(result.failures.length > 0);
+}
+
+/**
+ * Regenerates `index.md`, unless writing it would create the file out of
+ * nothing.
+ *
+ * The documented setup order is `init` then `index`, so on a fresh repo this
+ * ran with an empty corpus and left an *untracked* `.signposts/index.md`
+ * holding no signposts. The first pull request adds a *tracked* one, and git
+ * then refuses the merge outright — "the following untracked working tree
+ * files would be overwritten by merge" — at the last step of the loop, where a
+ * git error is least expected, with `rm .signposts/index.md` as a workaround
+ * nothing tells anyone about (18-end-to-end-gaps.md, item 1).
+ *
+ * So the file is written when there is a corpus to describe, or when it is
+ * already there — which after that first merge means tracked, and regenerated
+ * from the same corpus the branch generated it from, so it stays clean. An
+ * empty corpus and no file is the one case that writes nothing: there is no
+ * index to publish, and the absence is what lets the merge land.
+ */
+function writeIndexDoc(config: ResolvedConfig, parsed: Parameters<typeof generateIndexDoc>[0]): void {
+  if (parsed.length === 0 && !existsSync(config.paths.indexFile)) {
+    return;
+  }
   ensureKnowledgeDir(config.paths.knowledgeDir);
   writeFileSync(config.paths.indexFile, generateIndexDoc(parsed), "utf8");
-
-  return indexExitCode(anyFileFailed);
 }

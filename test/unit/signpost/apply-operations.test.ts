@@ -140,7 +140,7 @@ describe("refine", () => {
   it("replaces only what the operation names", () => {
     const result = apply(
       [signpost()],
-      [{ op: "refine", id: "staging-read-only", claim: "Staging is read only at all times" }],
+      [{ op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "staging-read-only", claim: "Staging is read only at all times" }],
     );
 
     expect(result.corpus[0]?.claim).toBe("Staging is read only at all times");
@@ -151,7 +151,7 @@ describe("refine", () => {
   it("replaces the evidence alone when that is all it names", () => {
     const result = apply(
       [signpost()],
-      [{ op: "refine", id: "staging-read-only", evidence: "Confirmed with the platform team." }],
+      [{ op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "staging-read-only", evidence: "Confirmed with the platform team." }],
     );
 
     expect(result.corpus[0]?.evidence).toBe("Confirmed with the platform team.");
@@ -163,11 +163,48 @@ describe("refine", () => {
     // stays true, under a narrower scope.
     const result = apply(
       [signpost()],
-      [{ op: "refine", id: "staging-read-only", scope: { repo: "acme/api", paths: ["db/**"] } }],
+      [{ op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "staging-read-only", scope: { repo: "acme/api", paths: ["db/**"] } }],
     );
 
     expect(result.corpus[0]?.claim).toBe(signpost().claim);
     expect(result.corpus[0]?.scope).toEqual({ repo: "acme/api", paths: ["db/**"] });
+  });
+
+  // 18-end-to-end-gaps.md item 6: `refine` copied claim, evidence and scope
+  // and touched provenance not at all, so a signpost first proposed by one
+  // session ended up carrying a second session's evidence quote under the
+  // first's `session_ids`, with `last_reinforced` unchanged. The quote was
+  // attributed to a session that never said it.
+  it("records the session that refined it, the way reinforce does", () => {
+    const result = apply(
+      [signpost()],
+      [
+        {
+          op: "refine",
+          sessionId: "sess-2",
+          author: "dana@acme.example",
+          id: "staging-read-only",
+          evidence: "Narrowed after the ETL change.",
+        },
+      ],
+    );
+
+    const provenance = result.corpus[0]!.provenance;
+    expect(provenance.session_ids).toEqual([...signpost().provenance.session_ids, "sess-2"]);
+    expect(provenance.authors).toEqual([...signpost().provenance.authors, "dana@acme.example"]);
+    expect(provenance.last_reinforced).toBe(TODAY);
+    // And the fields it did not touch are still the originals.
+    expect(provenance.first_seen).toBe(signpost().provenance.first_seen);
+  });
+
+  it("does not list the same session twice when it refines its own signpost", () => {
+    const own = signpost().provenance.session_ids[0]!;
+    const result = apply(
+      [signpost()],
+      [{ op: "refine", sessionId: own, author: "dev@acme.example", id: "staging-read-only", claim: "Sharper" }],
+    );
+
+    expect(result.corpus[0]?.provenance.session_ids).toEqual(signpost().provenance.session_ids);
   });
 });
 
@@ -201,7 +238,7 @@ describe("an operation naming something that is not there", () => {
   // no reason to lose a session the developer answered call by call.
   it.each([
     ["reinforce", { op: "reinforce", id: "gone", sessionId: "s", author: "a" }],
-    ["refine", { op: "refine", id: "gone", claim: "x" }],
+    ["refine", { op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "gone", claim: "x" }],
     ["supersede", { op: "supersede", id: "gone", replacement: signpost({ id: "new" }) }],
   ] as const)("reports %s as skipped and writes nothing for it", (label, operation) => {
     const result = apply([signpost()], [operation as Operation]);

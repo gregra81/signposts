@@ -138,6 +138,20 @@ export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
       // merged or been rejected; a rejected one left in the index would be
       // retrieved by every later run as though a person had approved it.
       await handle.pendingIndex.clear(handle.repo);
+
+      // And what has merged since the last run has to reach the index before
+      // this one starts classifying against it. 05-retrieval.md says the index
+      // self-heals; nothing on this path made it, so `classify` was handed an
+      // empty neighbour list in a repo full of signposts and called everything
+      // NOVEL (18-end-to-end-gaps.md, item 2). Here rather than anywhere later
+      // in the run, because the sync deletes every row not on disk and the
+      // pending rows the run is about to write are never on disk.
+      const { failures } = await handle.syncCorpus();
+      for (const failure of failures) {
+        // Not fatal: `signpost index` turns a file that will not parse into an
+        // exit code, and a run has better things to be than blocked on one.
+        input.stderr.write(`signposts: ${failure}\n`);
+      }
     }
 
     const result = await startRun(handle.graph, handle.checkpointer, {
@@ -240,6 +254,7 @@ async function report(
     status: waiting ? "waiting" : "finished",
     pending: result.pending,
     proposed,
+    commit: handle.commitOutcome(),
   };
   write(input.stdout, output);
   return exitCode(handle, result);

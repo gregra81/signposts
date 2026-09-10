@@ -28,7 +28,7 @@ function signpost(id = "new-claim"): Signpost {
 
 const ADD: Operation = { op: "add", signpost: signpost() };
 const REINFORCE: Operation = { op: "reinforce", id: "known", sessionId: "s1", author: "a@b.c" };
-const REFINE: Operation = { op: "refine", id: "known", claim: "Sharper" };
+const REFINE: Operation = { op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "known", claim: "Sharper" };
 const SUPERSEDE: Operation = { op: "supersede", id: "known", replacement: signpost("newer") };
 const RETIRE: Operation = { op: "retire", id: "known", reason: "obsolete" };
 

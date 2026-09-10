@@ -33,7 +33,7 @@ const REINFORCE: Operation = {
   sessionId: "s1",
   author: "dev@acme.example",
 };
-const REFINE: Operation = { op: "refine", id: "staging-writable", claim: "Narrower" };
+const REFINE: Operation = { op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "staging-writable", claim: "Narrower" };
 const RETIRE: Operation = { op: "retire", id: "staging-writable", reason: "obsolete" };
 
 function gated(overrides: Partial<GatedOperations> = {}): GatedOperations {

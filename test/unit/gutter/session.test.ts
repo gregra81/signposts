@@ -94,6 +94,33 @@ describe("gutterSession — redaction", () => {
     expect(assistant?.filesTouched?.[0]).toContain("/src/config.ts");
   });
 
+  // 18-end-to-end-gaps.md item 4. The path the extractor is shown is the one
+  // `scope.paths` is built from and `pathOverlapBoost` scores, so it has to be
+  // the repo's own path, not this machine's copy of it — and the home
+  // directory that made it this machine's copy is exactly what 02-ingestion.md
+  // wanted removed.
+  it("makes a path inside the repo relative to it", async () => {
+    write([
+      humanLine("fix the config"),
+      assistantLine([
+        { type: "text", text: "editing it now" },
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "Edit",
+          input: { file_path: `${REPO_ROOT}/packages/web/src/components/checkout/PaymentForm.tsx` },
+        },
+      ]),
+    ]);
+
+    const session = await gutterSession(transcript, SCOPE);
+    const assistant = session.turns.find((turn) => turn.role === "assistant");
+
+    expect(assistant?.filesTouched).toEqual([
+      "packages/web/src/components/checkout/PaymentForm.tsx",
+    ]);
+  });
+
   it("counts a turn whose only change was a file path", async () => {
     write([
       humanLine("fix the config"),

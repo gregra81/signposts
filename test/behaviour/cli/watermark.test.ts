@@ -106,6 +106,8 @@ describe("the watermark a finished run leaves for the hook", () => {
         ),
       finish: (session) => finished.push(session),
       prNotOpened: () => null,
+      commitOutcome: () => null,
+      syncCorpus: () => Promise.resolve({ failures: [] }),
       pendingReviews: () => Promise.resolve(parkedReviews),
       close: () => {},
     };

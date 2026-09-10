@@ -46,7 +46,7 @@ describe("operationKey", () => {
 
   it.each([
     ["retire", RETIRE, "retire:old-claim"],
-    ["refine", { op: "refine", id: "old-claim" } as Operation, "refine:old-claim"],
+    ["refine", { op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "old-claim" } as Operation, "refine:old-claim"],
     [
       "reinforce",
       { op: "reinforce", id: "old-claim", sessionId: "s1", author: "a@b.c" } as Operation,
@@ -69,7 +69,7 @@ describe("operationKey", () => {
 
   it("distinguishes two operations of different kinds on the same id", () => {
     expect(operationKey({ op: "retire", id: "x", reason: "r" })).not.toBe(
-      operationKey({ op: "refine", id: "x" }),
+      operationKey({ op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "x" }),
     );
   });
 });
@@ -92,7 +92,7 @@ describe("retargetedEdits", () => {
   });
 
   it("flags an edit that changes the operation tag", () => {
-    const edited: Operation = { op: "refine", id: "old-claim" };
+    const edited: Operation = { op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "old-claim" };
 
     expect(
       retargetedEdits({ [operationKey(RETIRE)]: { decision: "edit", edited, decidedAt: DECIDED_AT } }),

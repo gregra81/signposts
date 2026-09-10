@@ -12,7 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeCommitPort } from "../../../src/io/commit/commit-port.js";
-import { FakeForge } from "../../../src/io/forge/fake-forge.js";
+import type { CommitOutcome } from "../../../src/graph/ports.js";
+import { FakeForge, FAKE_PR_URL_PREFIX } from "../../../src/io/forge/fake-forge.js";
 import { BRANCH_PATTERN, SIGNPOSTS_DIRNAME } from "../../../src/core/config/constants.js";
 import { PR_TITLE } from "../../../src/core/pr/body.js";
 import { parseSignpost, serialiseSignpost } from "../../../src/core/signpost/codec.js";
@@ -77,6 +78,8 @@ describe("the commit port", () => {
   let warnings: string[];
   /** The `gh pr create` lines the port handed back for a developer to run. */
   let manualCommands: string[];
+  /** Where each committing session said its work went — RunOutput's `commit`. */
+  let outcomes: CommitOutcome[];
 
   function port() {
     return makeCommitPort({
@@ -87,6 +90,7 @@ describe("the commit port", () => {
       forge,
       warn: (message) => warnings.push(message),
       prNotOpened: (command) => manualCommands.push(command),
+      committed: (outcome) => outcomes.push(outcome),
       today: () => TODAY,
     });
   }
@@ -103,6 +107,7 @@ describe("the commit port", () => {
     forge = new FakeForge();
     warnings = [];
     manualCommands = [];
+    outcomes = [];
 
     execFileSync("git", ["init", "--bare", "--initial-branch=main", remote]);
     execFileSync("git", ["clone", remote, repoRoot]);
@@ -250,6 +255,34 @@ describe("the commit port", () => {
     );
   });
 
+  // 18-end-to-end-gaps.md item 5: `RunOutput` had no field for the branch, the
+  // pull request, or the fact that neither happened, so a run whose push
+  // failed printed `"status": "finished"` with its proposals and exited 0.
+  describe("what it reports back for RunOutput's `commit`", () => {
+    it("names the branch and the pull request it opened", async () => {
+      await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+      expect(outcomes).toEqual([
+        { branch: BRANCH, pr: 1, url: `${FAKE_PR_URL_PREFIX}1`, reason: null },
+      ]);
+    });
+
+    it("gives the number but no url for a pull request it only added to", async () => {
+      await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+      await apply("sess-2", [{ op: "add", signpost: signpost({ id: "second", claim: "Another rule." }) }]);
+
+      // The second session found the pull request by listing, which reports a
+      // number and nothing else.
+      expect(outcomes[1]).toEqual({ branch: BRANCH, pr: 1, url: null, reason: null });
+    });
+
+    it("reports nothing at all for a session that committed nothing", async () => {
+      await apply("sess-1", []);
+
+      expect(outcomes).toEqual([]);
+    });
+  });
+
   it("keeps the push when the forge cannot be reached, and says how to finish by hand", async () => {
     const failing = makeCommitPort({
       repoRoot,
@@ -267,6 +300,7 @@ describe("the commit port", () => {
       },
       warn: (message) => warnings.push(message),
       prNotOpened: (command) => manualCommands.push(command),
+      committed: (outcome) => outcomes.push(outcome),
       today: () => TODAY,
     });
 
@@ -285,6 +319,11 @@ describe("the commit port", () => {
     // given, and those are what a developer would actually send to GitHub.
     // The body is a multi-line markdown table with quotes and backticks in
     // it, which is exactly what a naively printed command loses.
+    // And the JSON the run prints says so, rather than "finished" with a list
+    // of proposals and nothing about the pull request that does not exist.
+    expect(outcomes[0]?.pr).toBe(null);
+    expect(outcomes[0]?.reason).toContain("could not open a pull request");
+
     const argv = ranThroughShell(manualCommands[0]!);
     expect(argv.slice(0, 4)).toEqual(["pr", "create", "--head", BRANCH]);
     expect(argv[argv.indexOf("--title") + 1]).toBe(PR_TITLE);
@@ -385,6 +424,7 @@ describe("the commit port", () => {
       },
       warn: (message) => warnings.push(message),
       prNotOpened: (command) => manualCommands.push(command),
+      committed: (outcome) => outcomes.push(outcome),
       today: () => TODAY,
     });
 
@@ -457,6 +497,7 @@ describe("the commit port", () => {
       forge,
       warn: (message) => warnings.push(message),
       prNotOpened: (command) => manualCommands.push(command),
+      committed: (outcome) => outcomes.push(outcome),
       today: () => TODAY,
     });
 
