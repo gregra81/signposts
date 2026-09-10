@@ -99,7 +99,7 @@ export function humanReviewNode(state: ExtractionState): ExtractionUpdate {
       sessionId: state.sessionId,
       needsHuman: outstanding(state.gated, decisions),
     });
-    decisions = { ...decisions, ...parseResponse(answered, state.gated) };
+    decisions = { ...decisions, ...parseReviewResponse(answered, state.gated) };
   }
 
   return { humanDecisions: decisions };
@@ -112,7 +112,14 @@ function outstanding(gated: GatedOperations, decisions: ReviewResponse): GatedRe
     .filter((item) => decisions[item.key] === undefined);
 }
 
-function parseResponse(value: unknown, gated: GatedOperations): ReviewResponse {
+/**
+ * Exported for the same reason `reviewResponseSchema` is: everything below is
+ * reached only through an `interrupt()`, which throws outside a running graph,
+ * so a test that wants to assert what a bad resume value *says* cannot get at
+ * it through the node. The messages are the product here — an answerer holding
+ * only the halt output is the whole contract (12-wire-contracts.md).
+ */
+export function parseReviewResponse(value: unknown, gated: GatedOperations): ReviewResponse {
   const parsed = reviewResponseSchema.safeParse(value);
   if (!parsed.success) {
     throw new Error(

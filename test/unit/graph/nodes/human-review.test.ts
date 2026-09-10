@@ -6,7 +6,11 @@
 // halt?" observable here without compiling a graph at all.
 
 import { describe, expect, it } from "vitest";
-import { humanReviewNode, reviewResponseSchema } from "../../../../src/graph/nodes/human-review.js";
+import {
+  humanReviewNode,
+  parseReviewResponse,
+  reviewResponseSchema,
+} from "../../../../src/graph/nodes/human-review.js";
 import { operationKey } from "../../../../src/core/graph/decisions.js";
 import { graphState } from "../../../behaviour/helpers/graph-harness.js";
 import type { HumanDecision, Operation } from "../../../../src/core/contracts/graph.js";
@@ -77,5 +81,42 @@ describe("the resume payload", () => {
 
   it("rejects a payload that is not a record at all", () => {
     expect(reviewResponseSchema.safeParse("accept").success).toBe(false);
+  });
+});
+
+// 18-end-to-end-gaps.md item 3. The resume value is keyed by `operationKey`
+// and the payload carried no key, so the only identifiers an answerer had were
+// the signpost ids. Answering with those was accepted and discarded, and the
+// node re-halted on the same operations at exit 0 — an agent following
+// SKILL.md loops there forever.
+//
+// The message is the product: everything needed to answer has to be in what
+// asked, so an answer that is wrong has to say what the right one looks like.
+describe("a decision that answers no gated operation", () => {
+  const gated = gatedWith(RETIRE, REFINE);
+
+  it("names the key that matched nothing", () => {
+    expect(() => parseReviewResponse({ "staging-writable": ACCEPT }, gated)).toThrow(
+      "human_review: no gated operation is keyed staging-writable",
+    );
+  });
+
+  it("names every one of them, not just the first", () => {
+    expect(() =>
+      parseReviewResponse({ "staging-writable": ACCEPT, "etl-window": ACCEPT }, gated),
+    ).toThrow("no gated operation is keyed staging-writable, etl-window");
+  });
+
+  it("says what a key should have looked like, listing the outstanding ones", () => {
+    expect(() => parseReviewResponse({ nonsense: ACCEPT }, gated)).toThrow(
+      "answer under the `key` each needsHuman entry carries " +
+        `(expected one of: ${operationKey(RETIRE)}, ${operationKey(REFINE)})`,
+    );
+  });
+
+  it("accepts the keys the halt actually asked under", () => {
+    const answered = { [operationKey(RETIRE)]: ACCEPT, [operationKey(REFINE)]: ACCEPT };
+
+    expect(parseReviewResponse(answered, gated)).toEqual(answered);
   });
 });
