@@ -8,6 +8,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
+import { MODEL_REPO, MODEL_REVISION } from "../../support/model-cache.js";
+import { cachedWeightsPath, vendoredWeightsPath } from "../../../src/core/retrieval/model-files.js";
+
+/** A stand-in for the ONNX weights, in a directory that may not exist yet. */
+function writeWeights(file: string): void {
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, "", "utf8");
+}
 
 describe("signpost doctor", () => {
   let homeDir: string;
@@ -82,5 +90,114 @@ describe("signpost doctor", () => {
     await runCli(["doctor"], { config, stdio });
 
     expect(stdio.writtenOutput()).toContain("session-start hook: installed");
+  });
+
+  it("reports a hook installed in settings.local.json, where a personal one goes", async () => {
+    // `init` writes the status line to settings.local.json for the same
+    // reason a hook command holding an absolute path belongs there — reading
+    // only the shared file told a developer their own installed hook was
+    // missing.
+    mkdirSync(path.join(repoRoot, ".claude"), { recursive: true });
+    writeFileSync(
+      path.join(repoRoot, ".claude", "settings.local.json"),
+      JSON.stringify({
+        hooks: { SessionStart: [{ hooks: [{ type: "command", command: "node /opt/signposts/hooks/session-start.js" }] }] },
+      }),
+      "utf8",
+    );
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config, stdio });
+
+    expect(stdio.writtenOutput()).toContain("session-start hook: installed");
+  });
+
+  it("reports a hook installed once globally, in ~/.claude/settings.json", async () => {
+    // A hook command holds an absolute path to this machine's install, so the
+    // user-level file is where one is most likely to be — and a repo-only
+    // check called it missing while it fired on every session start.
+    const claudeConfigRoot = path.dirname(config.paths.transcriptRoot);
+    mkdirSync(claudeConfigRoot, { recursive: true });
+    writeFileSync(
+      path.join(claudeConfigRoot, "settings.json"),
+      JSON.stringify({
+        hooks: { SessionStart: [{ hooks: [{ type: "command", command: "node /opt/signposts/hooks/session-start.js" }] }] },
+      }),
+      "utf8",
+    );
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config, stdio });
+
+    expect(stdio.writtenOutput()).toContain("session-start hook: installed");
+  });
+
+  it("an empty cache directory is cold, not present", async () => {
+    // The directory alone is what the old check looked at, and the first
+    // embedder that ever ran creates it — so an interrupted download reported
+    // a cache that could not load a model.
+    mkdirSync(config.paths.modelCacheDir, { recursive: true });
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config, stdio });
+
+    expect(stdio.writtenOutput()).toContain("embedding model cache: cold");
+  });
+
+  it("the pinned revision's weights in the cache are warm", async () => {
+    writeWeights(cachedWeightsPath(config.paths.modelCacheDir, MODEL_REPO, MODEL_REVISION));
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config, stdio });
+
+    expect(stdio.writtenOutput()).toContain("embedding model cache: warm");
+  });
+
+  it("a download interrupted before the weights landed is still cold", async () => {
+    // transformers.js renames one completed file at a time into the revision
+    // directory, so config.json and tokenizer.json arrive before the ONNX
+    // weights do. The directory is populated and nothing can load from it.
+    const revisionDir = path.join(config.paths.modelCacheDir, MODEL_REPO, MODEL_REVISION);
+    mkdirSync(path.join(revisionDir, "onnx"), { recursive: true });
+    writeFileSync(path.join(revisionDir, "config.json"), "{}", "utf8");
+    writeFileSync(path.join(revisionDir, "tokenizer.json"), "{}", "utf8");
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config, stdio });
+
+    expect(stdio.writtenOutput()).toContain("embedding model cache: cold");
+  });
+
+  it("an empty cache with no route to the model host is unavailable, not cold", async () => {
+    // 15-spec.md story 57's restricted network, minus the vendored copy:
+    // transformers.js throws instead of downloading, so "cold — the first run
+    // downloads the model" would be a promise nothing can keep.
+    const offline = resolveConfig({
+      repoRoot,
+      homeDir,
+      env: { SIGNPOSTS_RETRIEVAL_ALLOW_REMOTE_MODELS: "false" },
+    });
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config: offline, stdio });
+
+    expect(stdio.writtenOutput()).toContain("embedding model cache: unavailable");
+  });
+
+  it("a vendored model is reported as such, cold shared cache and all", async () => {
+    // 15-spec.md story 57: a restricted network points retrieval at a local
+    // copy, which transformers.js resolves flat and without the revision.
+    const vendored = path.join(repoRoot, "vendor", "models");
+    writeWeights(vendoredWeightsPath(vendored, MODEL_REPO));
+    const vendoredConfig = resolveConfig({
+      repoRoot,
+      homeDir,
+      env: { SIGNPOSTS_RETRIEVAL_LOCAL_MODEL_PATH: vendored },
+    });
+
+    const stdio = createFakeStdio();
+    await runCli(["doctor"], { config: vendoredConfig, stdio });
+
+    expect(stdio.writtenOutput()).toContain("embedding model cache: vendored");
   });
 });

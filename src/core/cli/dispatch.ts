@@ -28,6 +28,19 @@ const KNOWN_COMMANDS = [
 ] as const;
 export type KnownCommand = (typeof KNOWN_COMMANDS)[number];
 
+/**
+ * The commands that can reach a model call, and therefore may not run before
+ * this repo has consented (15-spec.md story 70, src/cli/consent.ts).
+ *
+ * `sessions`, `index` and `worker` are not among them on purpose: listing
+ * transcripts, building the index and taking the census are local and free,
+ * and 05-retrieval.md is explicit that a reader who never runs an extraction
+ * is never asked for anything.
+ */
+export function spendsTokens(command: KnownCommand): boolean {
+  return command === "run" || command === "resume" || command === "review";
+}
+
 /** Options the run commands accept; absent for the others. */
 export interface CommandOptions {
   /** `--session <id>` — which session to run or resume. */
@@ -40,6 +53,16 @@ export interface CommandOptions {
   isFirst: boolean;
   /** `--adopt-lock` — the hook already took the run lock and is handing it over. */
   adoptLock: boolean;
+  /**
+   * `--verbose` — narrate the run on stderr as it happens.
+   *
+   * For the developer driving the loop by hand (15-spec.md story 71): stdout
+   * is one JSON object and says nothing about which session was picked, what
+   * the halt is waiting on, or what to type next. stderr is where that goes,
+   * so the JSON contract on stdout is untouched and a pipe through `jq` still
+   * works.
+   */
+  verbose: boolean;
 }
 
 export type ParsedCommand = { name: KnownCommand; options: CommandOptions } | { name: "unknown" };
@@ -49,6 +72,7 @@ const CONTENT_HASH_FLAG = "--content-hash";
 const REPLIES_FLAG = "--replies";
 const FIRST_FLAG = "--first";
 const ADOPT_LOCK_FLAG = "--adopt-lock";
+const VERBOSE_FLAG = "--verbose";
 
 /**
  * A flag's value, or undefined when the next argument is another flag.
@@ -64,12 +88,14 @@ function valueAt(argv: readonly string[], index: number): string | undefined {
 }
 
 function parseOptions(argv: readonly string[]): CommandOptions {
-  const options: CommandOptions = { isFirst: false, adoptLock: false };
+  const options: CommandOptions = { isFirst: false, adoptLock: false, verbose: false };
   for (const [index, argument] of argv.entries()) {
     if (argument === FIRST_FLAG) {
       options.isFirst = true;
     } else if (argument === ADOPT_LOCK_FLAG) {
       options.adoptLock = true;
+    } else if (argument === VERBOSE_FLAG) {
+      options.verbose = true;
     } else if (argument === SESSION_FLAG) {
       const value = valueAt(argv, index + 1);
       if (value !== undefined) {

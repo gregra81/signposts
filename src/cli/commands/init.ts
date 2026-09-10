@@ -7,14 +7,12 @@
 // what does the pointer become?) is src/core/init/policy.ts; this module
 // gathers/writes.
 
-import { existsSync } from "node:fs";
 import path from "node:path";
 import type { ExitCode, Stdio } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import {
   consentExitCode,
   ensureClaudeMdPointer,
-  isConsented,
   needsConsentPrompt,
   parseConsentAnswer,
 } from "../../core/init/policy.ts";
@@ -23,9 +21,10 @@ import { writeSkill } from "../../io/init/skill-file.ts";
 import { installStatusLine } from "../../io/init/statusline-file.ts";
 import { STATUSLINE_OUTCOMES } from "../../core/init/statusline-settings.ts";
 import { promptForConsent } from "../../io/init/consent-prompt.ts";
+import { readConsent } from "../../io/init/consent-state.ts";
 import { ensureKnowledgeDir } from "../../io/init/signposts-dir.ts";
 import { openDb } from "../../io/db/migrate.ts";
-import { hasConsented, markConsented } from "../../io/db/repo-state.ts";
+import { markConsented } from "../../io/db/repo-state.ts";
 import { resolveRepo } from "../../io/git/remote-origin.ts";
 
 export interface RunInitInput {
@@ -47,26 +46,16 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
     return 1;
   }
 
-  // Don't create/migrate the db just to check consent — a decline must leave
-  // no trace, and openDb() creates the file. Absent file ⇒ not consented.
-  const dbFileExists = existsSync(config.paths.dbPath);
-  let rowConsented: boolean;
+  // Reading consent must not create the database: a decline leaves no trace,
+  // and openDb() creates the file. ../../io/init/consent-state.ts is the same
+  // read the run commands' gate performs (../consent.ts).
+  let alreadyConsented: boolean;
   try {
-    rowConsented =
-      dbFileExists &&
-      (() => {
-        const db = openDb(config.paths.dbPath);
-        try {
-          return hasConsented(db, repo);
-        } finally {
-          db.close();
-        }
-      })();
+    alreadyConsented = readConsent(config.paths.dbPath, repo);
   } catch {
     stdio.error.write(`signposts: database at ${config.paths.dbPath} is corrupt or unreadable.\n`);
     return 1;
   }
-  const alreadyConsented = isConsented(dbFileExists, rowConsented);
 
   if (!needsConsentPrompt(alreadyConsented)) {
     // Rewrite the skill on the way out. `init` is the only thing that writes

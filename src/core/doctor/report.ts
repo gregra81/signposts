@@ -13,6 +13,44 @@ export interface GhAuthFact {
 
 export type DbIntegrityStatus = "ok" | "corrupt" | "no-database";
 
+/**
+ * What the embedding model's cache holds — the question being "can a run
+ * embed?", not "does a directory exist".
+ *
+ * `vendored` is the offline setup of 15-spec.md's story 57: `local_model_path`
+ * points at a flat copy of the model, and transformers.js resolves against it
+ * and ignores the pinned revision entirely, so the shared cache is beside the
+ * point there. Reporting that setup as a cold cache would send a developer to
+ * download a model they already have.
+ *
+ * `unavailable` is the other half of that story, and the reason the remote
+ * policy is an input here: with `retrieval.allow_remote_models` false and
+ * nothing on disk, transformers.js does not download, it throws
+ * ("`env.allowRemoteModels=false` and file was not found locally"). Calling
+ * that cold promises a download that cannot happen — a self-diagnosis that
+ * sends the developer to wait for nothing.
+ */
+export type ModelCacheStatus = "warm" | "cold" | "vendored" | "unavailable";
+
+export interface ModelCacheFacts {
+  /** `retrieval.local_model_path` is set and the model's weights are under it. */
+  vendored: boolean;
+  /** The pinned `<repo-id>@<revision>`'s weights are in the shared cache. */
+  pinnedRevisionCached: boolean;
+  /** `retrieval.allow_remote_models` — whether a cold cache can still fill itself. */
+  remoteAllowed: boolean;
+}
+
+export function classifyModelCache(facts: ModelCacheFacts): ModelCacheStatus {
+  if (facts.vendored) {
+    return "vendored";
+  }
+  if (facts.pinnedRevisionCached) {
+    return "warm";
+  }
+  return facts.remoteAllowed ? "cold" : "unavailable";
+}
+
 /** `pragmaResult` is the raw `PRAGMA integrity_check` row text; only "ok" means healthy. */
 export function classifyDbIntegrity(dbExists: boolean, pragmaResult: string | undefined): DbIntegrityStatus {
   if (!dbExists) {
@@ -26,12 +64,12 @@ export function isNodeVersionSupported(currentMajor: number, minMajor: number): 
 }
 
 /**
- * Reads `.claude/settings.json`'s `hooks.SessionStart` for an entry whose
+ * Reads a settings file's `hooks.SessionStart` for an entry whose
  * command mentions "signpost" (Claude Code's hook shape: an array of
  * `{ hooks: [{ command }] }` groups per matcher — see 07-triggering-and-ux.md
- * "Distribution"). Nothing installs this hook yet (out of scope, Slice C),
- * so this is expected to report absent until that lands; it takes already-
- * parsed JSON so it never throws on a malformed or missing file.
+ * "Distribution"). Nothing installs this hook yet, so this is expected to
+ * report absent until that lands; it takes already-parsed JSON so it never
+ * throws on a malformed or missing file.
  */
 export function detectSignpostSessionStartHook(settings: unknown): boolean {
   if (typeof settings !== "object" || settings === null) {
@@ -67,7 +105,7 @@ export interface DoctorFacts {
   nodeMajorVersion: number;
   nodeMinVersion: number;
   gh: GhAuthFact;
-  modelCachePresent: boolean;
+  modelCache: ModelCacheStatus;
   dbIntegrity: DbIntegrityStatus;
   hookInstalled: boolean;
 }
@@ -85,7 +123,16 @@ function ghLine(facts: DoctorFacts): string {
 }
 
 function modelCacheLine(facts: DoctorFacts): string {
-  return `embedding model cache: ${facts.modelCachePresent ? "present" : "absent"}`;
+  switch (facts.modelCache) {
+    case "warm":
+      return "embedding model cache: warm — the pinned model is cached, retrieval works offline";
+    case "vendored":
+      return "embedding model cache: vendored — retrieval loads from retrieval.local_model_path";
+    case "cold":
+      return "embedding model cache: cold — the first run downloads the model (~23MB, once per machine)";
+    case "unavailable":
+      return "embedding model cache: unavailable — retrieval.allow_remote_models is false and nothing is cached; vendor a copy and set retrieval.local_model_path";
+  }
 }
 
 function dbIntegrityLine(facts: DoctorFacts): string {

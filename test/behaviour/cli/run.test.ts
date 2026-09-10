@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { projectDirName } from "../../../src/core/transcript/project-dir.js";
 import { runCli } from "../helpers/run-cli.js";
+import { giveConsent } from "../helpers/consent.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 import { MODEL_REQUEST_KIND } from "../../../src/graph/index.js";
@@ -129,6 +130,11 @@ describe("the run loop", () => {
       },
     });
     config = { ...config, paths: { ...config.paths, modelCacheDir: testModelCache() } };
+
+    // `run` and `resume` refuse to spend tokens before this repo has
+    // consented (src/cli/consent.ts) — the developer these tests stand in for
+    // answered that once, in `init`.
+    giveConsent(config, repoRoot);
   });
 
   afterEach(() => {
@@ -231,5 +237,33 @@ describe("the run loop", () => {
     expect(exitCode).toBe(1);
     expect(stdio.writtenError()).toMatch(/extract: structured output did not satisfy its schema/);
     expect(stdio.writtenOutput()).toBe("");
+  }, 30_000);
+
+  // 15-spec.md story 71: everything manually and verbosely, without the
+  // plugin. Nothing here goes through a hook, a worker or the skill — it is
+  // the CLI a person types, and the trace is what tells them what it did.
+  it("--verbose narrates the run on stderr, and leaves stdout one JSON object", async () => {
+    const stdio = createFakeStdio();
+
+    const exitCode = await runCli(["run", "--first", "--verbose"], { config, stdio });
+
+    expect(exitCode).toBe(0);
+    const trace = stdio.writtenError();
+    expect(trace).toContain("repo acme/api");
+    expect(trace).toContain(`running session ${SESSION_ID}`);
+    expect(trace).toContain("halted on 1 request(s)");
+    // The command a person types next, with both halves of the thread id
+    // already filled in — retyping them out of the JSON is where a manual run
+    // goes wrong.
+    const output = firstJson(stdio.writtenOutput()) as { contentHash: string };
+    expect(trace).toContain(`--session ${SESSION_ID} --content-hash ${output.contentHash}`);
+  }, 30_000);
+
+  it("says nothing on stderr without --verbose", async () => {
+    const stdio = createFakeStdio();
+
+    await runCli(["run", "--first"], { config, stdio });
+
+    expect(stdio.writtenError()).toBe("");
   }, 30_000);
 });

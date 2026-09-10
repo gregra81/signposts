@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseCommand } from "../../../src/core/cli/dispatch.js";
+import { parseCommand, spendsTokens } from "../../../src/core/cli/dispatch.js";
 
-const NO_OPTIONS = { isFirst: false, adoptLock: false };
+const NO_OPTIONS = { isFirst: false, adoptLock: false, verbose: false };
 
 describe("parseCommand", () => {
   it.each([
@@ -25,7 +25,7 @@ describe("the run commands' options", () => {
 
     expect(parsed).toEqual({
       name: "resume",
-      options: { sessionId: "s-1", repliesPath: "-", isFirst: true, adoptLock: false },
+      options: { sessionId: "s-1", repliesPath: "-", isFirst: true, adoptLock: false, verbose: false },
     });
   });
 
@@ -43,7 +43,7 @@ describe("the run commands' options", () => {
 
     expect(parsed).toEqual({
       name: "resume",
-      options: { sessionId: "abc", isFirst: false, adoptLock: false },
+      options: { sessionId: "abc", isFirst: false, adoptLock: false, verbose: false },
     });
   });
 
@@ -52,7 +52,7 @@ describe("the run commands' options", () => {
 
     expect(parsed).toEqual({
       name: "resume",
-      options: { sessionId: "s-1", contentHash: "deadbeef", isFirst: false, adoptLock: false },
+      options: { sessionId: "s-1", contentHash: "deadbeef", isFirst: false, adoptLock: false, verbose: false },
     });
   });
 
@@ -63,7 +63,7 @@ describe("the run commands' options", () => {
   it("ignores --content-hash with no value", () => {
     expect(parseCommand(["resume", "--content-hash", "--first"])).toEqual({
       name: "resume",
-      options: { isFirst: true, adoptLock: false },
+      options: { isFirst: true, adoptLock: false, verbose: false },
     });
   });
 
@@ -72,7 +72,7 @@ describe("the run commands' options", () => {
 
     expect(parsed).toEqual({
       name: "run",
-      options: { sessionId: "s-2", isFirst: true, adoptLock: false },
+      options: { sessionId: "s-2", isFirst: true, adoptLock: false, verbose: false },
     });
   });
 });
@@ -88,7 +88,34 @@ describe("worker", () => {
   it("reads --adopt-lock", () => {
     expect(parseCommand(["worker", "--adopt-lock"])).toEqual({
       name: "worker",
-      options: { isFirst: false, adoptLock: true },
+      options: { isFirst: false, adoptLock: true, verbose: false },
     });
+  });
+});
+
+describe("--verbose", () => {
+  it("is off unless asked for", () => {
+    expect(parseCommand(["run"])).toEqual({ name: "run", options: NO_OPTIONS });
+  });
+
+  it("is read wherever it sits, alongside the other flags", () => {
+    expect(parseCommand(["resume", "--verbose", "--session", "s-1"])).toEqual({
+      name: "resume",
+      options: { sessionId: "s-1", isFirst: false, adoptLock: false, verbose: true },
+    });
+  });
+});
+
+describe("spendsTokens", () => {
+  // The consent gate hangs off this (src/cli/consent.ts): a command listed
+  // here cannot run before the repo has consented, and one left out runs
+  // freely. Both halves are asserted, because a wrong answer either bills a
+  // developer who was never asked or blocks a reader who never had to be.
+  it.each(["run", "resume", "review"] as const)("%s reaches a model call", (command) => {
+    expect(spendsTokens(command)).toBe(true);
+  });
+
+  it.each(["sessions", "index", "worker", "init", "doctor"] as const)("%s is local and free", (command) => {
+    expect(spendsTokens(command)).toBe(false);
   });
 });

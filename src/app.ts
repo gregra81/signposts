@@ -24,7 +24,9 @@
 
 import type { ResolvedConfig } from "./core/config/resolve.ts";
 import type { ExitCode } from "./core/cli/exit-codes.ts";
-import { parseCommand } from "./core/cli/dispatch.ts";
+import { parseCommand, spendsTokens } from "./core/cli/dispatch.ts";
+import { EXIT_CODES } from "./core/cli/exit-codes.ts";
+import { hasConsent } from "./cli/consent.ts";
 import { runInit } from "./cli/commands/init.ts";
 import { runIndex } from "./cli/commands/index.ts";
 import { runDoctor } from "./cli/commands/doctor.ts";
@@ -65,7 +67,7 @@ export interface App {
 // listing it would invite someone to run the background process by hand
 // expecting it to distil their sessions, which it cannot do (see
 // cli/commands/worker.ts).
-const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|review>\n";
+const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|review> [--verbose]\n";
 
 function defaultStdio(): Stdio {
   return {
@@ -100,7 +102,15 @@ export function createApp({ config, openRun, stdio }: CreateAppInput): App {
         ...(command.options.contentHash === undefined ? {} : { contentHash: command.options.contentHash }),
         ...(command.options.repliesPath === undefined ? {} : { repliesPath: command.options.repliesPath }),
         isFirst: command.options.isFirst,
+        verbose: command.options.verbose,
       };
+
+      // Consent gates every command that can spend tokens, whichever path it
+      // was typed on (./cli/consent.ts). `init` is exempt: it is the command
+      // that asks.
+      if (spendsTokens(command.name) && !hasConsent({ config, repoRoot, stderr: io.error })) {
+        return EXIT_CODES.failure;
+      }
 
       switch (command.name) {
         case "init":

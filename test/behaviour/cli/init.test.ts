@@ -76,6 +76,21 @@ describe("signpost init", () => {
     }
   });
 
+  // 15-spec.md story 70 asks for three things before the first run — what it
+  // does, roughly what it costs, where the output goes — because a prompt
+  // that says only "continue?" is the README paragraph the story rejects.
+  it("the prompt says what it does, what it costs and where the output goes", async () => {
+    const stdio = createFakeStdio("y");
+
+    await runCli(["init"], { config, stdio });
+
+    const prompt = stdio.writtenOutput();
+    expect(prompt).toContain("transcripts");
+    expect(prompt).toContain("quota");
+    expect(prompt).toContain("pull request");
+    expect(prompt).toContain("asked once");
+  });
+
   it("re-running init on an already-consented repo is a no-op reporting already-initialised", async () => {
     await runCli(["init"], {
       config,
