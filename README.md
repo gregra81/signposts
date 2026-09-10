@@ -44,9 +44,10 @@ doesn't belong here — that's the entire point of the tool.
 **Sessions have to sit idle 24+ hours first.** Claude Code sessions are resumable, so "ended"
 isn't really final until enough time has passed.
 
-**The write path ships first.** Reading signposts back into a session starts as a plain
-`CLAUDE.md` pointer; a proper MCP server comes later. Retrieval-and-inject is already a crowded
-space — the part worth building first is getting the knowledge captured at all.
+**The write path shipped first.** Retrieval-and-inject is a crowded space; capturing the knowledge
+at all was the part worth building first. The read path is now an MCP server with one tool,
+`search_signposts`, over the index the write path already maintains. The `CLAUDE.md` pointer stays
+anyway: it is what still works when the server is not running.
 
 ## Using it
 
@@ -54,6 +55,10 @@ space — the part worth building first is getting the knowledge captured at all
 npm i -g signposts
 signpost init          # asks once, writes .signposts/ and the skill
 ```
+
+Or install the Claude Code plugin. It carries the session-start hook, the `/signposts:*` commands
+and the MCP server, and you never open a settings file. `signpost init` still asks for consent and
+still installs the status line, which is not something a plugin is allowed to do.
 
 After that you never run it by hand: ask Claude to run signposts, and the skill it installed drives
 the extraction, brings anything that needs your judgement back to you, and opens the PR.
@@ -73,6 +78,19 @@ installed. Run it before writing a bug report.
 `--verbose` narrates a run on stderr: which transcript it picked, what each halt is waiting on,
 and the exact command that answers it. stdout stays one JSON object, so a pipe through `jq` still
 works. This is how you drive the pipeline by hand, with no plugin and no hook in it.
+
+## Reading it back
+
+`search_signposts` matches on meaning. Ask it whether staging can take a migration and you get the
+signpost saying the database is read-only, whatever words that signpost happens to use. It runs on
+your machine against the local index, so a query costs nothing.
+
+A fresh clone has no index. Nobody has run anything there and nothing has consented, which is
+normal, so the tool returns an empty result and says which of those it is. It does not fail: an
+error inside a Claude turn would be a worse answer than "there is nothing here yet", and the
+signposts are markdown in the repo regardless — the `CLAUDE.md` pointer is what sends Claude to
+read them. The session-start hook builds the index in the background, and the next session
+searches it.
 
 ## Where this stands
 

@@ -12,6 +12,7 @@ describe("parseCommand", () => {
     [["run"], { name: "run", options: NO_OPTIONS }],
     [["resume"], { name: "resume", options: NO_OPTIONS }],
     [["init", "--extra"], { name: "init", options: NO_OPTIONS }],
+    [["mcp"], { name: "mcp", options: NO_OPTIONS }],
     [["bogus"], { name: "unknown" }],
     [[], { name: "unknown" }],
   ] as const)("parseCommand(%j) -> %j", (argv, expected) => {
@@ -115,7 +116,7 @@ describe("spendsTokens", () => {
     expect(spendsTokens(command)).toBe(true);
   });
 
-  it.each(["sessions", "index", "worker", "init", "doctor"] as const)("%s is local and free", (command) => {
+  it.each(["sessions", "index", "worker", "init", "doctor", "mcp"] as const)("%s is local and free", (command) => {
     expect(spendsTokens(command)).toBe(false);
   });
 });

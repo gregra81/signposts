@@ -17,6 +17,7 @@
 // (src/io/git/remote-origin.ts's resolveRepo) and fails gracefully if it
 // can't.
 
+import { realpathSync } from "node:fs";
 import os from "node:os";
 import process from "node:process";
 import type { App } from "../app.ts";
@@ -25,8 +26,38 @@ import { resolveConfig } from "../core/config/resolve.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
 import { openRun } from "./open-run.ts";
 
+/**
+ * The repository this invocation is about.
+ *
+ * `process.cwd()` for everything a person types, and `SIGNPOSTS_REPO_ROOT`
+ * for the one caller that cannot rely on a working directory: the MCP server
+ * in `.claude-plugin/plugin.json`, which Claude Code starts itself. The plugin
+ * documentation says which variables a manifest may substitute but says
+ * nothing about the working directory a server is spawned in, and a repoRoot
+ * guessed wrong is not an error — it is a different state directory, an index
+ * that appears not to exist, and a search that quietly answers "nothing
+ * recorded here". So the manifest passes the project root explicitly.
+ *
+ * Resolved through `realpathSync` for the reason the hook resolves it too
+ * (hooks/session-start.ts): every state path is keyed on `sha256(repoRoot)`,
+ * `process.cwd()` is always reported resolved, and a checkout reached through
+ * a symlink would otherwise hash to a second, empty state directory.
+ *
+ * Read here, at the composition root, and nowhere below it (R7).
+ */
+function resolveRepoRoot(override: string | undefined): string {
+  if (override === undefined || override === "") {
+    return process.cwd();
+  }
+  try {
+    return realpathSync(override);
+  } catch {
+    return override; // A path that does not exist fails later, with its own message.
+  }
+}
+
 export function buildProductionApp(): App {
-  const repoRoot = process.cwd();
+  const repoRoot = resolveRepoRoot(process.env["SIGNPOSTS_REPO_ROOT"]);
   const homeDir = os.homedir();
 
   const config = resolveConfig({

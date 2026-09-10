@@ -175,7 +175,18 @@ const migrations: MigrationStep[] = [
   },
 ];
 
-function readUserVersion(db: Database.Database): number {
+/**
+ * The `user_version` a database this build can read carries: the number of
+ * migrations above.
+ *
+ * Exported for the read path (./read-only.ts), which opens the file without
+ * the right to migrate it — a reader's MCP query must not create or alter a
+ * repo's database — and so has to be able to tell an older schema apart from
+ * a current one and say so.
+ */
+export const SCHEMA_VERSION = migrations.length;
+
+export function readUserVersion(db: Database.Database): number {
   const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
   return user_version;
 }

@@ -106,9 +106,10 @@ replies keyed on `(node, system, user)` and treats a miss as an error.
 and `.claude/skills/signposts/SKILL.md` — the skill is how the tool is driven, and it is rewritten
 on every accepted `init` so it cannot drift from the CLI it describes.
 
-The CLI is seven commands. `doctor`, `init` and `index` stand alone; `sessions`, `run` and `resume`
-are the loop the skill drives, one JSON object per invocation; `worker` is spawned by the hook and
-never typed (see below):
+The CLI is nine commands. `doctor`, `init` and `index` stand alone; `sessions`, `run` and `resume`
+are the loop the skill drives, one JSON object per invocation; `review` is the developer's own
+terminal; `worker` is spawned by the hook and `mcp` by the plugin, and neither is ever typed (see
+below):
 
 ```
 signpost sessions                                  # eligible transcripts
@@ -200,6 +201,60 @@ command, ours runs theirs, prints what it printed, and adds a row underneath. Th
 stays visible in the settings file so they can see what happened and take it back by deleting one
 thing. Nothing is written at all when the compiled bundle is missing — a command that is not there
 exits non-zero, which blanks the bar and takes their status line down with it.
+
+## The plugin, and what it cannot carry
+
+`.claude-plugin/plugin.json` is the install: `hooks/hooks.json` registers the SessionStart hook,
+`commands/` holds `/signposts:run`, `/signposts:status` and `/signposts:review`, and `mcpServers`
+starts `signpost mcp`. Nobody edits a settings file. `test/behaviour/plugin/manifest.test.ts`
+resolves every path in it against the repo, because a manifest that points at a file that moved
+fails as "installed, and nothing happened".
+
+**The status line is not in it.** A plugin's own `settings.json` accepts `agent` and
+`subagentStatusLine` and nothing else, so `init` still installs the status line into
+`.claude/settings.local.json` — see the statusLine section above; that is a platform limit, not an
+oversight.
+
+**`doctor` does not see a plugin-installed hook.** It looks for one in the three settings files,
+which is where a hook had to be before this, so a plugin user is told "not installed" about a hook
+firing on every session. The manifest test records that as a known gap.
+
+**A plugin installed from a git clone has neither `node_modules` nor the compiled bundles**
+(`hooks/*.js` and `statusline/*.js` are build output and gitignored), so a clone needs
+`pnpm install && pnpm build:hooks` before it works. Publishing to npm does not fix it either:
+`node` refuses to strip types beneath `node_modules`, so `bin/signpost.js` — which imports
+`src/**/*.ts` — cannot run from a global install at all. That is the same constraint the language
+section describes, reached from the other side, and it gates distribution rather than this repo.
+
+## The MCP server
+
+`signpost mcp` (`src/cli/commands/mcp.ts`) serves one tool, `search_signposts`, over stdio. It is
+dispatched but never typed, like `worker`: the plugin manifest starts it, Claude Code owns both
+ends of the pipe. It spends no tokens, so consent does not gate it — the whole point of the read
+path is a new hire who has run nothing and holds no credential
+(05-retrieval.md, "The MCP server on a cold clone").
+
+**It never throws.** Every state it can be in — no origin remote, no database, an index behind the
+mirror, no model cache, nothing matching — is an empty result plus a diagnostic naming the cause
+and the fallback (`src/core/mcp/search-tool.ts`). An error there lands inside a Claude turn for
+the ordinary condition of a fresh checkout, and the corpus is readable without this server anyway:
+that is why the CLAUDE.md pointer stays after the server ships (15-spec.md story 62).
+
+Three things it does not do:
+
+- **It does not open the database for writing.** `openDb` creates and migrates; a reader must do
+  neither (R3), so `src/io/db/read-only.ts` opens read-only and reports "no" instead of throwing.
+- **It does not re-hash the corpus on disk.** Stale means `shouldReindex` disagreeing with the
+  mirror — the same decision `signpost index` makes. Disk drift is the worker's to fix, and it
+  wakes at the same session start this server does.
+- **It does not trust the working directory.** Claude Code documents which variables a manifest
+  may substitute but not the cwd a server is spawned in, so the manifest passes
+  `SIGNPOSTS_REPO_ROOT` and `src/io/production-app.ts` resolves it (realpath, for the same reason
+  the hook does). A repoRoot guessed wrong is not an error — it is a second state directory and a
+  search that answers "nothing recorded here".
+
+The query embedder is built once per process and kept; the database is opened per call, so a
+search made an hour into a session sees the index the worker rebuilt ten minutes ago.
 
 ## Retire
 

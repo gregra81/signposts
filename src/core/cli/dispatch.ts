@@ -11,11 +11,12 @@
 // `review` takes none: it is typed by a person, and everything it acts on it
 // finds for itself in the checkpoint database.
 
-// `worker` is dispatched but not typed by a person: the SessionStart hook
-// spawns it (hooks/session-start.ts). It is a command rather than a second
-// binary so that it goes through the one composition root like everything
-// else (R2) — a `bin/signpost-worker.js` building its own ports would be a
-// second place that constructs them.
+// `worker` and `mcp` are dispatched but not typed by a person: the SessionStart
+// hook spawns the first (hooks/session-start.ts) and the plugin manifest
+// starts the second (.claude-plugin/plugin.json). Both are commands rather
+// than second binaries so that they go through the one composition root like
+// everything else (R2) — a `bin/signpost-worker.js` building its own ports
+// would be a second place that constructs them.
 const KNOWN_COMMANDS = [
   "init",
   "index",
@@ -25,6 +26,7 @@ const KNOWN_COMMANDS = [
   "resume",
   "review",
   "worker",
+  "mcp",
 ] as const;
 export type KnownCommand = (typeof KNOWN_COMMANDS)[number];
 
@@ -32,10 +34,10 @@ export type KnownCommand = (typeof KNOWN_COMMANDS)[number];
  * The commands that can reach a model call, and therefore may not run before
  * this repo has consented (15-spec.md story 70, src/cli/consent.ts).
  *
- * `sessions`, `index` and `worker` are not among them on purpose: listing
- * transcripts, building the index and taking the census are local and free,
- * and 05-retrieval.md is explicit that a reader who never runs an extraction
- * is never asked for anything.
+ * `sessions`, `index`, `worker` and `mcp` are not among them on purpose:
+ * listing transcripts, building the index, taking the census and searching it
+ * are local and free, and 05-retrieval.md is explicit that a reader who never
+ * runs an extraction is never asked for anything.
  */
 export function spendsTokens(command: KnownCommand): boolean {
   return command === "run" || command === "resume" || command === "review";

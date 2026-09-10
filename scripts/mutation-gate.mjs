@@ -41,6 +41,11 @@ const THRESHOLDS = [
   { module: "src/core/errors", break: 95 },
   { module: "src/core/prompts", break: 95 },
   { module: "src/core/review", break: 95 },
+  // What the MCP tool answers in each state it can be in. A surviving mutant
+  // here is a diagnostic that names the wrong cause, or an empty result that
+  // arrives with no explanation at all — which reads to the model asking as
+  // "this repo has recorded nothing" (src/core/mcp/search-tool.ts).
+  { module: "src/core/mcp", break: 95 },
   // The status file the worker writes and the hook reads. Small, and every
   // branch in it is a field the hook either sees or does not — a surviving
   // mutant here is a count the hook reads wrong, or the session watermark

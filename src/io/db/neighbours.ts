@@ -57,13 +57,29 @@ interface SignpostIdRow {
   signpost_id: string;
 }
 
-interface SignpostRow {
+/**
+ * Exported for the read path (./search-signposts.ts), which projects the same
+ * row into 12-wire-contracts.md's MCP shape. `category` and `confidence` are
+ * selected for that consumer alone: a neighbour is judged on its claim, and
+ * neither field reaches the classify prompt.
+ */
+export interface SignpostRow {
   id: string;
   claim: string;
   evidence: string;
+  category: string;
+  confidence: number;
   scope_json: string;
   is_pending: number;
   pending_review: number;
+}
+
+/** A row, its parsed scope, and the score it was ranked on — see rankSignposts. */
+export interface RankedRow {
+  row: SignpostRow;
+  /** Parsed once here, because the ranking needs it for the path-overlap boost. */
+  scope: Scope;
+  score: number;
 }
 
 /** Which of the two pending states a proposed row is in — see Neighbour.pending. */
@@ -84,6 +100,28 @@ export function findNeighbours(
   candidate: NeighbourCandidate,
   k: number,
 ): Neighbour[] {
+  return rankSignposts(db, repo, candidate, k).map(({ row, scope }) => ({
+    id: row.id,
+    claim: row.claim,
+    evidence: row.evidence,
+    scope,
+    ...(row.is_pending === 1 ? { pending: pendingStateOf(row) } : {}),
+  }));
+}
+
+/**
+ * The retrieval itself, shared with the read path (./search-signposts.ts):
+ * the two vary only in what they project out of the row, and a second copy of
+ * the two queries is a second place for the hard filter to drift.
+ *
+ * Returns at most `k` rows, highest combined score first.
+ */
+export function rankSignposts(
+  db: Database.Database,
+  repo: string,
+  candidate: NeighbourCandidate,
+  k: number,
+): RankedRow[] {
   if (k <= 0) {
     return [];
   }
@@ -125,7 +163,7 @@ export function findNeighbours(
   const placeholders = ids.map(() => "?").join(", ");
   const signpostRows = db
     .prepare(
-      `SELECT id, claim, evidence, scope_json, is_pending, pending_review FROM signposts WHERE repo = ? AND id IN (${placeholders})`,
+      `SELECT id, claim, evidence, category, confidence, scope_json, is_pending, pending_review FROM signposts WHERE repo = ? AND id IN (${placeholders})`,
     )
     .all(repo, ...ids) as SignpostRow[];
   const rowsById = new Map(signpostRows.map((row) => [row.id, row]));
@@ -138,18 +176,9 @@ export function findNeighbours(
       }
       const scope = scopeSchema.parse(JSON.parse(row.scope_json));
       const boost = pathOverlapBoost(candidate.paths, scope.paths);
-      const combined = combineScore(entry.score, boost);
-      const neighbour: Neighbour = {
-        id: row.id,
-        claim: row.claim,
-        evidence: row.evidence,
-        scope,
-        ...(row.is_pending === 1 ? { pending: pendingStateOf(row) } : {}),
-      };
-      return { neighbour, combined };
+      return { row, scope, score: combineScore(entry.score, boost) };
     })
-    .filter((entry): entry is { neighbour: Neighbour; combined: number } => entry !== null)
-    .sort((a, b) => b.combined - a.combined)
-    .slice(0, k)
-    .map((entry) => entry.neighbour);
+    .filter((entry): entry is RankedRow => entry !== null)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k);
 }
