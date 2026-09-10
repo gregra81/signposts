@@ -97,20 +97,13 @@ const REPO_HASH_LENGTH = 12;
  * A missing entry point is not an error: the hook finds nothing to spawn and
  * exits silently, exactly as it does when there is no work.
  *
- * "Missing" means more than the wrapper file being absent. A plugin is
- * installed by cloning its repository, and a clone of this one carries neither
- * `node_modules` nor the compiled `dist/` — both are build output, both are
- * gitignored — so `bin/signpost.js` is there and the worker it starts dies at
- * its first import, with its stderr going to /dev/null because the worker is
- * spawned detached. The hook had already taken the run lock by then, and the
- * worker is what releases it, so the lock sat for LOCK_STALE_MINUTES and the
- * hook said nothing for an hour after every wake (18-end-to-end-gaps.md, item
- * 10). Two extra `stat` calls are what tell the two apart.
+ * A worker that starts and then dies — a clone with no `node_modules`, a
+ * killed terminal, anything — is `lockIsHeld`'s problem rather than this
+ * function's: it checks the holder is still running, so a dead worker's lock
+ * is free at the next session start instead of at the next hour.
  */
 const WORKER_ENV_VAR = "SIGNPOSTS_WORKER";
 const DEFAULT_WORKER = path.join("bin", "signpost.js");
-/** What `bin/signpost.js` imports, in the two layouts it can be started from. */
-const WORKER_MODULES = [path.join("dist", "io", "production-app.js"), path.join("src", "io", "production-app.ts")];
 /**
  * `--adopt-lock` tells the worker the run lock is already taken and is its to
  * release. The hook takes it before spawning, because the decision *not* to
@@ -386,13 +379,52 @@ function newestCorpusMtime(knowledgeDir: string, threshold: number): number {
 // checked and then wrote.
 // ---------------------------------------------------------------------------
 
-/** True when a worker holds the lock. A lock older than LOCK_STALE_MINUTES is a dead worker's, and is removed. */
+/**
+ * The pid in a lockfile, or null when there is none to read. Transcribed from
+ * `lockHolder` in src/io/worker/lock.ts, which this file may not import.
+ */
+function lockPid(lockfile: string): number | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(lockfile, "utf8"));
+    const pid = (parsed as { pid?: unknown }).pid;
+    return typeof pid === "number" ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `kill(pid, 0)` sends no signal, it asks whether it could. ESRCH is no such
+ * process; EPERM is one we do not own, answered "alive" as the conservative
+ * direction. Transcribed from src/io/worker/lock.ts for the same reason.
+ */
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * True when a worker holds the lock.
+ *
+ * A lock is a dead worker's when it is older than LOCK_STALE_MINUTES *or* when
+ * the process that wrote it is gone, and either way it is removed. The age
+ * alone was the whole test, so a worker that died without releasing — killed
+ * with its terminal, or dead at import on an install with no build
+ * (18-end-to-end-gaps.md item 10) — held the lock for the full hour, and every
+ * session start in that window found it, exited, and said nothing. The pid has
+ * been in the file since the first version; nothing but `doctor` ever read it.
+ */
 export function lockIsHeld(lockfile: string, nowMs: number): boolean {
   const heldSince = mtimeMs(lockfile);
   if (heldSince === null) {
     return false;
   }
-  if (nowMs - heldSince < LOCK_STALE_MS) {
+  const pid = lockPid(lockfile);
+  if (nowMs - heldSince < LOCK_STALE_MS && (pid === null || processIsRunning(pid))) {
     return true;
   }
   try {
@@ -502,18 +534,8 @@ function packageRoot(): string {
 /** The worker's entry point, or null when it is not installed — see WORKER_ENV_VAR. */
 export function resolveWorker(env: NodeJS.ProcessEnv, root: string): string | null {
   const override = env[WORKER_ENV_VAR];
-  if (override !== undefined && override !== "") {
-    // A stub, in the timing harness and the behaviour tests. Taken at its word
-    // — it is not the application and has none of the application's layout.
-    return exists(override) ? override : null;
-  }
-
-  const entry = path.join(root, DEFAULT_WORKER);
-  if (!exists(entry)) {
-    return null;
-  }
-  // The wrapper alone is not a working install; see WORKER_ENV_VAR's comment.
-  return WORKER_MODULES.some((module) => exists(path.join(root, module))) ? entry : null;
+  const entry = override === undefined || override === "" ? path.join(root, DEFAULT_WORKER) : override;
+  return exists(entry) ? entry : null;
 }
 
 function spawnWorker(worker: string, repoRoot: string): void {

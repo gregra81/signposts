@@ -45,13 +45,50 @@ function write(lockfile: string, pid: number, now: Date, exclusive: boolean): vo
   }
 }
 
-/** True when a lock exists and is younger than LOCK_STALE_MINUTES — a live worker's. */
-function heldByALiveWorker(lockfile: string, now: Date): boolean {
+/**
+ * Whether the process named in the lockfile is still running.
+ *
+ * `kill(pid, 0)` sends no signal; it asks the kernel whether it could. ESRCH
+ * means no such process. EPERM means there is one and it is not ours, which is
+ * a pid the OS has recycled onto another user's process — answered "alive",
+ * the conservative direction, since the staleness check still bounds the wait.
+ */
+function processIsRunning(pid: number): boolean {
   try {
-    return now.getTime() - statSync(lockfile).mtimeMs < LOCK_STALE_MS;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * True when a lock exists, is younger than LOCK_STALE_MINUTES, and the process
+ * that wrote it is still running.
+ *
+ * The pid was recorded from the first version of this file and consulted by
+ * nothing but `doctor`, so a worker that died without releasing held the lock
+ * for the full LOCK_STALE_MINUTES however it died — and every session start in
+ * that window found the lock, exited, and said nothing. The reported case was
+ * a worker that died at import on an installed copy with no build
+ * (18-end-to-end-gaps.md item 10), but that is one of many ways to die, and
+ * the mtime cannot tell any of them apart. Asking the kernel can.
+ *
+ * An unreadable or pid-less lockfile falls back to the age alone: it is a lock
+ * this build did not write, and guessing it dead would let two workers race.
+ */
+function heldByALiveWorker(lockfile: string, now: Date): boolean {
+  let fresh: boolean;
+  try {
+    fresh = now.getTime() - statSync(lockfile).mtimeMs < LOCK_STALE_MS;
   } catch {
     return false; // No lock at all.
   }
+  if (!fresh) {
+    return false;
+  }
+  const pid = lockHolder(lockfile);
+  return pid === undefined || processIsRunning(pid);
 }
 
 export function takeLock(input: LockInput): LockResult {

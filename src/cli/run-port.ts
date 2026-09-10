@@ -80,10 +80,9 @@ export interface RunHandle {
    * Brings the mirror and the index up to the signposts on disk, and reports
    * any file that would not parse.
    *
-   * Only ever called at the start of a run (`run --first`), because it deletes
-   * every row the corpus does not contain and a pending row never is — see
-   * src/io/signpost/sync-corpus.ts, and 18-end-to-end-gaps.md item 2 for what
-   * not calling it at all cost.
+   * Called once at the start of a run (`run --first`). Safe anywhere — the
+   * mirror spares pending rows (src/io/db/signposts.ts) — but a run only needs
+   * it once. 18-end-to-end-gaps.md item 2 is what not calling it at all cost.
    */
   syncCorpus(): Promise<{ failures: string[] }>;
   /**

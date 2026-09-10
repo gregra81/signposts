@@ -12,12 +12,15 @@
 // `CONTRADICTION`, `resolve_conflict` and `reinforce` were all unreachable
 // from a session driven by the skill, which never mentions the command.
 //
-// **It is only safe at the start of a run, and that is why the run path calls
-// it exactly where it clears pending rows.** `mirrorSignposts` deletes every
-// row for the repo that is not on disk, and a pending row never is — so a
-// sync in the middle of a run would delete what the earlier sessions of that
-// run proposed (src/io/db/pending-index.ts). The one moment when that is the
-// intent is `run --first`, which is already the moment `clearPending` runs.
+// **It is safe to call at any point in a run.** It was not: `mirrorSignposts`
+// deleted every row the corpus does not hold, and a pending row never is, so a
+// sync mid-run took out what the earlier sessions had proposed. That was not a
+// rule the run path could keep either, since `runWorker` reaches the same code
+// through `runIndex` at every session start and takes a lock `run` and
+// `resume` never look at. The delete is scoped to merged rows now
+// (src/io/db/signposts.ts), so the hazard is gone rather than avoided by
+// discipline. The run path still calls it once, at `run --first`, because that
+// is where a run begins — not because anywhere else would be dangerous.
 //
 // The rebuild is cheap when nothing moved: `rebuildIndex` consults
 // `shouldReindex` first and returns without constructing an embedder when the
@@ -42,8 +45,6 @@ export interface SyncCorpusInput {
 }
 
 export interface SyncCorpusResult {
-  /** Every signpost that parsed, whatever its status — what `index.md` lists. */
-  parsed: Signpost[];
   /** One line per file that did not parse, ready to print. Empty when all did. */
   failures: string[];
 }
@@ -87,5 +88,5 @@ export async function syncCorpus(input: SyncCorpusInput): Promise<SyncCorpusResu
     signposts,
   });
 
-  return { parsed, failures };
+  return { failures };
 }

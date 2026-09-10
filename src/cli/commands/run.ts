@@ -143,9 +143,8 @@ export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
       // this one starts classifying against it. 05-retrieval.md says the index
       // self-heals; nothing on this path made it, so `classify` was handed an
       // empty neighbour list in a repo full of signposts and called everything
-      // NOVEL (18-end-to-end-gaps.md, item 2). Here rather than anywhere later
-      // in the run, because the sync deletes every row not on disk and the
-      // pending rows the run is about to write are never on disk.
+      // NOVEL (18-end-to-end-gaps.md, item 2). Once per run is enough: the
+      // corpus a run classifies against is the one it started from.
       const { failures } = await handle.syncCorpus();
       for (const failure of failures) {
         // Not fatal: `signpost index` turns a file that will not parse into an

@@ -21,9 +21,18 @@
 // keyed by signpost_id and nothing else prunes them, so a row dropped here
 // without them leaves a vector pointing at a signpost that no longer exists —
 // invisible, because findNeighbours joins back to `signposts` and discards the
-// miss, and alive until the next full rebuild. That is the case for pending
-// rows in particular: they are never on disk, so an `index` run during a run
-// deletes every one of them.
+// miss, and alive until the next full rebuild. They are pruned to whatever
+// survives in `signposts` rather than to the ids being written, which is the
+// same answer with one fewer list to keep in step.
+//
+// **Pending rows survive it, and that is the point.** They are never on disk,
+// so a delete scoped by "not in the corpus" removed every one of them — and
+// `runWorker` reaches this through `runIndex` at every session start, while
+// `run` and `resume` take no lock it respects. A session started in the middle
+// of a multi-session run therefore deleted what the earlier sessions had
+// proposed, which is the reinforcement path in 06-review-and-pr.md going
+// silently dead. Pending rows are run-scoped and `clearPending` owns them
+// (src/io/db/pending-index.ts); nothing else may.
 
 import type Database from "better-sqlite3";
 import { signpostSchema, type Signpost } from "../../core/signpost/schema.ts";
@@ -60,16 +69,13 @@ export function mirrorSignposts(db: Database.Database, repo: string, rows: reado
 
   const mirror = db.transaction((entries: readonly SignpostMirrorRow[]) => {
     const ids = entries.map(({ signpost }) => signpost.id);
-    const keep = ids.length === 0 ? "" : ` AND signpost_id NOT IN (${ids.map(() => "?").join(", ")})`;
-    db.prepare(`DELETE FROM signpost_vec WHERE repo = ?${keep}`).run(repo, ...ids);
-    db.prepare(`DELETE FROM signpost_fts WHERE repo = ?${keep}`).run(repo, ...ids);
-
-    if (ids.length === 0) {
-      db.prepare("DELETE FROM signposts WHERE repo = ?").run(repo);
-    } else {
-      const placeholders = ids.map(() => "?").join(", ");
-      db.prepare(`DELETE FROM signposts WHERE repo = ? AND id NOT IN (${placeholders})`).run(repo, ...ids);
-    }
+    // Merged rows the corpus no longer holds. `is_pending = 0` is what spares
+    // the proposals of a run in flight — see the header.
+    const gone =
+      ids.length === 0
+        ? "DELETE FROM signposts WHERE repo = ? AND is_pending = 0"
+        : `DELETE FROM signposts WHERE repo = ? AND is_pending = 0 AND id NOT IN (${ids.map(() => "?").join(", ")})`;
+    db.prepare(gone).run(repo, ...ids);
 
     for (const { signpost, contentHash } of entries) {
       upsert.run({
@@ -84,6 +90,15 @@ export function mirrorSignposts(db: Database.Database, repo: string, rows: reado
         provenance_json: JSON.stringify(signpost.provenance),
         content_hash: contentHash,
       });
+    }
+
+    // Derived rows, pruned to whatever `signposts` still holds. After the
+    // upsert, so a row this call just (re)wrote keeps its vector until
+    // rebuildIndex decides whether to re-embed it.
+    for (const table of ["signpost_vec", "signpost_fts"]) {
+      db.prepare(
+        `DELETE FROM ${table} WHERE repo = ? AND signpost_id NOT IN (SELECT id FROM signposts WHERE repo = ?)`,
+      ).run(repo, repo);
     }
   });
 

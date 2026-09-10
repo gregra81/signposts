@@ -240,11 +240,14 @@ either. So the manifest points at nothing inside the clone: it names `signpost` 
 `signpost-session-start`, the two binaries a global `npm i -g signposts` puts on PATH. The plugin
 carries the wiring; the npm package carries the code, and the README says to install it first.
 
-The hook takes this seriously because the failure was silent. `hooks/session-start.js` is
-zero-dependency and ran fine from a clone, took the run lock, and spawned a worker that died at its
-first import with its stderr going to `/dev/null` — and the worker is what releases the lock, so
-the lock sat for `LOCK_STALE_MINUTES` after every wake. `resolveWorker` now checks that the wrapper
-has something to import before it is willing to spawn it.
+The hook took that failure silently, and the general fix is in the lock rather than in the hook.
+`hooks/session-start.js` is zero-dependency and ran fine from a clone, took the run lock, and
+spawned a worker that died at its first import with its stderr going to `/dev/null`. The worker is
+what releases the lock, and "is a worker still working" was measured by the lockfile's mtime alone —
+so the lock sat for `LOCK_STALE_MINUTES` after every wake. The pid had been in that file since the
+first version and nothing but `doctor` read it. Both `lockIsHeld` (the hook) and `heldByALiveWorker`
+(`src/io/worker/lock.ts`) check it with `process.kill(pid, 0)` now, so a worker that dies for any
+reason frees the lock at the next session start.
 
 **`doctor` knows what an enabled plugin looks like.** It reads `enabledPlugins` in the same three
 settings files it already read for a hand-installed hook, and reports which of the two routes the

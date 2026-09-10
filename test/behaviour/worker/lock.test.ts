@@ -99,3 +99,50 @@ describe("the lockfile the hook reads", () => {
     expect(written.startedAt).toBe(NOW.toISOString());
   });
 });
+
+// 18-end-to-end-gaps.md item 10. The pid has been in the lockfile since the
+// first version of it and nothing but `doctor` ever read it, so the age was
+// the whole test of "is a worker still working" — and a worker that died
+// without releasing held the lock for the full LOCK_STALE_MINUTES however it
+// died. The reported case was a detached worker dying at import on an install
+// with no build, its stderr going to /dev/null; the terminal-killed case is
+// the same shape. Every session start in that window found the lock, exited,
+// and said nothing.
+describe("a lock whose worker is no longer running", () => {
+  /** A pid nothing holds: allocate one, then let it go. */
+  function deadPid(): number {
+    // 2^22 is above the default pid_max on Linux and macOS, so nothing has it.
+    return 4_194_305;
+  }
+
+  it("is taken over immediately, without waiting out LOCK_STALE_MINUTES", () => {
+    const dir = stateDir();
+    const lockfile = path.join(dir, "run.lock");
+    const first = take(dir, deadPid());
+    expect(first.held).toBe(true);
+
+    // Fresh by mtime — the worker died a second ago, not an hour ago.
+    const second = take(dir, 777);
+
+    expect(second.held).toBe(true);
+    expect(lockHolder(lockfile)).toBe(777);
+  });
+
+  it("still refuses a lock whose holder is alive", () => {
+    const dir = stateDir();
+    const first = take(dir, process.pid);
+    expect(first.held).toBe(true);
+
+    expect(take(dir, 777).held).toBe(false);
+  });
+
+  it("falls back to the age when the lockfile records no pid", () => {
+    const dir = stateDir();
+    const lockfile = path.join(dir, "run.lock");
+    take(dir, 4242);
+    // A lock this build did not write. Guessing it dead would race two workers.
+    writeFileSync(lockfile, JSON.stringify({ startedAt: NOW.toISOString() }), "utf8");
+
+    expect(take(dir, 777).held).toBe(false);
+  });
+});

@@ -1,11 +1,7 @@
-// 18-end-to-end-gaps.md item 10. A plugin is installed by cloning its
-// repository, and a clone of this one carries neither `node_modules` nor the
-// compiled `dist/` — both are build output and both are gitignored. So
-// `bin/signpost.js` was there, the hook took the run lock and spawned it, and
-// the worker died at its first import with its stderr going to /dev/null,
-// because a detached spawn has nowhere to put it. The worker is what releases
-// the lock, so the lock sat for LOCK_STALE_MINUTES and the hook said nothing
-// for an hour after every wake.
+// `resolveWorker` answers one question: is there an entry point to spawn.
+// Whether the process it starts survives is `lockIsHeld`'s problem — it checks
+// the holder is still running, so a worker that dies for any reason frees the
+// lock at the next session start (18-end-to-end-gaps.md item 10).
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,24 +28,10 @@ describe("resolveWorker", () => {
 
   const bin = path.join("bin", "signpost.js");
 
-  it("finds the wrapper in a checkout, which runs src/ with no build", () => {
+  it("finds the wrapper under the package root", () => {
     write(bin);
-    write(path.join("src", "io", "production-app.ts"));
 
     expect(resolveWorker({}, root)).toBe(path.join(root, bin));
-  });
-
-  it("finds it in an installed copy, which runs the stripped dist/", () => {
-    write(bin);
-    write(path.join("dist", "io", "production-app.js"));
-
-    expect(resolveWorker({}, root)).toBe(path.join(root, bin));
-  });
-
-  it("refuses a clone that has the wrapper and nothing for it to import", () => {
-    write(bin);
-
-    expect(resolveWorker({}, root)).toBe(null);
   });
 
   it("refuses a root with no wrapper at all", () => {
