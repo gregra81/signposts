@@ -71,7 +71,13 @@ It is also why distribution has a build step even though development does not. `
 (`prepack` runs it) strips `src/**/*.ts` into `dist/`, rewriting the relative `.ts` specifiers to
 `.js` as it goes — those extensions are what make the checkout runnable without a build, and they
 name files that do not exist in `dist/`. `bin/signpost.js` prefers `dist/` and falls back to
-`src/`, so one wrapper serves both layouts. The tarball ships `dist/` and not `src/`.
+`src/`, so one wrapper serves both layouts.
+
+The tarball ships **both** trees. `dist/` is what an installed copy runs; `src/` stays because a
+consumer running through `tsx` imports it directly, which is what `signposts-eval` does. Dropping
+`src/` from `files` broke that repo's whole suite at import, and the failure is invisible from here
+— this repo has no reference to it, by design. Run `pnpm test` in `signposts-eval` after touching
+`files` or the layout.
 
 ## Tests
 

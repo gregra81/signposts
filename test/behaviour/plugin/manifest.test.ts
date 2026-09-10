@@ -129,9 +129,13 @@ describe("what the published package carries", () => {
 
   it.each([
     "bin/",
-    // The stripped `src/`. Node refuses to strip types beneath node_modules,
-    // so an installed copy runs this and `src/` is not shipped at all
-    // (18-end-to-end-gaps.md, item 9).
+    // Both trees, and both earn their place. `dist/` is what an installed copy
+    // runs, because Node refuses to strip types beneath node_modules
+    // (18-end-to-end-gaps.md, item 9). `src/` stays because a consumer that
+    // runs through `tsx` imports it directly — dropping it broke
+    // `signposts-eval`, which is exactly the dependant CLAUDE.md's language
+    // section describes.
+    "src/",
     "dist/",
     ".claude-plugin/",
     "commands/",

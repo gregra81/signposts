@@ -9,6 +9,7 @@
   },
   "files": [
     "bin/",
+    "src/",
     "dist/",
     ".claude-plugin/",
     "commands/",
