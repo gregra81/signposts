@@ -197,6 +197,28 @@ describe("refine", () => {
     expect(provenance.first_seen).toBe(signpost().provenance.first_seen);
   });
 
+  // The scope-only refine comes from a `CONTRADICTION` the resolver settled
+  // `both_scoped`: the session disputed this claim and put its own in as a
+  // separate `add`. Unioning it in here recorded the session that contradicted
+  // a claim as one that restated it.
+  it("does not record a contradicting session as having reinforced the claim", () => {
+    const result = apply(
+      [signpost()],
+      [
+        {
+          op: "refine",
+          sessionId: "sess-2",
+          author: "dana@acme.example",
+          id: "staging-read-only",
+          scope: { repo: "acme/api", paths: ["db/**"] },
+        },
+      ],
+    );
+
+    expect(result.corpus[0]?.scope).toEqual({ repo: "acme/api", paths: ["db/**"] });
+    expect(result.corpus[0]?.provenance).toEqual(signpost().provenance);
+  });
+
   it("does not list the same session twice when it refines its own signpost", () => {
     const own = signpost().provenance.session_ids[0]!;
     const result = apply(

@@ -4,6 +4,7 @@
 
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { ENTROPY_MIN_LEN } from "../../../src/core/config/constants.js";
 import { redact } from "../../../src/core/redact/redact.js";
 import { repoRelativePath } from "../../../src/core/redact/paths.js";
 
@@ -24,12 +25,46 @@ describe("ordinary file paths survive redaction", () => {
   }
 
   it("still redacts a base64 blob that happens to contain slashes", () => {
-    // 44 characters, slashes and all: dropping `/` from the class costs the
-    // pattern the slashes, not the match — there is more than enough left.
     const blob = "dGhpc0lzQVZlcnlMb25nQmFzZTY0U2Vjcm/ldFZhbHVlPT0";
 
     expect(redact(blob)).toContain("[REDACTED:high-entropy]");
     expect(redact(blob)).not.toContain("dGhpc0lzQVZlcnlMb25nQmFzZTY0");
+  });
+
+  // The other half of the trade. An AWS secret access key is forty base64
+  // characters, and a `/` lands in roughly half of them; with `/` out of the
+  // class the run split into two sub-ENTROPY_MIN_LEN pieces and nothing
+  // matched. `redactEnvSecrets` catches this only in a `KEY=value` line, and a
+  // transcript quotes a key in prose as readily as in a shell assignment.
+  it("redacts a secret whose only flaw was a slash in the middle", () => {
+    const key = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
+
+    const redacted = redact(`the secret is ${key} and it rotates monthly`);
+    expect(redacted).toContain("[REDACTED:high-entropy]");
+    expect(redacted).not.toContain("wJalrXUtnFEMI");
+    expect(redacted).not.toContain("bPxRfiCYEXAMPLEKEY");
+  });
+
+  // A blob inside a path is the case the segment fallback exists for: the run
+  // is not one secret, so it is split, and only the piece long enough to be
+  // one is replaced. Exactly ENTROPY_MIN_LEN characters, because the floor is
+  // inclusive.
+  it("redacts a blob embedded in a path without taking the directories with it", () => {
+    const blob = "dGhpc0lzQVZlcnlMb25nQmFzZTY0U2Vj";
+    expect(blob).toHaveLength(ENTROPY_MIN_LEN);
+
+    expect(redact(`cache/objects/${blob}`)).toBe("cache/objects/[REDACTED:high-entropy]");
+  });
+
+  // The two halves of what makes a slashed run one blob rather than a path.
+  // A path of CamelCase directories has no digit in it; a path of SHOUTING
+  // ones has no lower case in any segment. A random base64 run has both.
+  it("leaves a slashed run that is missing either signal alone", () => {
+    const camelCase = "Users/Greg/Documents/ProjectsArchive";
+    const shouting = "RELEASE/2026/BUILDARTIFACTS/CHECKSUMS";
+
+    expect(redact(camelCase)).toBe(camelCase);
+    expect(redact(shouting)).toBe(shouting);
   });
 });
 

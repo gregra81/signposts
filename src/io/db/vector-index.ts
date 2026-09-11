@@ -89,9 +89,29 @@ export async function rebuildIndex(db: Database.Database, options: RebuildIndexO
       updated_at = excluded.updated_at
   `);
 
+  // Scoped past the pending rows, for the same reason mirrorSignposts scopes
+  // its delete (src/io/db/signposts.ts): a rebuild can fire in the middle of a
+  // run — a pull request merging makes `shouldReindex` true at the next session
+  // start, and `runWorker` reaches this through `runIndex` — and only the
+  // merged corpus is reinserted below. An unscoped delete therefore took out
+  // exactly the vector and FTS rows the mirror had just been taught to spare,
+  // leaving the pending `signposts` rows alive and unretrievable: the same
+  // reinforcement path going dead, one table further down.
+  //
+  // `clearPending` owns those rows (src/io/db/pending-index.ts). A proposal
+  // that merged mid-run is no longer pending by the time we get here —
+  // `mirrorSignposts` flipped its flag on the way in — so it is deleted and
+  // reinserted with everything else, and no id is written twice.
+  const deletePendingExcluded = (table: string): void => {
+    db.prepare(
+      `DELETE FROM ${table} WHERE repo = ? AND signpost_id NOT IN ` +
+        "(SELECT id FROM signposts WHERE repo = ? AND is_pending = 1)",
+    ).run(options.repo, options.repo);
+  };
+
   const rebuild = db.transaction(() => {
-    db.prepare("DELETE FROM signpost_vec WHERE repo = ?").run(options.repo);
-    db.prepare("DELETE FROM signpost_fts WHERE repo = ?").run(options.repo);
+    deletePendingExcluded("signpost_vec");
+    deletePendingExcluded("signpost_fts");
 
     for (const { signpost, vector } of embedded) {
       insertVec.run(options.repo, `${options.repo}:${signpost.id}`, signpost.id, vectorToBlob(vector));

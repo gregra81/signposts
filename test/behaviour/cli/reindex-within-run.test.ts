@@ -308,6 +308,41 @@ describe("two sessions in one run", () => {
     expect(result.proposed.join("\n")).not.toContain("add ");
   }, 60_000);
 
+  // A rebuild fired in the middle of the run used to take the run's own
+  // proposals out of the index. `mirrorSignposts` was scoped past pending rows
+  // and `rebuildIndex` was not, so it deleted every signpost_vec/signpost_fts
+  // row for the repo and reinserted only the merged corpus: the pending
+  // `signposts` rows survived and became unretrievable. A merging pull request
+  // is what makes `shouldReindex` true mid-run, and `signpost index` here
+  // stands for the worker that reaches the same code at the next session start.
+  it("keeps the run's proposals retrievable when a merge reindexes mid-run", async () => {
+    const listed = (await invoke(["sessions"])) as unknown as {
+      sessions: { sessionId: string; contentHash: string }[];
+    };
+    const refs = SESSIONS.map((session) => {
+      const found = listed.sessions.find((entry) => entry.sessionId === session.id)!;
+      return { id: session.id, contentHash: found.contentHash, claim: session.claim };
+    });
+
+    const first = await runSession(refs[0]!, refs[0]!.claim);
+    expect(first.proposed.join("\n")).toContain("add ");
+
+    // Something unrelated merges: the corpus hash moves, so the next index
+    // run rebuilds rather than returning early.
+    writeMergedSignpost("terraform-module-is-owned-elsewhere", "The terraform module is owned by the platform team and is never forked here.");
+    const indexStdio = createFakeStdio();
+    expect(await runCli(["index"], { config, stdio: indexStdio }), indexStdio.writtenError()).toBe(
+      EXIT_CODES.ok,
+    );
+
+    const second = await runSession(refs[1]!, refs[1]!.claim);
+
+    expect(classifyTurns.at(-1)).toContain(FIRST_CLAIM);
+    expect(classifyTurns.at(-1)).toContain('"pending"');
+    expect(second.proposed.join("\n")).toContain("reinforce ");
+    expect(second.proposed.join("\n")).not.toContain("add ");
+  }, 60_000);
+
   it("shows the second session what the first proposed, so it reinforces instead of adding again", async () => {
     const listed = (await invoke(["sessions"])) as unknown as {
       sessions: { sessionId: string; contentHash: string }[];

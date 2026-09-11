@@ -7,10 +7,14 @@
 // has to happen in the process that decides whether to spawn at all —
 // spawning three workers so that two can discover they are redundant costs
 // three Node start-ups to save nothing. So when the hook is what started us,
-// the lock already exists and is ours: we adopt it, stamping our own pid over
-// the hook's, and release it on the way out. The hook says so with
-// `--adopt-lock`, rather than us guessing from a pid that may or may not
-// still be alive by the time we look.
+// the lock already exists and is ours: we adopt it and release it on the way
+// out. The hook says so with `--adopt-lock`, rather than us guessing from a
+// pid that may or may not still be alive by the time we look.
+//
+// The pid in that lock is already ours before we get here: the hook stamps the
+// pid it got from `spawn` as soon as the spawn returns, precisely so the file
+// never names a dead process during the second we spend importing. Our adopt
+// write rewrites the same pid, and refreshes the mtime.
 //
 // Run by hand (`signpost worker`), there is no hook and no lock, so we take
 // one the same way the hook does: `wx`, an atomic create, which is the only

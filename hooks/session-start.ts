@@ -451,6 +451,35 @@ export function acquireLock(paths: HookPaths, pid: number, nowMs: number): boole
   }
 }
 
+/**
+ * Rewrites the lock we already hold to name the worker we just spawned.
+ *
+ * The lock has to be taken before the spawn (see WORKER_ARGS), so it is first
+ * written with *this* process's pid — and this process exits a millisecond
+ * later, while the worker is still a second away from its own
+ * `takeLock({adopt:true})`: the whole `production-app` import sits between the
+ * two. For that second the lockfile named a dead process, and the pid check
+ * that `lockIsHeld` and `heldByALiveWorker` now do read it as a dead worker's
+ * lock — so a second session start in that window unlinked it and spawned a
+ * second worker onto the same rows. The freshness check used to cover this;
+ * the pid check is what exposed it. Stamping the child's pid before we exit
+ * closes the window: the file names a live process from the moment it stops
+ * naming us.
+ */
+function stampLockHolder(paths: HookPaths, pid: number, nowMs: number): void {
+  try {
+    const handle = openSync(paths.lockfile, "w");
+    try {
+      writeSync(handle, JSON.stringify({ pid, startedAt: new Date(nowMs).toISOString() }));
+    } finally {
+      closeSync(handle);
+    }
+  } catch {
+    // The worker is already running and adopts the lock itself; a lock still
+    // naming us is the pre-existing window, not a reason to kill the run.
+  }
+}
+
 function releaseLock(lockfile: string): void {
   try {
     unlinkSync(lockfile);
@@ -538,12 +567,15 @@ export function resolveWorker(env: NodeJS.ProcessEnv, root: string): string | nu
   return exists(entry) ? entry : null;
 }
 
-function spawnWorker(worker: string, repoRoot: string): void {
-  spawn(process.execPath, [worker, ...WORKER_ARGS], {
+/** The spawned worker's pid, or null when the platform did not give us one. */
+function spawnWorker(worker: string, repoRoot: string): number | null {
+  const child = spawn(process.execPath, [worker, ...WORKER_ARGS], {
     cwd: repoRoot,
     detached: true,
     stdio: "ignore",
-  }).unref();
+  });
+  child.unref();
+  return child.pid ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -592,11 +624,15 @@ function main(): void {
     return; // Another session start won the race.
   }
 
+  let workerPid: number | null;
   try {
-    spawnWorker(worker, repoRoot);
+    workerPid = spawnWorker(worker, repoRoot);
   } catch {
     releaseLock(paths.lockfile);
     return;
+  }
+  if (workerPid !== null) {
+    stampLockHolder(paths, workerPid, nowMs);
   }
 
   process.stdout.write(JSON.stringify({ systemMessage: noticeFor(reasons) }) + "\n");
