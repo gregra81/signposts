@@ -100,7 +100,7 @@ describe("renderItem", () => {
 
   it("shows a refine's new wording against the old", () => {
     const text = render(
-      { op: OPERATION_TAGS.refine, id: BEFORE.id, claim: "Staging is writable only at night", evidence: "Narrowed." },
+      { op: OPERATION_TAGS.refine, sessionId: "sess-r", author: "greg@example.com", id: BEFORE.id, claim: "Staging is writable only at night", evidence: "Narrowed." },
       BEFORE,
     );
 
@@ -117,7 +117,7 @@ describe("renderItem", () => {
 
   it("keeps the claim, and prints the scope, for a refine that only narrows scope", () => {
     const text = render(
-      { op: OPERATION_TAGS.refine, id: BEFORE.id, scope: { repo: "acme/api", paths: ["db/"] } },
+      { op: OPERATION_TAGS.refine, sessionId: "sess-r", author: "greg@example.com", id: BEFORE.id, scope: { repo: "acme/api", paths: ["db/"] } },
       BEFORE,
     );
 
@@ -131,7 +131,7 @@ describe("renderItem", () => {
 
   it("describes a scope-only refine even when the target is not recorded yet", () => {
     const text = render(
-      { op: OPERATION_TAGS.refine, id: BEFORE.id, scope: { repo: "acme/api" } },
+      { op: OPERATION_TAGS.refine, sessionId: "sess-r", author: "greg@example.com", id: BEFORE.id, scope: { repo: "acme/api" } },
       undefined,
     );
 
@@ -144,7 +144,7 @@ describe("renderItem", () => {
 
   it("shows an evidence-only refine as the evidence being rewritten", () => {
     const text = render(
-      { op: OPERATION_TAGS.refine, id: BEFORE.id, evidence: "Seen again in the ETL logs." },
+      { op: OPERATION_TAGS.refine, sessionId: "sess-r", author: "greg@example.com", id: BEFORE.id, evidence: "Seen again in the ETL logs." },
       BEFORE,
     );
 
@@ -160,7 +160,7 @@ describe("renderItem", () => {
 
   it("names an evidence-only refine even with nothing recorded to compare against", () => {
     const text = render(
-      { op: OPERATION_TAGS.refine, id: BEFORE.id, evidence: "Seen again in the ETL logs." },
+      { op: OPERATION_TAGS.refine, sessionId: "sess-r", author: "greg@example.com", id: BEFORE.id, evidence: "Seen again in the ETL logs." },
       undefined,
     );
 
@@ -175,7 +175,7 @@ describe("renderItem", () => {
 
   it("keeps the evidence on one line when it is the evidence already recorded", () => {
     const text = render(
-      { op: OPERATION_TAGS.refine, id: BEFORE.id, claim: "Staging is writable at night", evidence: BEFORE.evidence },
+      { op: OPERATION_TAGS.refine, sessionId: "sess-r", author: "greg@example.com", id: BEFORE.id, claim: "Staging is writable at night", evidence: BEFORE.evidence },
       BEFORE,
     );
 
@@ -188,13 +188,13 @@ describe("renderItem", () => {
   });
 
   it("says a refine that carries nothing changes nothing about the claim", () => {
-    expect(render({ op: OPERATION_TAGS.refine, id: BEFORE.id }, BEFORE)).toBe(
+    expect(render({ op: OPERATION_TAGS.refine, sessionId: "sess-r", author: "greg@example.com", id: BEFORE.id }, BEFORE)).toBe(
       `refine staging-writable — it changes a signpost you already have\n= ${BEFORE.claim}`,
     );
 
     // And with nothing recorded to show either, it says so rather than
     // claiming a scope or an evidence change it does not carry.
-    expect(render({ op: OPERATION_TAGS.refine, id: BEFORE.id }, undefined)).toBe(
+    expect(render({ op: OPERATION_TAGS.refine, sessionId: "sess-r", author: "greg@example.com", id: BEFORE.id }, undefined)).toBe(
       `refine staging-writable — it changes a signpost you already have\n` +
         `= leaves the claim as it is`,
     );

@@ -21,6 +21,9 @@ export interface SetLabelsCall {
   labels: readonly string[];
 }
 
+/** What a synthetic pull request's URL looks like. Shaped like `gh`'s, not real. */
+export const FAKE_PR_URL_PREFIX = "https://github.example/acme/api/pull/";
+
 export class FakeForge implements Forge {
   readonly openPrCalls: OpenPrCall[] = [];
   readonly updatePrCalls: UpdatePrCall[] = [];
@@ -35,13 +38,13 @@ export class FakeForge implements Forge {
     return this.prs.filter((pr) => pr.branch.startsWith(prefix)).map((pr) => ({ ...pr }));
   }
 
-  async openPr(input: OpenPrCall): Promise<number> {
+  async openPr(input: OpenPrCall): Promise<{ number: number; url: string }> {
     this.openPrCalls.push(input);
     const prNumber = this.nextPrNumber;
     this.nextPrNumber += 1;
     this.prs.unshift({ branch: input.branch, number: prNumber, open: true });
     this.bodies.set(prNumber, input.body);
-    return prNumber;
+    return { number: prNumber, url: `${FAKE_PR_URL_PREFIX}${String(prNumber)}` };
   }
 
   /**

@@ -56,9 +56,14 @@ npm i -g signposts
 signpost init          # asks once, writes .signposts/ and the skill
 ```
 
-Or install the Claude Code plugin. It carries the session-start hook, the `/signposts:*` commands
-and the MCP server, and you never open a settings file. `signpost init` still asks for consent and
-still installs the status line, which is not something a plugin is allowed to do.
+The plugin is the second half, not an alternative to the first. It carries the session-start hook,
+the `/signposts:*` commands and the MCP server, so you never open a settings file — but a plugin is
+installed by cloning its repository, and a clone has no `node_modules` and none of the compiled
+output. So the manifest names `signpost` and `signpost-session-start`, which the global install
+above puts on your PATH. Install the package first, then the plugin.
+
+`signpost init` still asks for consent and still installs the status line, which is not something a
+plugin is allowed to do.
 
 After that you never run it by hand: ask Claude to run signposts, and the skill it installed drives
 the extraction, brings anything that needs your judgement back to you, and opens the PR.

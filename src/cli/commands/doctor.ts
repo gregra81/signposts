@@ -1,5 +1,6 @@
 // `signpost doctor` (R5): gathers raw facts about this machine (node version,
-// `gh` auth, embedding cache, database, hook) and prints the report
+// git author and origin, `gh` auth, embedding cache, database, hook) and
+// prints the report
 // src/core/doctor/report.ts builds from them. Always exits 0 — this is a
 // diagnostic report, not a pass/fail gate.
 //
@@ -17,6 +18,7 @@ import { checkGhAuth } from "../../io/doctor/gh-auth.ts";
 import { checkModelCache } from "../../io/doctor/model-cache.ts";
 import { checkDbIntegrity } from "../../io/doctor/db-integrity.ts";
 import { checkSessionStartHookInstalled } from "../../io/doctor/hook-settings.ts";
+import { checkGitFacts } from "../../io/doctor/git-facts.ts";
 
 export interface RunDoctorInput {
   config: ResolvedConfig;
@@ -40,10 +42,11 @@ export function runDoctor({ config, repoRoot, stdout }: RunDoctorInput): ExitCod
       allowRemoteModels: config.retrieval.allow_remote_models,
     }),
     dbIntegrity: checkDbIntegrity(config.paths.dbPath),
+    git: checkGitFacts(repoRoot),
     // `path.dirname(transcriptRoot)` is Claude Code's config directory, the
     // same derivation `init` uses — `CLAUDE_CONFIG_DIR` moves it, and reading
     // the environment here would be R7.
-    hookInstalled: checkSessionStartHookInstalled(repoRoot, path.dirname(config.paths.transcriptRoot)),
+    hook: checkSessionStartHookInstalled(repoRoot, path.dirname(config.paths.transcriptRoot)),
   };
 
   for (const line of buildDoctorReport(facts)) {

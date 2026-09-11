@@ -13,6 +13,7 @@
 import type { OpenedRun, OpenRun, RunHandle } from "../cli/run-port.ts";
 import { EMBEDDING_MODEL } from "../core/config/constants.ts";
 import { buildExtractionGraph } from "../graph/index.ts";
+import type { CommitOutcome } from "../graph/ports.ts";
 import { makeCommitPort } from "./commit/commit-port.ts";
 import { openCheckpointer } from "./db/checkpointer.ts";
 import { openDb } from "./db/migrate.ts";
@@ -24,6 +25,7 @@ import { resolveRepo } from "./git/remote-origin.ts";
 import { authorEmail } from "./git/worktree.ts";
 import { buildGraphPorts } from "./graph-ports.ts";
 import { listPendingReviews } from "./review/pending.ts";
+import { syncCorpus } from "./signpost/sync-corpus.ts";
 import { discoverSessions } from "./transcript/discover.ts";
 
 const NO_REPO =
@@ -46,10 +48,12 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
     return { reason: NO_AUTHOR };
   }
 
-  // One invocation's worth of "the work is committed and has no pull
-  // request". The commit port writes it, the run command reads it back to
-  // choose its exit code — see RunHandle.prNotOpened.
-  let prNotOpened: string | null = null;
+  // Where this invocation's proposals went: the branch, the pull request, the
+  // reason there is none, and the command that would finish it by hand. The
+  // commit port writes it; the run command prints it and derives its exit code
+  // from it. Last write wins — a `run` is one session, and a `resume` that
+  // reaches `commit` is one session too.
+  let commitOutcome: CommitOutcome | null = null;
 
   const db = openDb(config.paths.dbPath);
   const { checkpointer, close: closeCheckpointer } = openCheckpointer(config.paths.checkpointPath);
@@ -75,8 +79,8 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
         author,
         forge: ghForge(config.paths.worktreeDir),
         warn,
-        prNotOpened: (command) => {
-          prNotOpened = command;
+        committed: (outcome) => {
+          commitOutcome = outcome;
         },
         today: () => isoDate(new Date()),
       }),
@@ -91,7 +95,7 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
       pendingIndex: ports.pendingIndex,
       index: ports.index,
 
-      prNotOpened: () => prNotOpened,
+      commitOutcome: () => commitOutcome,
 
       eligible: (now) =>
         discoverSessions({
@@ -102,6 +106,15 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
         }),
 
       pendingReviews: (now) => listPendingReviews({ graph, checkpointer, repo, now, warn }),
+
+      syncCorpus: () =>
+        syncCorpus({
+          db,
+          repo,
+          knowledgeDir: config.paths.knowledgeDir,
+          modelCacheDir: config.paths.modelCacheDir,
+          retrieval: config.retrieval,
+        }),
 
       finish: (session) => {
         // The first run in a repo gates everything to a person, whatever its

@@ -24,6 +24,7 @@ import type { App } from "../app.ts";
 import { createApp } from "../app.ts";
 import { resolveConfig } from "../core/config/resolve.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
+import { findRepoRoot } from "./git/repo-root.ts";
 import { openRun } from "./open-run.ts";
 
 /** Set by `.claude-plugin/plugin.json` to `${CLAUDE_PROJECT_DIR}` — see below. */
@@ -32,7 +33,8 @@ const REPO_ROOT_ENV_VAR = "SIGNPOSTS_REPO_ROOT";
 /**
  * The repository this invocation is about.
  *
- * `process.cwd()` for everything a person types, and `SIGNPOSTS_REPO_ROOT`
+ * The git root above `process.cwd()` for everything a person types, and
+ * `SIGNPOSTS_REPO_ROOT`
  * for the one caller that cannot rely on a working directory: the MCP server
  * in `.claude-plugin/plugin.json`, which Claude Code starts itself. The plugin
  * documentation says which variables a manifest may substitute but says
@@ -59,7 +61,14 @@ const REPO_ROOT_ENV_VAR = "SIGNPOSTS_REPO_ROOT";
  */
 function resolveRepoRoot(override: string | undefined): string {
   if (override === undefined || override === "") {
-    return process.cwd();
+    // The working directory is where the shell happens to be, not what the
+    // invocation is about. Run from `<repo>/lib`, taking it literally made
+    // `sessions` print an empty list at exit 0 and moved the whole state
+    // directory with the shell (./git/repo-root.ts). Outside a repository
+    // there is nothing to climb to, and the commands that need one say so
+    // themselves.
+    const cwd = process.cwd();
+    return findRepoRoot(cwd) ?? cwd;
   }
   try {
     return realpathSync(override);

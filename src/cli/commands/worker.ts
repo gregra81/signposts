@@ -37,6 +37,7 @@
 
 import type { ExitCode } from "../../app.ts";
 import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
+import { describeError } from "../../core/errors/format-zod-error.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { finishedStatus, runningStatus } from "../../core/worker/status.ts";
 import { takeLock } from "../../io/worker/lock.ts";
@@ -52,10 +53,6 @@ export interface WorkerInput {
   now(): Date;
   /** The hook holds the lock and is handing it over — see io/worker/lock.ts. */
   adoptLock: boolean;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export async function runWorker(input: WorkerInput): Promise<ExitCode> {
@@ -108,7 +105,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
       error = counts.reason;
     }
   } catch (unexpected) {
-    error = messageOf(unexpected);
+    error = describeError(unexpected);
   } finally {
     // Re-read rather than reuse what was read at the top. A rebuild loads an
     // ONNX pipeline and embeds the corpus, so minutes can pass here, and only

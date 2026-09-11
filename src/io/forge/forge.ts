@@ -19,7 +19,13 @@ export interface Forge {
    * branch is under review, and which names are spent.
    */
   branchesUnder(prefix: string): Promise<ForgeBranch[]>;
-  openPr(input: { branch: string; title: string; body: string }): Promise<number>;
+  /**
+   * Opens the pull request and reports both halves of what `gh pr create`
+   * printed. The URL was being parsed for the number and then discarded, and
+   * it is the one thing a person actually wants out of a finished run
+   * (18-end-to-end-gaps.md, item 5).
+   */
+  openPr(input: { branch: string; title: string; body: string }): Promise<{ number: number; url: string }>;
   /**
    * The body of an open PR. A session appends its own section to what earlier
    * sessions wrote, so it has to read before it writes.

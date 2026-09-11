@@ -35,17 +35,36 @@ import type { ExtractionState, ExtractionUpdate } from "../state.ts";
 /** Discriminates a review from the other thing a run halts on. */
 export const REVIEW_REQUEST_KIND = "human_review";
 
+/**
+ * One gated operation as it is asked about, carrying the key its answer must
+ * arrive under.
+ *
+ * The key is on the entry rather than implied by it. 12-wire-contracts.md's
+ * rule is that everything needed to answer is in the output that asked, and
+ * an end-to-end run found this the one place it did not hold: the payload was
+ * an array of `{operation, reason}`, the resume value is keyed by
+ * `operationKey`, and an answerer with only the payload in front of them had
+ * to know the key was `<op>:<id>` and derive it. Answering with the signpost
+ * ids — the only identifiers actually present — was accepted and discarded,
+ * and the node re-halted with the same operations outstanding, exit 0, no
+ * warning. An agent driving the loop by SKILL.md looped there forever
+ * (18-end-to-end-gaps.md, item 3).
+ */
+export type GatedReviewItem = GatedOperations["needsHuman"][number] & {
+  /** What the resume value files this operation's decision under. */
+  key: string;
+};
+
 /** What a reviewer is shown when the run halts. */
 export interface ReviewRequest {
   kind: typeof REVIEW_REQUEST_KIND;
   repo: string;
   sessionId: string;
   /**
-   * Keyed by `operationKey` — the same keys the resume value must use. Only
-   * the operations still outstanding: on a resumed review, the ones already
-   * answered are not asked about again.
+   * Only the operations still outstanding: on a resumed review, the ones
+   * already answered are not asked about again.
    */
-  needsHuman: GatedOperations["needsHuman"];
+  needsHuman: GatedReviewItem[];
 }
 
 /** What the resuming `Command` must carry: one decision per gated operation. */
@@ -78,21 +97,27 @@ export function humanReviewNode(state: ExtractionState): ExtractionUpdate {
       sessionId: state.sessionId,
       needsHuman: outstanding(state.gated, decisions),
     });
-    decisions = { ...decisions, ...parseResponse(answered) };
+    decisions = { ...decisions, ...parseReviewResponse(answered, state.gated) };
   }
 
   return { humanDecisions: decisions };
 }
 
-/** The gated operations no decision has arrived for yet. */
-function outstanding(
-  gated: GatedOperations,
-  decisions: ReviewResponse,
-): GatedOperations["needsHuman"] {
-  return gated.needsHuman.filter(({ operation }) => decisions[operationKey(operation)] === undefined);
+/** The gated operations no decision has arrived for yet, each with its key. */
+function outstanding(gated: GatedOperations, decisions: ReviewResponse): GatedReviewItem[] {
+  return gated.needsHuman
+    .map(({ operation, reason }) => ({ key: operationKey(operation), operation, reason }))
+    .filter((item) => decisions[item.key] === undefined);
 }
 
-function parseResponse(value: unknown): ReviewResponse {
+/**
+ * Exported for the same reason `reviewResponseSchema` is: everything below is
+ * reached only through an `interrupt()`, which throws outside a running graph,
+ * so a test that wants to assert what a bad resume value *says* cannot get at
+ * it through the node. The messages are the product here — an answerer holding
+ * only the halt output is the whole contract (12-wire-contracts.md).
+ */
+export function parseReviewResponse(value: unknown, gated: GatedOperations): ReviewResponse {
   const parsed = reviewResponseSchema.safeParse(value);
   if (!parsed.success) {
     throw new Error(
@@ -108,6 +133,19 @@ function parseResponse(value: unknown): ReviewResponse {
     throw new Error(
       `human_review: an edit may change an operation but not what it targets; ` +
         `retargeted: ${retargeted.join(", ")}`,
+    );
+  }
+
+  // A key naming no gated operation is an error, not a no-op. It is the shape
+  // a wrong answer actually takes — the ids were in the payload and the keys
+  // were not — and swallowing it is what turned one wrong answer into an
+  // endless loop (18-end-to-end-gaps.md, item 3).
+  const known = new Set(gated.needsHuman.map(({ operation }) => operationKey(operation)));
+  const unknown = Object.keys(parsed.data).filter((key) => !known.has(key));
+  if (unknown.length > 0) {
+    throw new Error(
+      `human_review: no gated operation is keyed ${unknown.join(", ")}; ` +
+        `answer under the \`key\` each needsHuman entry carries (expected one of: ${[...known].join(", ")})`,
     );
   }
 

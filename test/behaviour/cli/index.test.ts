@@ -2,7 +2,7 @@
 // real SQLite, real embedder, driven through runCli.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -74,8 +74,15 @@ describe("signpost index", () => {
     writeFileSync(path.join(config.paths.knowledgeDir, `${s.id}.md`), serialiseSignpost(s), "utf8");
   }
 
+  // `index.md` is generated output and the commit path owns it, so this
+  // command never writes one. That file was the whole of
+  // 18-end-to-end-gaps.md item 1: `init` then `index` is the documented setup
+  // order, so every fresh repo got an *untracked* `.signposts/index.md`, the
+  // first pull request adds a tracked one, and git refuses that merge outright
+  // at the last step of the loop — with `rm .signposts/index.md` as a
+  // workaround nothing tells anyone about.
   it(
-    "zero signposts: index.md says so, no rows mirrored",
+    "zero signposts: no index.md is created, no rows mirrored",
     async () => {
       const exitCode = await runCli(["index"], {
         config,
@@ -84,7 +91,7 @@ describe("signpost index", () => {
       });
 
       expect(exitCode).toBe(0);
-      expect(readFileSync(config.paths.indexFile, "utf8")).toBe("# Signposts\n\nNo active signposts.\n");
+      expect(existsSync(config.paths.indexFile)).toBe(false);
 
       const db = openDb(config.paths.dbPath);
       try {
@@ -97,8 +104,28 @@ describe("signpost index", () => {
     120_000,
   );
 
+  // Scoping the write to an empty corpus closed only the first-run instance of
+  // item 1. The tracked file a merged pull request leaves has to survive too —
+  // rewriting it here is what made the checkout dirty, and `runWorker` reaches
+  // this same code, so it could happen in the background.
   it(
-    "N signposts: mirrors active ones into the signposts table and regenerates index.md",
+    "leaves a tracked index.md exactly as the merged pull request left it",
+    async () => {
+      const merged = "# Signposts\n\n- staging-db-read-only — The staging database is read-only.\n";
+      mkdirSync(config.paths.knowledgeDir, { recursive: true });
+      writeFileSync(config.paths.indexFile, merged, "utf8");
+      writeSignpostFile(signpost({ id: "make-build-first", claim: "Run make build before make test." }));
+
+      const exitCode = await runCli(["index"], { config, stdio: createFakeStdio() });
+
+      expect(exitCode).toBe(0);
+      expect(readFileSync(config.paths.indexFile, "utf8")).toBe(merged);
+    },
+    120_000,
+  );
+
+  it(
+    "N signposts: mirrors active ones into the signposts table",
     async () => {
       writeSignpostFile(signpost({ id: "staging-db-read-only", claim: "The staging database is read-only." }));
       writeSignpostFile(signpost({ id: "make-build-first", claim: "Run make build before make test." }));
@@ -110,10 +137,6 @@ describe("signpost index", () => {
       });
 
       expect(exitCode).toBe(0);
-
-      const indexDoc = readFileSync(config.paths.indexFile, "utf8");
-      expect(indexDoc).toContain("staging-db-read-only");
-      expect(indexDoc).toContain("make-build-first");
 
       const db = openDb(config.paths.dbPath);
       try {
@@ -165,7 +188,7 @@ describe("signpost index", () => {
   );
 
   it(
-    "a superseded signpost is excluded from both the mirror and index.md",
+    "a superseded signpost is excluded from the mirror",
     async () => {
       writeSignpostFile(signpost({ id: "active-one", claim: "This is the active claim." }));
       writeSignpostFile(
@@ -177,10 +200,6 @@ describe("signpost index", () => {
        
         stdio: createFakeStdio(),
       });
-
-      const indexDoc = readFileSync(config.paths.indexFile, "utf8");
-      expect(indexDoc).toContain("active-one");
-      expect(indexDoc).not.toContain("old-claim");
 
       const db = openDb(config.paths.dbPath);
       try {
@@ -212,9 +231,6 @@ describe("signpost index", () => {
       expect(exitCode).toBe(1);
       expect(stdio.writtenError()).toContain(badFile);
 
-      const indexDoc = readFileSync(config.paths.indexFile, "utf8");
-      expect(indexDoc).toContain("staging-db-read-only");
-      expect(indexDoc).toContain("make-build-first");
 
       const db = openDb(config.paths.dbPath);
       try {

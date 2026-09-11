@@ -46,6 +46,10 @@ them instead of around them.
 there. When you hit this and the collision is coincidental, the fix is a named constant for your
 value, never a reference to the unrelated one that happens to share it.
 
+One thing it does not do: a path *above* `repoRoot` is left alone, and the redactor chain does not
+catch a bare username in it — `/Users/dana/other-repo/src/config.ts` leaves the machine whole. Known
+limit, recorded in the module and in 18-end-to-end-gaps.md item 4, not something that file closes.
+
 **`no-io-in-core`** — under `src/core/`, every Node builtin is an error unless it is on a short
 allowlist (`path`, `url`, `util`, `buffer`, and `crypto` for hashing only), and so are
 `process.*`, `Date.now()`, `new Date()` and `Math.random()`. An allowlist rather than a list of
@@ -61,11 +65,25 @@ may not import from `src/`.
 
 Node 24 with native type stripping, so **erasable syntax only**: no `enum`, no parameter
 properties, no `namespace`. Relative imports carry the `.ts` extension, because that is the file
-that exists at runtime. There is no build step and no `dist/`.
+that exists at runtime. A checkout needs no build step; a tarball does — see below.
 
 That last point has a consequence worth knowing: another package cannot import this one under
 plain `node`, which refuses to strip types beneath `node_modules`. `signposts-eval` runs its
 scripts through `tsx` for exactly this reason.
+
+It is also why distribution has a build step even though development does not. `pnpm build`
+(`prepack` runs it) compiles `src/` into `dist/` with `tsconfig.build.json`, whose one interesting
+setting is `rewriteRelativeImportExtensions`: those `.ts` extensions are what make the checkout
+runnable without a build, and they name files that do not exist in `dist/`. `tsc` rewrites them,
+so there is no hand-written build script — an earlier version of this used
+`stripTypeScriptTypes` and a regex over the specifiers, which was a worse `tsc`. `bin/signpost.js`
+prefers `dist/` and falls back to `src/`, so one wrapper serves both layouts.
+
+The tarball ships **both** trees. `dist/` is what an installed copy runs; `src/` stays because a
+consumer running through `tsx` imports it directly, which is what `signposts-eval` does. Dropping
+`src/` from `files` broke that repo's whole suite at import, and the failure is invisible from here
+— this repo has no reference to it, by design. Run `pnpm test` in `signposts-eval` after touching
+`files` or the layout.
 
 ## Tests
 
@@ -215,16 +233,26 @@ fails as "installed, and nothing happened".
 `.claude/settings.local.json` — see the statusLine section above; that is a platform limit, not an
 oversight.
 
-**`doctor` does not see a plugin-installed hook.** It looks for one in the three settings files,
-which is where a hook had to be before this, so a plugin user is told "not installed" about a hook
-firing on every session. The manifest test records that as a known gap.
+**A plugin is installed by cloning its repository, and a clone carries no code that runs.** No
+`node_modules`, and neither compiled bundle — `hooks/*.js`, `statusline/*.js` and `dist/` are all
+build output and all gitignored. `better-sqlite3` is native, so vendoring is not on the table
+either. So the manifest points at nothing inside the clone: it names `signpost` and
+`signpost-session-start`, the two binaries a global `npm i -g signposts` puts on PATH. The plugin
+carries the wiring; the npm package carries the code, and the README says to install it first.
 
-**A plugin installed from a git clone has neither `node_modules` nor the compiled bundles**
-(`hooks/*.js` and `statusline/*.js` are build output and gitignored), so a clone needs
-`pnpm install && pnpm build:hooks` before it works. Publishing to npm does not fix it either:
-`node` refuses to strip types beneath `node_modules`, so `bin/signpost.js` — which imports
-`src/**/*.ts` — cannot run from a global install at all. That is the same constraint the language
-section describes, reached from the other side, and it gates distribution rather than this repo.
+The hook took that failure silently, and the general fix is in the lock rather than in the hook.
+`hooks/session-start.js` is zero-dependency and ran fine from a clone, took the run lock, and
+spawned a worker that died at its first import with its stderr going to `/dev/null`. The worker is
+what releases the lock, and "is a worker still working" was measured by the lockfile's mtime alone —
+so the lock sat for `LOCK_STALE_MINUTES` after every wake. The pid had been in that file since the
+first version and nothing but `doctor` read it. Both `lockIsHeld` (the hook) and `heldByALiveWorker`
+(`src/io/worker/lock.ts`) check it with `process.kill(pid, 0)` now, so a worker that dies for any
+reason frees the lock at the next session start.
+
+**`doctor` knows what an enabled plugin looks like.** It reads `enabledPlugins` in the same three
+settings files it already read for a hand-installed hook, and reports which of the two routes the
+hook came by. A plugin loaded with `--plugin-dir` leaves no trace in any of them, which is why the
+absent case says "not found in settings or in an enabled plugin" rather than "not installed".
 
 ## The MCP server
 

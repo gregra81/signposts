@@ -71,7 +71,7 @@ describe("prSection", () => {
 
   it("shows a refine's new claim and evidence", () => {
     const section = prSection("sess-1", [
-      { op: "refine", id: "staging-read-only", claim: "Staging is read only always", evidence: "Asked ops." },
+      { op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "staging-read-only", claim: "Staging is read only always", evidence: "Asked ops." },
     ]);
 
     expect(section).toContain("| refine | staging-read-only | Staging is read only always | Asked ops. |");
@@ -79,7 +79,7 @@ describe("prSection", () => {
 
   it("says so when a refine only narrows the scope", () => {
     const section = prSection("sess-1", [
-      { op: "refine", id: "staging-read-only", scope: { repo: "acme/api", paths: ["db/**"] } },
+      { op: "refine", sessionId: "sess-r", author: "greg@example.com", id: "staging-read-only", scope: { repo: "acme/api", paths: ["db/**"] } },
     ]);
 
     expect(section).toContain("| refine | staging-read-only | (scope only) |  |");

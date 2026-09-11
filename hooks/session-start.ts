@@ -96,6 +96,11 @@ const REPO_HASH_LENGTH = 12;
  *
  * A missing entry point is not an error: the hook finds nothing to spawn and
  * exits silently, exactly as it does when there is no work.
+ *
+ * A worker that starts and then dies — a clone with no `node_modules`, a
+ * killed terminal, anything — is `lockIsHeld`'s problem rather than this
+ * function's: it checks the holder is still running, so a dead worker's lock
+ * is free at the next session start instead of at the next hour.
  */
 const WORKER_ENV_VAR = "SIGNPOSTS_WORKER";
 const DEFAULT_WORKER = path.join("bin", "signpost.js");
@@ -374,13 +379,52 @@ function newestCorpusMtime(knowledgeDir: string, threshold: number): number {
 // checked and then wrote.
 // ---------------------------------------------------------------------------
 
-/** True when a worker holds the lock. A lock older than LOCK_STALE_MINUTES is a dead worker's, and is removed. */
+/**
+ * The pid in a lockfile, or null when there is none to read. Transcribed from
+ * `lockHolder` in src/io/worker/lock.ts, which this file may not import.
+ */
+function lockPid(lockfile: string): number | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(lockfile, "utf8"));
+    const pid = (parsed as { pid?: unknown }).pid;
+    return typeof pid === "number" ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `kill(pid, 0)` sends no signal, it asks whether it could. ESRCH is no such
+ * process; EPERM is one we do not own, answered "alive" as the conservative
+ * direction. Transcribed from src/io/worker/lock.ts for the same reason.
+ */
+function processIsRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * True when a worker holds the lock.
+ *
+ * A lock is a dead worker's when it is older than LOCK_STALE_MINUTES *or* when
+ * the process that wrote it is gone, and either way it is removed. The age
+ * alone was the whole test, so a worker that died without releasing — killed
+ * with its terminal, or dead at import on an install with no build
+ * (18-end-to-end-gaps.md item 10) — held the lock for the full hour, and every
+ * session start in that window found it, exited, and said nothing. The pid has
+ * been in the file since the first version; nothing but `doctor` ever read it.
+ */
 export function lockIsHeld(lockfile: string, nowMs: number): boolean {
   const heldSince = mtimeMs(lockfile);
   if (heldSince === null) {
     return false;
   }
-  if (nowMs - heldSince < LOCK_STALE_MS) {
+  const pid = lockPid(lockfile);
+  if (nowMs - heldSince < LOCK_STALE_MS && (pid === null || processIsRunning(pid))) {
     return true;
   }
   try {
@@ -404,6 +448,35 @@ export function acquireLock(paths: HookPaths, pid: number, nowMs: number): boole
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Rewrites the lock we already hold to name the worker we just spawned.
+ *
+ * The lock has to be taken before the spawn (see WORKER_ARGS), so it is first
+ * written with *this* process's pid — and this process exits a millisecond
+ * later, while the worker is still a second away from its own
+ * `takeLock({adopt:true})`: the whole `production-app` import sits between the
+ * two. For that second the lockfile named a dead process, and the pid check
+ * that `lockIsHeld` and `heldByALiveWorker` now do read it as a dead worker's
+ * lock — so a second session start in that window unlinked it and spawned a
+ * second worker onto the same rows. The freshness check used to cover this;
+ * the pid check is what exposed it. Stamping the child's pid before we exit
+ * closes the window: the file names a live process from the moment it stops
+ * naming us.
+ */
+function stampLockHolder(paths: HookPaths, pid: number, nowMs: number): void {
+  try {
+    const handle = openSync(paths.lockfile, "w");
+    try {
+      writeSync(handle, JSON.stringify({ pid, startedAt: new Date(nowMs).toISOString() }));
+    } finally {
+      closeSync(handle);
+    }
+  } catch {
+    // The worker is already running and adopts the lock itself; a lock still
+    // naming us is the pre-existing window, not a reason to kill the run.
   }
 }
 
@@ -494,12 +567,15 @@ export function resolveWorker(env: NodeJS.ProcessEnv, root: string): string | nu
   return exists(entry) ? entry : null;
 }
 
-function spawnWorker(worker: string, repoRoot: string): void {
-  spawn(process.execPath, [worker, ...WORKER_ARGS], {
+/** The spawned worker's pid, or null when the platform did not give us one. */
+function spawnWorker(worker: string, repoRoot: string): number | null {
+  const child = spawn(process.execPath, [worker, ...WORKER_ARGS], {
     cwd: repoRoot,
     detached: true,
     stdio: "ignore",
-  }).unref();
+  });
+  child.unref();
+  return child.pid ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -548,11 +624,15 @@ function main(): void {
     return; // Another session start won the race.
   }
 
+  let workerPid: number | null;
   try {
-    spawnWorker(worker, repoRoot);
+    workerPid = spawnWorker(worker, repoRoot);
   } catch {
     releaseLock(paths.lockfile);
     return;
+  }
+  if (workerPid !== null) {
+    stampLockHolder(paths, workerPid, nowMs);
   }
 
   process.stdout.write(JSON.stringify({ systemMessage: noticeFor(reasons) }) + "\n");

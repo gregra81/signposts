@@ -14,6 +14,7 @@
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import type { ResolvedConfig } from "../core/config/resolve.ts";
 import type { ExtractionGraph, GraphPorts, ReviewRequest } from "../graph/index.ts";
+import type { CommitOutcome } from "../graph/ports.ts";
 
 /** One eligible transcript — what `sessions` lists and `run` picks from. */
 export interface RunSession {
@@ -62,19 +63,28 @@ export interface RunHandle {
   index: GraphPorts["index"];
   /** Eligible sessions for this repo, oldest activity first. */
   eligible(now: Date): RunSession[];
+  /**
+   * Where this invocation's proposals went — the branch, the pull request, or
+   * the reason there is none — or null when nothing was committed.
+   *
+   * Read off the handle rather than carried in the graph's state: the commit
+   * port is what discovers it, and it belongs to this invocation — a later
+   * process cannot retry a `gh` that is still missing. `manualCommand` on it
+   * is what the run commands turn into an exit code once the run has come back
+   * (12-wire-contracts.md, "Exit codes").
+   */
+  commitOutcome(): CommitOutcome | null;
   /** Records a session as processed, and the repo as past its bootstrap run. */
   finish(session: FinishedSession): void;
   /**
-   * The `gh pr create` command for work this invocation committed and could
-   * not open a pull request for, or null when nothing is outstanding.
+   * Brings the mirror and the index up to the signposts on disk, and reports
+   * any file that would not parse.
    *
-   * It is read off the handle rather than carried in the graph's state: the
-   * commit port is what discovers it, it belongs to this invocation (a later
-   * process cannot retry a `gh` that is still missing), and the run commands
-   * only need it to choose an exit code once the run has come back
-   * (12-wire-contracts.md, "Exit codes").
+   * Called once at the start of a run (`run --first`). Safe anywhere — the
+   * mirror spares pending rows (src/io/db/signposts.ts) — but a run only needs
+   * it once. 18-end-to-end-gaps.md item 2 is what not calling it at all cost.
    */
-  prNotOpened(): string | null;
+  syncCorpus(): Promise<{ failures: string[] }>;
   /**
    * Threads in this repo halted on a review, longest-waiting first. Reads the
    * checkpoint database rather than any record kept by the run that halted —

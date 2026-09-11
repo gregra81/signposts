@@ -28,6 +28,8 @@ import { giveConsent } from "../helpers/consent.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 import { isModelRequest, type PendingRequest } from "../../../src/graph/index.js";
+import { serialiseSignpost } from "../../../src/core/signpost/codec.js";
+import type { Signpost } from "../../../src/core/signpost/schema.js";
 
 const AUTHOR = "greg@example.com";
 const IDLE_DAYS = 3;
@@ -259,6 +261,87 @@ describe("two sessions in one run", () => {
 
     return output;
   }
+
+  /** A signpost as a merged pull request leaves it: on disk, in nobody's index. */
+  function writeMergedSignpost(id: string, claim: string): void {
+    const merged: Signpost = {
+      id,
+      claim,
+      category: "environment",
+      scope: { repo: "acme/api" },
+      evidence: "Recorded by an earlier run and merged.",
+      confidence: 0.9,
+      provenance: {
+        session_ids: ["01SESSIONZERO"],
+        authors: ["author-abcd"],
+        first_seen: "2026-08-01T00:00:00.000Z",
+        last_reinforced: "2026-08-01T00:00:00.000Z",
+      },
+      status: "active",
+    };
+    mkdirSync(config.paths.knowledgeDir, { recursive: true });
+    writeFileSync(path.join(config.paths.knowledgeDir, `${id}.md`), serialiseSignpost(merged), "utf8");
+  }
+
+  // 18-end-to-end-gaps.md item 2. `rebuildIndex` and `mirrorSignposts` were
+  // called from `signpost index` and nowhere else, and SKILL.md never mentions
+  // that command — so a session driven by the skill never ran it, `classify`
+  // was handed "Existing neighbours: []" in a repo full of merged signposts,
+  // and everything came back NOVEL because everything looked unprecedented.
+  // 05-retrieval.md calls the index self-healing; this is what makes that true
+  // on the path a user takes.
+  it("indexes what merged since the last run, so the first session classifies against it", async () => {
+    writeMergedSignpost("staging-is-read-only", FIRST_CLAIM);
+
+    const listed = (await invoke(["sessions"])) as unknown as {
+      sessions: { sessionId: string; contentHash: string }[];
+    };
+    const first = listed.sessions.find((entry) => entry.sessionId === SESSIONS[0]!.id)!;
+
+    const result = await runSession({ id: first.sessionId, contentHash: first.contentHash }, SECOND_CLAIM);
+
+    // The merged claim reached the classifier, as merged knowledge rather than
+    // as somebody's outstanding proposal.
+    expect(classifyTurns.at(-1)).toContain(FIRST_CLAIM);
+    expect(classifyTurns.at(-1)).not.toContain('"pending"');
+    expect(result.proposed.join("\n")).toContain("reinforce ");
+    expect(result.proposed.join("\n")).not.toContain("add ");
+  }, 60_000);
+
+  // A rebuild fired in the middle of the run used to take the run's own
+  // proposals out of the index. `mirrorSignposts` was scoped past pending rows
+  // and `rebuildIndex` was not, so it deleted every signpost_vec/signpost_fts
+  // row for the repo and reinserted only the merged corpus: the pending
+  // `signposts` rows survived and became unretrievable. A merging pull request
+  // is what makes `shouldReindex` true mid-run, and `signpost index` here
+  // stands for the worker that reaches the same code at the next session start.
+  it("keeps the run's proposals retrievable when a merge reindexes mid-run", async () => {
+    const listed = (await invoke(["sessions"])) as unknown as {
+      sessions: { sessionId: string; contentHash: string }[];
+    };
+    const refs = SESSIONS.map((session) => {
+      const found = listed.sessions.find((entry) => entry.sessionId === session.id)!;
+      return { id: session.id, contentHash: found.contentHash, claim: session.claim };
+    });
+
+    const first = await runSession(refs[0]!, refs[0]!.claim);
+    expect(first.proposed.join("\n")).toContain("add ");
+
+    // Something unrelated merges: the corpus hash moves, so the next index
+    // run rebuilds rather than returning early.
+    writeMergedSignpost("terraform-module-is-owned-elsewhere", "The terraform module is owned by the platform team and is never forked here.");
+    const indexStdio = createFakeStdio();
+    expect(await runCli(["index"], { config, stdio: indexStdio }), indexStdio.writtenError()).toBe(
+      EXIT_CODES.ok,
+    );
+
+    const second = await runSession(refs[1]!, refs[1]!.claim);
+
+    expect(classifyTurns.at(-1)).toContain(FIRST_CLAIM);
+    expect(classifyTurns.at(-1)).toContain('"pending"');
+    expect(second.proposed.join("\n")).toContain("reinforce ");
+    expect(second.proposed.join("\n")).not.toContain("add ");
+  }, 60_000);
 
   it("shows the second session what the first proposed, so it reinforces instead of adding again", async () => {
     const listed = (await invoke(["sessions"])) as unknown as {

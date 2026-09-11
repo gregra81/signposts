@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseCommand, spendsTokens } from "../../../src/core/cli/dispatch.js";
-import { detectSignpostSessionStartHook } from "../../../src/core/doctor/report.js";
+import { detectSignpostPlugin } from "../../../src/core/doctor/report.js";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -25,15 +25,10 @@ function readJson(relative: string): Record<string, unknown> {
   return JSON.parse(read(relative)) as Record<string, unknown>;
 }
 
-/** `${CLAUDE_PLUGIN_ROOT}/bin/signpost.js` -> `bin/signpost.js`. */
-const PLUGIN_ROOT_VARIABLE = "${CLAUDE_PLUGIN_ROOT}/";
-
-function repoRelative(pluginPath: string): string {
-  return pluginPath.replace(PLUGIN_ROOT_VARIABLE, "").replaceAll('"', "");
-}
-
 const manifest = readJson(".claude-plugin/plugin.json");
 const packageJson = readJson("package.json");
+/** What a global install puts on PATH — the only thing the manifest may name. */
+const bin = packageJson["bin"] as Record<string, string>;
 
 describe("the plugin manifest", () => {
   it("names the plugin, which is also the namespace its commands answer on", () => {
@@ -64,41 +59,57 @@ describe("the SessionStart hook it installs", () => {
     expect(groups[0]!.hooks[0]!.type).toBe("command");
   });
 
-  it("is not what `doctor` detects, and that is a known gap", () => {
-    // src/io/doctor/hook-settings.ts looks for a signposts hook in the three
-    // settings files, because that is where one used to have to be installed
-    // by hand. A plugin's hook lives in this file instead, and the command it
-    // runs is written in terms of ${CLAUDE_PLUGIN_ROOT} — so `doctor` reports
-    // "not installed" for a plugin user whose hook fires on every session.
-    // Recorded here rather than left as a surprise: fixing it means teaching
-    // `doctor` what an enabled plugin looks like.
-    expect(detectSignpostSessionStartHook(hooks)).toBe(false);
+  it("is what `doctor` detects, now that it knows what an enabled plugin is", () => {
+    // A plugin's hook is in hooks/hooks.json and in none of the three settings
+    // files, so the settings check reported "not installed" to every plugin
+    // user about a hook firing on every session. `enabledPlugins` is the trace
+    // a plugin does leave in those files (18-end-to-end-gaps.md, "Spec drift").
+    const enabled = { enabledPlugins: { [`${manifest["name"] as string}@any-marketplace`]: true } };
+
+    expect(detectSignpostPlugin(enabled)).toBe(true);
   });
 
-  it("runs the compiled bundle, not the TypeScript it is stripped from", () => {
-    const command = JSON.stringify(hooks);
+  it("runs a binary the package installs, not a file inside the clone", () => {
+    const command = commandOf(hooks);
 
-    // `pnpm build:hooks` writes the `.js` beside its source; the `.ts` is what
-    // is committed, and shipping the source would pay type stripping on every
-    // session start (HOOK_BUDGET_MS).
-    expect(command).toContain("hooks/session-start.js");
-    expect(command).not.toContain("hooks/session-start.ts");
+    // A plugin is installed by cloning its repository, and a clone carries
+    // neither `node_modules` nor either compiled bundle — both are build
+    // output and both are gitignored. So the manifest cannot point into the
+    // clone; it names a binary that a global install of the npm package puts
+    // on PATH (18-end-to-end-gaps.md, item 10).
+    expect(command).toBe("signpost-session-start");
+    expect(bin[command]).toBe("hooks/session-start.js");
+    // Still the compiled bundle, not the source: type stripping on every
+    // session start has no room in HOOK_BUDGET_MS.
+    expect(bin[command]).not.toContain(".ts");
     expect(() => read("hooks/session-start.ts")).not.toThrow();
   });
 });
+
+/** The one command a hooks.json group runs. */
+function commandOf(hooks: Record<string, unknown>): string {
+  const groups = (hooks["hooks"] as Record<string, unknown>)["SessionStart"] as {
+    hooks: { command: string }[];
+  }[];
+  return groups[0]!.hooks[0]!.command;
+}
 
 describe("the MCP server it registers", () => {
   const servers = manifest["mcpServers"] as Record<string, { command: string; args: string[]; env?: unknown }>;
   const server = servers["signposts"]!;
 
   it("starts the one CLI entry point, so it goes through the one composition root (R2)", () => {
-    expect(server.command).toBe("node");
-    expect(() => read(repoRelative(server.args[0]!))).not.toThrow();
-    expect(repoRelative(server.args[0]!)).toBe("bin/signpost.js");
+    // The installed binary rather than `node ${CLAUDE_PLUGIN_ROOT}/bin/...`,
+    // for the reason the hook uses one: a clone has no `node_modules`, so the
+    // server died at `better-sqlite3` before reading a byte of stdin and
+    // Claude Code showed CONNECTION_CLOSED.
+    expect(server.command).toBe("signpost");
+    expect(bin[server.command]).toBe("bin/signpost.js");
+    expect(() => read(bin[server.command]!)).not.toThrow();
   });
 
   it("passes a subcommand the CLI dispatches, and one that cannot spend tokens", () => {
-    const parsed = parseCommand(server.args.slice(1));
+    const parsed = parseCommand(server.args);
 
     expect(parsed.name).toBe("mcp");
     expect(spendsTokens("mcp")).toBe(false);
@@ -116,7 +127,22 @@ describe("the MCP server it registers", () => {
 describe("what the published package carries", () => {
   const files = packageJson["files"] as string[];
 
-  it.each([".claude-plugin/", "commands/", "hooks/hooks.json", "hooks/session-start.js", "statusline/statusline.js"])(
+  it.each([
+    "bin/",
+    // Both trees, and both earn their place. `dist/` is what an installed copy
+    // runs, because Node refuses to strip types beneath node_modules
+    // (18-end-to-end-gaps.md, item 9). `src/` stays because a consumer that
+    // runs through `tsx` imports it directly — dropping it broke
+    // `signposts-eval`, which is exactly the dependant CLAUDE.md's language
+    // section describes.
+    "src/",
+    "dist/",
+    ".claude-plugin/",
+    "commands/",
+    "hooks/hooks.json",
+    "hooks/session-start.js",
+    "statusline/statusline.js",
+  ])(
     "ships %s",
     (entry) => {
       expect(files).toContain(entry);

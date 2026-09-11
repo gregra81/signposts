@@ -1,8 +1,9 @@
 // Behaviour test for the `signpost index` mirror write, against a real
-// database — specifically its two jobs at the boundary with the within-run
+// database — specifically its three jobs at the boundary with the within-run
 // pending index (../../../src/io/db/pending-index.ts): a row parsed off disk
-// is merged by definition, and a row that is no longer on disk takes its
-// derived rows with it.
+// is merged by definition, a merged row that is no longer on disk takes its
+// derived rows with it, and a *pending* row survives both, because it is never
+// on disk and `clearPending` is what owns it.
 
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -16,6 +17,7 @@ import { createEmbedder, type Embedder } from "../../../src/io/embed/embedder.js
 import { openDb } from "../../../src/io/db/migrate.js";
 import { indexPending } from "../../../src/io/db/pending-index.js";
 import { mirrorSignposts } from "../../../src/io/db/signposts.js";
+import { rebuildIndex } from "../../../src/io/db/vector-index.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 
 const modelCacheRoot = testModelCache();
@@ -49,6 +51,15 @@ function mirror(db: Database.Database, signposts: readonly Signpost[]): void {
   );
 }
 
+/** Every vector row's signpost, for asserting what survived a mirror. */
+function vectorIdsFrom(db: Database.Database): string[] {
+  return (
+    db.prepare("SELECT signpost_id FROM signpost_vec WHERE repo = ?").all(REPO) as {
+      signpost_id: string;
+    }[]
+  ).map((row) => row.signpost_id);
+}
+
 function counts(db: Database.Database): { vec: number; fts: number; rows: number } {
   const count = (table: string) =>
     (db.prepare(`SELECT count(*) AS n FROM ${table} WHERE repo = ?`).get(REPO) as { n: number }).n;
@@ -77,13 +88,31 @@ describe("mirrorSignposts", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  // A proposal is not on disk, so an `index` run during a run drops it. Its
+  /** A merged corpus, mirrored and embedded — what `signpost index` leaves. */
+  async function mirrorWithVectors(...signposts: Signpost[]): Promise<void> {
+    mirror(db, signposts);
+    await rebuildIndex(db, {
+      modelCacheDir: modelCacheRoot,
+      retrieval,
+      repo: REPO,
+      signposts: signposts.map((entry) => ({
+        id: entry.id,
+        content_hash: contentHashFor(entry),
+        claim: entry.claim,
+        evidence: entry.evidence,
+      })),
+    });
+  }
+
+  const vectorIds = () => vectorIdsFrom(db);
+
+  // A signpost whose file was deleted since the last run drops out, and its
   // vector and FTS rows have to go with it: nothing else prunes them, and one
   // left behind points at a signpost that no longer exists.
   it(
     "takes a dropped row's vector and FTS rows with it",
     async () => {
-      await indexPending(db, { embedder, repo: REPO, proposals: [{ signpost: signpost(), state: "in_pr" }] });
+      await mirrorWithVectors(signpost());
       expect(counts(db)).toEqual({ vec: 1, fts: 1, rows: 1 });
 
       mirror(db, []);
@@ -98,21 +127,42 @@ describe("mirrorSignposts", () => {
     async () => {
       const kept = signpost();
       const dropped = signpost({ id: "etl-window", claim: "The ETL job runs at 03:00 UTC." });
-      await indexPending(db, {
-        embedder,
-        repo: REPO,
-        proposals: [
-          { signpost: kept, state: "in_pr" },
-          { signpost: dropped, state: "in_pr" },
-        ],
-      });
+      await mirrorWithVectors(kept, dropped);
 
       mirror(db, [kept]);
 
-      const vectors = db
-        .prepare("SELECT signpost_id FROM signpost_vec WHERE repo = ?")
-        .all(REPO) as { signpost_id: string }[];
-      expect(vectors.map((row) => row.signpost_id)).toEqual([kept.id]);
+      expect(vectorIds()).toEqual([kept.id]);
+    },
+    120_000,
+  );
+
+  // The race this closes: `runWorker` reaches `mirrorSignposts` through
+  // `runIndex` at every session start, and `run`/`resume` take no lock it
+  // respects. Scoping the delete by "not in the corpus" therefore deleted the
+  // proposals of a run in flight — a pending row is never on disk — so a
+  // session started midway through a multi-session run silently took out what
+  // the earlier sessions had proposed, and the reinforcement path in
+  // 06-review-and-pr.md went dead for the rest of it.
+  it(
+    "spares a run's pending rows, which are never on disk and are not its to delete",
+    async () => {
+      const merged = signpost();
+      const proposed = signpost({ id: "etl-window", claim: "The ETL job runs at 03:00 UTC." });
+      await mirrorWithVectors(merged);
+      await indexPending(db, { embedder, repo: REPO, proposals: [{ signpost: proposed, state: "in_pr" }] });
+
+      // A session start mid-run: the corpus on disk holds only the merged one.
+      mirror(db, [merged]);
+
+      const rows = db
+        .prepare("SELECT id, is_pending FROM signposts WHERE repo = ? ORDER BY id")
+        .all(REPO) as { id: string; is_pending: number }[];
+      expect(rows).toEqual([
+        { id: proposed.id, is_pending: 1 },
+        { id: merged.id, is_pending: 0 },
+      ]);
+      // And it stays retrievable: findNeighbours joins back through these.
+      expect(vectorIds().sort()).toEqual([merged.id, proposed.id].sort());
     },
     120_000,
   );

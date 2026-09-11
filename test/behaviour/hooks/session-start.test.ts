@@ -282,6 +282,28 @@ describe("the lockfile", () => {
     expect(existsSync(f.workerLog)).toBe(false);
   });
 
+  // The worker stamps its own pid at `takeLock({adopt: true})`, which is a
+  // whole `production-app` import away — a second in which the lock named this
+  // hook, a process that has already exited. The pid check both sides now do
+  // read that as a dead worker's lock, so a session starting in that window
+  // unlinked it and spawned a second worker onto the same rows. The stub here
+  // adopts nothing and sleeps, which is exactly that window held open.
+  it("leaves the lock naming the worker it spawned, not itself", async () => {
+    const f = withTranscript(withCurrentIndex(fixture()), "yesterday", IDLE_HOURS + 1);
+    const lockfile = path.join(f.stateDir, "run.lock");
+
+    expect(runHook(f).stdout).not.toBe("");
+    const holder = JSON.parse(readFileSync(lockfile, "utf8")).pid as number;
+
+    // A second session start, inside the window: the lock is held by a live
+    // process, so it says nothing and spawns nothing.
+    expect(runHook(f).stdout).toBe("");
+
+    const lines = await workerLines(f, 1);
+    expect(lines).toHaveLength(1);
+    expect(holder).toBe(Number(lines[0]));
+  });
+
   it("takes over a lock older than LOCK_STALE_MINUTES", async () => {
     const f = withTranscript(withCurrentIndex(fixture()), "yesterday", IDLE_HOURS + 1);
     mkdirSync(f.stateDir, { recursive: true });

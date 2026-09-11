@@ -7,10 +7,14 @@
 // has to happen in the process that decides whether to spawn at all —
 // spawning three workers so that two can discover they are redundant costs
 // three Node start-ups to save nothing. So when the hook is what started us,
-// the lock already exists and is ours: we adopt it, stamping our own pid over
-// the hook's, and release it on the way out. The hook says so with
-// `--adopt-lock`, rather than us guessing from a pid that may or may not
-// still be alive by the time we look.
+// the lock already exists and is ours: we adopt it and release it on the way
+// out. The hook says so with `--adopt-lock`, rather than us guessing from a
+// pid that may or may not still be alive by the time we look.
+//
+// The pid in that lock is already ours before we get here: the hook stamps the
+// pid it got from `spawn` as soon as the spawn returns, precisely so the file
+// never names a dead process during the second we spend importing. Our adopt
+// write rewrites the same pid, and refreshes the mtime.
 //
 // Run by hand (`signpost worker`), there is no hook and no lock, so we take
 // one the same way the hook does: `wx`, an atomic create, which is the only
@@ -45,13 +49,50 @@ function write(lockfile: string, pid: number, now: Date, exclusive: boolean): vo
   }
 }
 
-/** True when a lock exists and is younger than LOCK_STALE_MINUTES — a live worker's. */
-function heldByALiveWorker(lockfile: string, now: Date): boolean {
+/**
+ * Whether the process named in the lockfile is still running.
+ *
+ * `kill(pid, 0)` sends no signal; it asks the kernel whether it could. ESRCH
+ * means no such process. EPERM means there is one and it is not ours, which is
+ * a pid the OS has recycled onto another user's process — answered "alive",
+ * the conservative direction, since the staleness check still bounds the wait.
+ */
+function processIsRunning(pid: number): boolean {
   try {
-    return now.getTime() - statSync(lockfile).mtimeMs < LOCK_STALE_MS;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * True when a lock exists, is younger than LOCK_STALE_MINUTES, and the process
+ * that wrote it is still running.
+ *
+ * The pid was recorded from the first version of this file and consulted by
+ * nothing but `doctor`, so a worker that died without releasing held the lock
+ * for the full LOCK_STALE_MINUTES however it died — and every session start in
+ * that window found the lock, exited, and said nothing. The reported case was
+ * a worker that died at import on an installed copy with no build
+ * (18-end-to-end-gaps.md item 10), but that is one of many ways to die, and
+ * the mtime cannot tell any of them apart. Asking the kernel can.
+ *
+ * An unreadable or pid-less lockfile falls back to the age alone: it is a lock
+ * this build did not write, and guessing it dead would let two workers race.
+ */
+function heldByALiveWorker(lockfile: string, now: Date): boolean {
+  let fresh: boolean;
+  try {
+    fresh = now.getTime() - statSync(lockfile).mtimeMs < LOCK_STALE_MS;
   } catch {
     return false; // No lock at all.
   }
+  if (!fresh) {
+    return false;
+  }
+  const pid = lockHolder(lockfile);
+  return pid === undefined || processIsRunning(pid);
 }
 
 export function takeLock(input: LockInput): LockResult {

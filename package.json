@@ -1,7 +1,6 @@
 {
   "name": "signposts",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
   "packageManager": "pnpm@11.24.0+sha512.bd27e345e976dcb0be0b7a1228217b049a817e21b1f355c90dbe7dc46671895a8bc1e6d06c24554505ea93ea0b45f489a27ec1bfbc8de6a9659fca0f16fa0000",
   "engines": {
@@ -11,6 +10,7 @@
   "files": [
     "bin/",
     "src/",
+    "dist/",
     ".claude-plugin/",
     "commands/",
     "hooks/hooks.json",
@@ -28,7 +28,8 @@
     "mutate:gate": "node scripts/mutation-gate.mjs",
     "verify": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run mutate && pnpm run mutate:gate",
     "build:hooks": "node scripts/build-hooks.mjs",
-    "prepack": "node scripts/build-hooks.mjs"
+    "prepack": "pnpm build",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-hooks.mjs"
   },
   "devDependencies": {
     "@stryker-mutator/core": "9.6.1",
@@ -53,5 +54,9 @@
     "sqlite-vec": "^0.1.9",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
+  },
+  "bin": {
+    "signpost": "bin/signpost.js",
+    "signpost-session-start": "hooks/session-start.js"
   }
 }

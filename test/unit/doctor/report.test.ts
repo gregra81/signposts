@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDoctorReport,
+  detectSignpostPlugin,
   classifyDbIntegrity,
   classifyModelCache,
   detectSignpostSessionStartHook,
@@ -14,7 +15,8 @@ const BASE_FACTS: DoctorFacts = {
   gh: { installed: false, authenticated: false },
   modelCache: "cold",
   dbIntegrity: "no-database",
-  hookInstalled: false,
+  hook: "absent",
+  git: { authorEmail: "greg@example.com", repo: "acme/api" },
 };
 
 describe("isNodeVersionSupported", () => {
@@ -167,15 +169,44 @@ describe("detectSignpostSessionStartHook", () => {
   });
 });
 
+// 18-end-to-end-gaps.md, "Spec drift". `.claude-plugin/plugin.json` registers
+// the hook through `hooks/hooks.json`, so no settings file mentions it and the
+// settings check reported "not installed" to every plugin user about a hook
+// firing on every session. `enabledPlugins` is the trace a plugin does leave.
+describe("detectSignpostPlugin", () => {
+  const enabled = (plugins: Record<string, unknown>) => ({ enabledPlugins: plugins });
+
+  it("finds the plugin whatever marketplace it came from", () => {
+    expect(detectSignpostPlugin(enabled({ "signposts@some-marketplace": true }))).toBe(true);
+  });
+
+  it("does not count one that is explicitly turned off", () => {
+    expect(detectSignpostPlugin(enabled({ "signposts@some-marketplace": false }))).toBe(false);
+  });
+
+  it("does not match a different plugin whose name merely contains ours", () => {
+    expect(detectSignpostPlugin(enabled({ "signposts-extras@m": true }))).toBe(false);
+  });
+
+  it.each([[undefined], [null], ["nonsense"], [{}], [{ enabledPlugins: null }]])(
+    "reports absent for %s rather than throwing",
+    (settings) => {
+      expect(detectSignpostPlugin(settings)).toBe(false);
+    },
+  );
+});
+
 describe("buildDoctorReport", () => {
   it("reports every fact as one line, in order", () => {
     const lines = buildDoctorReport(BASE_FACTS);
-    expect(lines).toHaveLength(5);
+    expect(lines).toHaveLength(7);
     expect(lines[0]).toContain("node:");
-    expect(lines[1]).toContain("gh:");
-    expect(lines[2]).toContain("embedding model cache:");
-    expect(lines[3]).toContain("database:");
-    expect(lines[4]).toContain("session-start hook:");
+    expect(lines[1]).toContain("git author:");
+    expect(lines[2]).toContain("git origin:");
+    expect(lines[3]).toContain("gh:");
+    expect(lines[4]).toContain("embedding model cache:");
+    expect(lines[5]).toContain("database:");
+    expect(lines[6]).toContain("session-start hook:");
   });
 
   it("node below floor is called out", () => {
@@ -190,17 +221,17 @@ describe("buildDoctorReport", () => {
 
   it("gh not installed", () => {
     const lines = buildDoctorReport(BASE_FACTS);
-    expect(lines[1]).toContain("not found");
+    expect(lines[3]).toContain("not found");
   });
 
   it("gh installed, not authenticated", () => {
     const lines = buildDoctorReport({ ...BASE_FACTS, gh: { installed: true, authenticated: false } });
-    expect(lines[1]).toContain("not authenticated");
+    expect(lines[3]).toContain("not authenticated");
   });
 
   it("gh installed and authenticated", () => {
     const lines = buildDoctorReport({ ...BASE_FACTS, gh: { installed: true, authenticated: true } });
-    expect(lines[1]).toBe("gh: authenticated");
+    expect(lines[3]).toBe("gh: authenticated");
   });
 
   it.each([
@@ -209,7 +240,7 @@ describe("buildDoctorReport", () => {
     ["vendored", "vendored"],
     ["unavailable", "unavailable"],
   ] as const)("model cache %s", (status, expected) => {
-    expect(buildDoctorReport({ ...BASE_FACTS, modelCache: status })[2]).toContain(expected);
+    expect(buildDoctorReport({ ...BASE_FACTS, modelCache: status })[4]).toContain(expected);
   });
 
   it.each([
@@ -217,12 +248,35 @@ describe("buildDoctorReport", () => {
     ["ok", "database: ok"],
     ["corrupt", "database: integrity check failed"],
   ] as const)("db integrity %s", (status, expected) => {
-    const line = buildDoctorReport({ ...BASE_FACTS, dbIntegrity: status })[3];
+    const line = buildDoctorReport({ ...BASE_FACTS, dbIntegrity: status })[5];
     expect(line).toBe(expected);
   });
 
-  it("hook installed vs not", () => {
-    expect(buildDoctorReport({ ...BASE_FACTS, hookInstalled: true })[4]).toBe("session-start hook: installed");
-    expect(buildDoctorReport({ ...BASE_FACTS, hookInstalled: false })[4]).toBe("session-start hook: not installed");
+  // Three states, not two. A plugin user was told "not installed" about a hook
+  // firing on every session (18-end-to-end-gaps.md, "Spec drift"), and the
+  // absent case now says where it looked, since `--plugin-dir` leaves no trace
+  // in any settings file.
+  it.each([
+    ["plugin", "installed — by the signposts plugin"],
+    ["settings", "installed — in a Claude Code settings file"],
+    ["absent", "not found in settings or in an enabled plugin"],
+  ] as const)("hook %s", (hook, expected) => {
+    expect(buildDoctorReport({ ...BASE_FACTS, hook })[6]).toContain(expected);
+  });
+
+  // 18-end-to-end-gaps.md item 7: the two failures that halt the loop outright
+  // and were reported by no command that a person runs before hitting them.
+  it("says which command an unset git author will stop", () => {
+    const lines = buildDoctorReport({ ...BASE_FACTS, git: { authorEmail: null, repo: "acme/api" } });
+
+    expect(lines[1]).toContain("git config user.email is not set");
+    expect(lines[1]).toContain("run");
+  });
+
+  it("says which command a missing origin will stop", () => {
+    const lines = buildDoctorReport({ ...BASE_FACTS, git: { authorEmail: "greg@example.com", repo: null } });
+
+    expect(lines[2]).toContain("no 'origin' remote");
+    expect(lines[2]).toContain("index");
   });
 });

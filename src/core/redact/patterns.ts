@@ -84,8 +84,39 @@ export const redactTokens: Redactor = (text) => {
 };
 
 /**
- * Generic high-entropy strings: ENTROPY_MIN_LEN+ contiguous base64/hex-set
- * characters. No boundary lookarounds — a quantified character class is
+ * Generic high-entropy strings: ENTROPY_MIN_LEN+ contiguous base64-set
+ * characters.
+ *
+ * **`/` is in the class, and a run containing one is only redacted whole when
+ * it does not look like a path.** The two halves of that sentence are two
+ * different bugs, a round apart.
+ *
+ * `/` was in the class first, and that made every deep file path a match:
+ * thirty-two path characters with no dot, dash or underscore among them is an
+ * ordinary `src/main/java/com/acme/payments/gateway/RetryPolicy.java`, which
+ * came out as `[REDACTED:high-entropy].java` — the filename gone with it
+ * (18-end-to-end-gaps.md, item 4). Dropping `/` fixed the paths and quietly
+ * stopped redacting a whole shape of secret: an AWS secret access key is forty
+ * base64 characters and around half of them contain a `/`, which split the run
+ * into two sub-thirty-two pieces matching nothing at all. `redactEnvSecrets`
+ * covers only the `KEY=value` shape, so the rest reached the prompt intact and
+ * could be quoted into a committed signpost.
+ *
+ * What separates them is what a path's segments look like. They are words —
+ * `src`, `main`, `com`, `checkout` — and a word is written in one case and
+ * carries no digit. A random base64 run's segments are twenty-odd characters
+ * of mixed alphabet: both cases in every segment, and a digit somewhere (a
+ * forty-character run misses one about once in a thousand). So a slashed run
+ * is taken as one blob only when every segment has an upper and a lower case
+ * letter and the run has a digit in it.
+ *
+ * It is a heuristic, and the fallback is what keeps it from being a regression
+ * in either direction: a run that fails the test is not returned whole, it is
+ * split on the slashes and each segment measured by the original length rule.
+ * A blob sitting inside a path is still redacted and the directories around it
+ * still survive.
+ *
+ * No boundary lookarounds — a quantified character class is
  * already greedy and already starts at the earliest position that can
  * begin a match, so an explicit boundary assertion adds nothing but a way
  * to misfire: an optional trailing `={0,2}` combined with a lookahead
@@ -96,7 +127,18 @@ export const redactTokens: Redactor = (text) => {
  */
 export const redactHighEntropy: Redactor = (text) => {
   const highEntropyRe = new RegExp(`[A-Za-z0-9+/]{${ENTROPY_MIN_LEN},}={0,2}`, "g");
-  return text.replace(highEntropyRe, placeholderFor("high-entropy"));
+  const mixedCase = (segment: string): boolean => /[a-z]/.test(segment) && /[A-Z]/.test(segment);
+  const oneBlob = (run: string): boolean => /[0-9]/.test(run) && run.split("/").every(mixedCase);
+
+  return text.replace(highEntropyRe, (run: string) => {
+    if (!run.includes("/") || oneBlob(run)) {
+      return placeholderFor("high-entropy");
+    }
+    return run
+      .split("/")
+      .map((segment) => (segment.length >= ENTROPY_MIN_LEN ? placeholderFor("high-entropy") : segment))
+      .join("/");
+  });
 };
 
 /**

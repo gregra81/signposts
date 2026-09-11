@@ -1,26 +1,30 @@
 // `signpost index` (R4): read every `.signposts/**/*.md`, parse, mirror
-// active signposts into the `signposts` table, rebuild the vector/FTS
-// index, regenerate `index.md`. Thin orchestration: parsing is
-// src/core/signpost/codec.ts, filtering uses the existing ACTIVE_STATUS
-// constant, index generation is src/core/signpost/index-doc.ts — nothing
-// new to decide here beyond wiring those together.
+// active signposts into the `signposts` table, rebuild the vector/FTS index.
+// Thin orchestration — all three are src/io/signpost/sync-corpus.ts, which
+// the run path calls too.
+//
+// **It does not write `index.md`.** That file is generated output, and the
+// commit path already owns it: `writeCorpus` regenerates it from the whole
+// corpus inside the second worktree and commits it with the proposals
+// (src/io/commit/commit-port.ts). This command writing a second copy into the
+// developer's checkout is what created 18-end-to-end-gaps.md item 1 — the
+// documented setup order is `init` then `index`, so every fresh repo got an
+// *untracked* `.signposts/index.md`, the first pull request adds a tracked
+// one, and git refuses the merge at the last step of the loop with
+// `rm .signposts/index.md` as a workaround nothing mentions.
+//
+// Scoping the write to an empty corpus closed only the first-run instance of
+// that. A repo with a hand-written signpost file and no merged pull request
+// still produced an untracked file and the same aborted merge — and `runWorker`
+// reaches this same code, so a *background* process could create it, against
+// CLAUDE.md's "a run never touches the developer's checkout". One writer
+// removes the collision by construction rather than by case analysis.
 
-import { writeFileSync } from "node:fs";
-import { ZodError } from "zod";
 import type { ExitCode } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { indexExitCode } from "../../core/cli/index-exit-code.ts";
-import { formatZodError } from "../../core/errors/format-zod-error.ts";
-import { parseSignpost } from "../../core/signpost/codec.ts";
-import { contentHashFor } from "../../core/signpost/content-hash.ts";
-import { generateIndexDoc } from "../../core/signpost/index-doc.ts";
-import type { Signpost } from "../../core/signpost/schema.ts";
-import { ACTIVE_STATUS } from "../../core/signpost/schema.ts";
 import { openDb } from "../../io/db/migrate.ts";
-import { rebuildIndex, type ActiveSignpost } from "../../io/db/vector-index.ts";
-import { mirrorSignposts } from "../../io/db/signposts.ts";
-import { readSignpostFiles } from "../../io/signpost/read-dir.ts";
-import { ensureKnowledgeDir } from "../../io/init/signposts-dir.ts";
+import { syncCorpus } from "../../io/signpost/sync-corpus.ts";
 import { resolveRepo } from "../../io/git/remote-origin.ts";
 
 export interface RunIndexInput {
@@ -41,26 +45,6 @@ export async function runIndex({ config, repoRoot, stderr }: RunIndexInput): Pro
     return 1;
   }
 
-  const files = readSignpostFiles(config.paths.knowledgeDir);
-  const parsed: Signpost[] = [];
-  let anyFileFailed = false;
-  for (const file of files) {
-    try {
-      parsed.push(parseSignpost(file.content));
-    } catch (error) {
-      anyFileFailed = true;
-      const message =
-        error instanceof ZodError
-          ? formatZodError(error)
-          : error instanceof Error
-            ? error.message
-            : String(error);
-      stderr.write(`signposts: skipping ${file.path}: ${message}\n`);
-    }
-  }
-  const active = parsed.filter((signpost) => signpost.status === ACTIVE_STATUS);
-  const activeWithHash = active.map((signpost) => ({ signpost, contentHash: contentHashFor(signpost) }));
-
   let db;
   try {
     db = openDb(config.paths.dbPath);
@@ -68,27 +52,23 @@ export async function runIndex({ config, repoRoot, stderr }: RunIndexInput): Pro
     stderr.write(`signposts: database at ${config.paths.dbPath} is corrupt or unreadable.\n`);
     return 1;
   }
-  try {
-    mirrorSignposts(db, repo, activeWithHash);
 
-    const activeSignposts: ActiveSignpost[] = activeWithHash.map(({ signpost, contentHash }) => ({
-      id: signpost.id,
-      content_hash: contentHash,
-      claim: signpost.claim,
-      evidence: signpost.evidence,
-    }));
-    await rebuildIndex(db, {
+  let failures: string[];
+  try {
+    ({ failures } = await syncCorpus({
+      db,
+      repo,
+      knowledgeDir: config.paths.knowledgeDir,
       modelCacheDir: config.paths.modelCacheDir,
       retrieval: config.retrieval,
-      repo,
-      signposts: activeSignposts,
-    });
+    }));
   } finally {
     db.close();
   }
 
-  ensureKnowledgeDir(config.paths.knowledgeDir);
-  writeFileSync(config.paths.indexFile, generateIndexDoc(parsed), "utf8");
+  for (const failure of failures) {
+    stderr.write(`signposts: ${failure}\n`);
+  }
 
-  return indexExitCode(anyFileFailed);
+  return indexExitCode(failures.length > 0);
 }
