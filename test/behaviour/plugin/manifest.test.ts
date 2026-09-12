@@ -140,18 +140,8 @@ function commandOf(hooks: Record<string, unknown>): string {
 }
 
 describe("the MCP server it registers", () => {
-  const servers = manifest["mcpServers"] as Record<
-    string,
-    { type?: string; command: string; args: string[]; env?: unknown }
-  >;
+  const servers = manifest["mcpServers"] as Record<string, { command: string; args: string[]; env?: unknown }>;
   const server = servers["signposts"]!;
-
-  it("declares its transport, or Claude Code tries to run one called `stdio`", () => {
-    // Without `type`, `claude mcp list` reported: Failed to connect — ENOENT:
-    // Executable not found in $PATH: "stdio". Shipped in v0.1.0, where the
-    // read path was simply dead for anyone who installed the plugin.
-    expect(server.type).toBe("stdio");
-  });
 
   it("starts the one CLI entry point, so it goes through the one composition root (R2)", () => {
     // The installed binary rather than `node ${CLAUDE_PLUGIN_ROOT}/bin/...`,

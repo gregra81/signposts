@@ -224,11 +224,29 @@ exits non-zero, which blanks the bar and takes their status line down with it.
 
 ## The plugin, and what it cannot carry
 
-`.claude-plugin/plugin.json` is the install: `hooks/hooks.json` registers the SessionStart hook,
-`commands/` holds `/signposts:run`, `/signposts:status` and `/signposts:review`, and `mcpServers`
-starts `signpost mcp`. Nobody edits a settings file. `test/behaviour/plugin/manifest.test.ts`
-resolves every path in it against the repo, because a manifest that points at a file that moved
-fails as "installed, and nothing happened".
+Two manifests, and both are needed. `.claude-plugin/marketplace.json` is what
+`/plugin marketplace add gregra81/signposts` reads, and it offers this repo's own plugin from the
+repo root (`"source": "./"`); `.claude-plugin/plugin.json` is that plugin. Without the first, the
+second cannot be installed at all, which is how v0.1.0 shipped — the README described an install
+nobody could perform.
+
+`plugin.json` carries `commands/` (`/signposts:run`, `/signposts:status`, `/signposts:review`) and
+`mcpServers` (which starts `signpost mcp`), and it does **not** name `hooks/hooks.json`. Claude Code
+loads that file by convention, and declaring it is fatal rather than redundant: "Duplicate hooks
+file detected", and the whole plugin fails to load, commands and MCP server with it. v0.1.0 shipped
+that too. `test/behaviour/plugin/manifest.test.ts` holds both rules and resolves every path in the
+manifests against the repo, because a manifest that points at a file that moved fails as
+"installed, and nothing happened" — and, as those two showed, a manifest whose paths all resolve
+can still fail to load.
+
+Nobody types either install. `docs/install.sh` runs `claude plugin marketplace add` and
+`claude plugin install` after the npm install — both are idempotent — and falls back to printing
+the two `/plugin` commands when the `claude` CLI is missing.
+
+One error message worth knowing, because it cost an afternoon: an MCP server whose `command` is not
+on PATH is reported as `ENOENT: Executable not found in $PATH: "stdio"`. It names the transport,
+not the missing binary. The binary is `signpost`, and the fix is installing the package, not
+touching the manifest.
 
 **The status line is not in it.** A plugin's own `settings.json` accepts `agent` and
 `subagentStatusLine` and nothing else, so `init` still installs the status line into
@@ -240,7 +258,8 @@ oversight.
 build output and all gitignored. `better-sqlite3` is native, so vendoring is not on the table
 either. So the manifest points at nothing inside the clone: it names `signpost` and
 `signpost-session-start`, the two binaries the global install puts on PATH. The plugin
-carries the wiring; the release tarball carries the code, and the README says to install it first.
+carries the wiring; the release tarball carries the code, and the installer does both in that
+order.
 
 The hook took that failure silently, and the general fix is in the lock rather than in the hook.
 `hooks/session-start.js` is zero-dependency and ran fine from a clone, took the run lock, and
