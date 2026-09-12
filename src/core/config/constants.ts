@@ -325,6 +325,26 @@ export const INDEX_FILENAME = "index.md";
 /** Hard target. `SessionStart` is synchronous — exceeding this delays the user. */
 export const HOOK_BUDGET_MS = 50;
 
+/**
+ * What the hook may cost as a multiple of a bare `node -e ""` on the same
+ * machine, measured in the same loop.
+ *
+ * A ratio rather than a number of milliseconds, because neither absolute form
+ * survives a shared CI runner. The total is mostly Node starting — 15-spec.md
+ * calls HOOK_BUDGET_MS "a target to measure early, not an assertion" for that
+ * reason, and asserting it failed a release at p50 58ms with the hook
+ * unchanged. Subtracting the baseline does not fix it either: the hook's extra
+ * work is `stat` calls, so a slow filesystem inflates the difference along
+ * with everything else (7.6ms on a developer machine, 28.7ms on a runner whose
+ * bare Node cost 44.7ms).
+ *
+ * The ratio holds where both do not: 1.3 locally, 1.4 and 1.6 on two runners.
+ * Two is therefore loose enough to be quiet and tight enough to catch the
+ * regression worth catching — an import of something heavy, which doubles the
+ * hook again without touching Node's own start-up.
+ */
+export const HOOK_NODE_MULTIPLE_MAX = 2;
+
 /** Older lock → assume dead worker, take over. */
 export const LOCK_STALE_MINUTES = 60;
 

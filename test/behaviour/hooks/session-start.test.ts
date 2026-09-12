@@ -24,7 +24,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { HOOK_BUDGET_MS, IDLE_HOURS, LOCK_STALE_MINUTES } from "../../../src/core/config/constants.ts";
+import {
+  HOOK_BUDGET_MS,
+  HOOK_NODE_MULTIPLE_MAX,
+  IDLE_HOURS,
+  LOCK_STALE_MINUTES,
+} from "../../../src/core/config/constants.ts";
 import type { WorkerStatus } from "../../../src/core/worker/status.ts";
 import { serialiseSignpost } from "../../../src/core/signpost/codec.ts";
 import { testLocalModelPath } from "../../support/model-cache.ts";
@@ -321,13 +326,23 @@ describe("the lockfile", () => {
 
 describe("the budget", () => {
   // 15-spec.md: HOOK_BUDGET_MS is "a target to measure early, not an
-  // assertion". This measures the shipped process end to end on whatever
-  // hardware runs the suite, and reports the bare-node baseline alongside,
-  // because most of the number is Node's own start-up. The ceiling is p50
-  // rather than max so an unlucky scheduling slice on a loaded CI box does
-  // not fail an otherwise healthy hook; scripts/measure-hook.mjs prints the
-  // full distribution.
-  it("exits inside HOOK_BUDGET_MS with nothing to do", () => {
+  // assertion" — and this test used to assert it anyway, against the total
+  // wall clock of a spawned process. Most of that total is Node starting, so
+  // the assertion graded the machine: it failed a release at p50 58ms on a
+  // shared runner where bare `node -e ""` alone cost 40ms, with the hook
+  // unchanged, and passed at 31ms on the re-run of the same commit.
+  //
+  // Subtracting the baseline does not rescue it: the hook's extra work over
+  // bare Node is `stat` calls, so the same slow machine inflates the
+  // difference too — 7.6ms here, 28.7ms on the runner that failed it.
+  //
+  // What holds across machines is the ratio, so that is what is asserted: the
+  // median hook spawn over the median bare-node spawn, both measured in the
+  // same loop so they see the same machine under the same load. The
+  // milliseconds are still printed on every run, and scripts/measure-hook.mjs
+  // prints the full distribution against HOOK_BUDGET_MS, which is where
+  // 15-spec.md wanted the budget watched.
+  it("costs no more than a small multiple of starting Node at all", () => {
     const f = withTranscript(withCurrentIndex(fixture()), "busy", IDLE_HOURS - 1);
     runHook(f); // warm the page cache
 
@@ -345,10 +360,13 @@ describe("the budget", () => {
     const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
 
     const hookMedian = median(samples);
+    const baselineMedian = median(baselines);
+    const multiple = hookMedian / baselineMedian;
     console.log(
-      `session-start hook: p50 ${hookMedian.toFixed(1)}ms, bare node ${median(baselines).toFixed(1)}ms, budget ${HOOK_BUDGET_MS}ms`,
+      `session-start hook: p50 ${hookMedian.toFixed(1)}ms, bare node ${baselineMedian.toFixed(1)}ms, ` +
+        `${multiple.toFixed(2)}x (max ${HOOK_NODE_MULTIPLE_MAX}x), total budget ${HOOK_BUDGET_MS}ms`,
     );
-    expect(hookMedian).toBeLessThan(HOOK_BUDGET_MS);
+    expect(multiple).toBeLessThan(HOOK_NODE_MULTIPLE_MAX);
   });
 });
 
