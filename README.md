@@ -1,5 +1,9 @@
 # signposts
 
+[![CI](https://github.com/gregra81/signposts/actions/workflows/ci.yml/badge.svg)](https://github.com/gregra81/signposts/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/gregra81/signposts)](https://github.com/gregra81/signposts/releases/latest)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
+
 When you work with Claude Code, you end up correcting it constantly. "No, we don't use that
 pattern here." "That'll break, staging is read-only." "Don't touch that file, it's generated."
 Those corrections are real knowledge about how a team actually works, and right now they just
@@ -11,6 +15,69 @@ and opens a pull request against a folder of markdown in the repo. A human revie
 other PR — nothing gets merged automatically.
 
 A signpost is what a previous traveler leaves behind so the next one doesn't take the wrong turn.
+
+## Install
+
+```
+curl -fsSL https://gregra81.github.io/signposts/install.sh | bash
+signpost init          # asks once, writes .signposts/ and the skill
+```
+
+The script wants Node 24 or newer. It downloads the release tarball, checks it against the
+SHA256SUMS published beside it, and hands it to `npm install -g`. Pin a version with
+`SIGNPOSTS_VERSION=0.1.0`, and read it before you run it if you would rather not pipe a stranger's
+shell script into bash: it is [docs/install.sh](docs/install.sh) in this repo.
+
+Then the plugin, which is the second half rather than an alternative:
+
+```
+/plugin marketplace add gregra81/signposts
+/plugin install signposts@signposts
+```
+
+It carries the session-start hook, the `/signposts:*` commands and the MCP server, so you never
+open a settings file. It cannot carry the code: a plugin is installed by cloning its repository,
+and a clone has no `node_modules` and none of the compiled output. So the manifest names `signpost`
+and `signpost-session-start`, which the install above puts on your PATH. Package first, then
+plugin.
+
+`signpost init` still asks for consent and still installs the status line, neither of which a
+plugin is allowed to do.
+
+## What you end up with
+
+One file per lesson, in the repo, in a pull request you review like any other:
+
+```markdown
+---
+id: staging-read-only
+claim: Staging is read only outside the ETL window
+category: environment
+scope:
+  repo: acme/api
+  paths:
+    - db/migrations/**
+confidence: 0.9
+status: active
+provenance:
+  session_ids:
+    - 01J9F8Q2K7
+    - 01J9M2B4RT
+  authors:
+    - dana@acme.example
+    - sam@acme.example
+  first_seen: 2026-09-02
+  last_reinforced: 2026-09-09
+---
+
+A migration run against staging failed with a permissions error, and the human said every write
+goes through the nightly ETL job.
+```
+
+Two authors on that file because two people hit the same wall in different words, and the second
+session recognised the first one's claim instead of writing a second file about it. When a third
+session contradicts it, the run stops and asks you rather than overwriting what your colleague
+recorded.
 
 ## How it works
 
@@ -44,46 +111,31 @@ doesn't belong here — that's the entire point of the tool.
 **Sessions have to sit idle 24+ hours first.** Claude Code sessions are resumable, so "ended"
 isn't really final until enough time has passed.
 
+**Your working tree is never touched.** A run commits through a second worktree, so proposals
+appear on a branch and in a PR while you carry on with whatever you were doing.
+
 **The write path shipped first.** Retrieval-and-inject is a crowded space; capturing the knowledge
 at all was the part worth building first. The read path is now an MCP server with one tool,
 `search_signposts`, over the index the write path already maintains. The `CLAUDE.md` pointer stays
 anyway: it is what still works when the server is not running.
 
-## Using it
+## The commands
 
-```
-curl -fsSL https://gregra81.github.io/signposts/install.sh | bash
-signpost init          # asks once, writes .signposts/ and the skill
-```
+After `init` you mostly don't type any of these — you ask Claude to run signposts, and the skill
+it installed drives the loop.
 
-The script wants Node 24 or newer. It downloads the release tarball, checks it against the
-SHA256SUMS published beside it, and hands it to `npm install -g`. Pin a version with
-`SIGNPOSTS_VERSION=0.1.0`, and read it before you run it if you would rather not pipe a stranger's
-shell script into bash: it is [docs/install.sh](docs/install.sh) in this repo.
+| Command | What it is for |
+|---|---|
+| `signpost init` | Consent, `.signposts/`, the CLAUDE.md pointer, the skill, the status line. Asked once. |
+| `signpost review` | Where you answer the things a run stopped on, one at a time, as a before/after diff. |
+| `signpost doctor` | Checks this machine: node version, `gh` auth, model cache, database, whether the hook is installed. |
+| `signpost index` | Rebuilds the local search index by hand. The session-start hook does it in the background. |
+| `signpost sessions`, `run`, `resume` | The loop the skill drives. One JSON object per invocation. |
 
-The plugin is the second half, not an alternative to the first. It carries the session-start hook,
-the `/signposts:*` commands and the MCP server, so you never open a settings file — but a plugin is
-installed by cloning its repository, and a clone has no `node_modules` and none of the compiled
-output. So the manifest names `signpost` and `signpost-session-start`, which the global install
-above puts on your PATH. Install the package first, then the plugin.
-
-`signpost init` still asks for consent and still installs the status line, which is not something a
-plugin is allowed to do.
-
-After that you never run it by hand: ask Claude to run signposts, and the skill it installed drives
-the extraction, brings anything that needs your judgement back to you, and opens the PR.
-
-The exception is `signpost review`. A run stops at anything that edits, deletes or contradicts
-knowledge you already have, and it stays stopped until you answer, usually days later and from a
-different process. `signpost review` is where you answer: what is waiting and for how long, then
-one proposal at a time as a before/after diff with the reason it stopped. Accept, reject, edit or
-skip each one. It refuses a stdin that is not a terminal, so nothing automated can answer in your
-place.
-
-Two others you may type yourself. `signpost doctor` checks the machine instead of reporting what
-ought to be true: the running node version against the floor, `gh` auth, whether the embedding
-model is cached for offline use, database integrity, and whether the session-start hook is
-installed. Run it before writing a bug report.
+`signpost review` is the one you will type. A run stops at anything that edits, deletes or
+contradicts knowledge you already have, and it stays stopped until you answer, usually days later
+and from a different process. Accept, reject, edit or skip each proposal. It refuses a stdin that
+is not a terminal, so nothing automated can answer in your place.
 
 `--verbose` narrates a run on stderr: which transcript it picked, what each halt is waiting on,
 and the exact command that answers it. stdout stays one JSON object, so a pipe through `jq` still
@@ -101,6 +153,23 @@ error inside a Claude turn would be a worse answer than "there is nothing here y
 signposts are markdown in the repo regardless — the `CLAUDE.md` pointer is what sends Claude to
 read them. The session-start hook builds the index in the background, and the next session
 searches it.
+
+## Requirements
+
+Node 24 or newer, git, and a repo with a GitHub `origin`. `gh` authenticated if you want the pull
+request opened for you; without it the branch is still pushed and you get the `gh pr create` line
+to run yourself. The first run downloads a 23MB embedding model, once per machine, after which
+retrieval works offline.
+
+## Uninstall
+
+```
+npm rm -g signposts     # or: rm -rf "$(npm prefix -g)/lib/node_modules/signposts"
+rm -rf ~/.signposts     # database, index, model cache
+```
+
+`.signposts/` in your repo is yours and stays. So does the status line entry in
+`.claude/settings.local.json`, which is one line to delete.
 
 ## Where this stands
 

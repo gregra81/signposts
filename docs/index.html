@@ -6,70 +6,257 @@
     <title>signposts</title>
     <meta
       name="description"
-      content="Turns the corrections you type at Claude Code into reviewed team knowledge, as markdown in your own repo."
+      content="The corrections you type at Claude Code become reviewed team knowledge — markdown in your own repo, opened as a pull request."
     />
+    <meta property="og:title" content="signposts" />
+    <meta
+      property="og:description"
+      content="The corrections you type at Claude Code become reviewed team knowledge — markdown in your own repo, opened as a pull request."
+    />
+    <meta name="theme-color" content="#16161a" />
     <style>
       :root {
         color-scheme: light dark;
         --bg: #fbfaf8;
-        --fg: #1a1a18;
-        --muted: #5c5c56;
-        --rule: #e2ded6;
-        --code-bg: #f1efe9;
+        --panel: #ffffff;
+        --fg: #17171a;
+        --muted: #5f5f68;
+        --rule: #e4e0d8;
+        --code-bg: #f2efe9;
+        --accent: #1f6f4a;
+        --accent-fg: #ffffff;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #16161a;
-          --fg: #eceae5;
-          --muted: #a3a099;
-          --rule: #2e2e34;
+          --bg: #131316;
+          --panel: #1a1a1f;
+          --fg: #ecebe7;
+          --muted: #a2a09a;
+          --rule: #2b2b32;
           --code-bg: #202027;
+          --accent: #4ba87a;
+          --accent-fg: #10231a;
         }
       }
+      * { box-sizing: border-box; }
       body {
         margin: 0;
-        padding: 12vh 20px 10vh;
+        padding: 0 20px 6rem;
         background: var(--bg);
         color: var(--fg);
-        font: 17px/1.6 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+        font: 17px/1.65 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
       }
-      main { max-width: 40rem; margin: 0 auto; }
-      h1 { font-size: 1.6rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
-      p.tagline { color: var(--muted); margin: 0 0 2rem; }
+      main { max-width: 46rem; margin: 0 auto; }
+      section { padding-block: 2.5rem; border-top: 1px solid var(--rule); }
+      section:first-of-type { border-top: 0; }
+      h1 {
+        font-size: clamp(2rem, 6vw, 2.75rem);
+        letter-spacing: -0.025em;
+        line-height: 1.15;
+        margin: 0 0 0.75rem;
+      }
+      h2 { font-size: 1.15rem; letter-spacing: -0.01em; margin: 0 0 1rem; }
+      h3 { font-size: 1rem; margin: 0 0 0.35rem; }
+      p { margin: 0 0 1rem; }
+      .lede { font-size: 1.1rem; color: var(--muted); margin-bottom: 2rem; }
+      .brand {
+        display: inline-block;
+        font: 600 0.85rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        padding: 4.5rem 0 1.5rem;
+      }
       pre {
         background: var(--code-bg);
         border: 1px solid var(--rule);
-        border-radius: 8px;
+        border-radius: 10px;
         padding: 14px 16px;
         overflow-x: auto;
-        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin: 0 0 1rem;
+        font: 13.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
       }
-      ol { padding-left: 1.2rem; color: var(--muted); }
-      ol strong { color: var(--fg); font-weight: 600; }
-      footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.9rem; }
-      a { color: inherit; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      p code, li code, td code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
+      .install { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; margin-bottom: 0.75rem; }
+      .install pre { flex: 1 1 22rem; margin: 0; }
+      button {
+        flex: 0 0 auto;
+        border: 1px solid var(--rule);
+        border-radius: 10px;
+        background: var(--accent);
+        color: var(--accent-fg);
+        font: 600 14px/1 inherit;
+        font-family: inherit;
+        padding: 0 18px;
+        cursor: pointer;
+        min-height: 44px;
+      }
+      button:hover { filter: brightness(1.08); }
+      .quotes { list-style: none; padding: 0; margin: 0 0 1rem; color: var(--muted); }
+      .quotes li { padding: 0.15rem 0 0.15rem 1rem; border-left: 2px solid var(--rule); margin-bottom: 0.5rem; }
+      .cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+      .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; }
+      .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+      ol.steps { padding-left: 1.25rem; }
+      ol.steps li { margin-bottom: 0.6rem; }
+      ol.steps strong { font-weight: 600; }
+      .caption { color: var(--muted); font-size: 0.95rem; }
+      footer { border-top: 1px solid var(--rule); padding-top: 1.5rem; color: var(--muted); font-size: 0.92rem; }
+      a { color: inherit; text-underline-offset: 3px; }
+      footer a, .lede a { text-decoration-color: var(--accent); }
     </style>
   </head>
   <body>
     <main>
-      <h1>signposts</h1>
-      <p class="tagline">
-        The corrections you type at Claude Code — "staging is read-only", "that file is generated" —
-        become reviewed team knowledge, as markdown in your own repo.
-      </p>
+      <span class="brand">signposts</span>
 
-      <pre><code>curl -fsSL https://gregra81.github.io/signposts/install.sh | bash</code></pre>
+      <section>
+        <h1>Your corrections shouldn't die with the session.</h1>
+        <p class="lede">
+          "Staging is read-only." "That file is generated, don't edit it." "We don't use that pattern
+          here." signposts turns what you tell Claude Code into markdown in your own repo, opened as
+          a pull request, so the next person's Claude already knows.
+        </p>
 
-      <ol>
-        <li><strong>signpost init</strong> — asks once, then writes <code>.signposts/</code> and the skill.</li>
-        <li>Ask Claude to run signposts. It reads the transcripts already on your disk.</li>
-        <li>A pull request appears. You review it like any other, and nothing merges on its own.</li>
-      </ol>
+        <div class="install">
+          <pre id="install"><code>curl -fsSL https://gregra81.github.io/signposts/install.sh | bash</code></pre>
+          <button type="button" id="copy" data-copy="curl -fsSL https://gregra81.github.io/signposts/install.sh | bash">Copy</button>
+        </div>
+        <p class="caption">
+          Needs Node 24+. No account, no API key, no server —
+          <a href="https://github.com/gregra81/signposts">the source is on GitHub</a>.
+        </p>
+      </section>
+
+      <section>
+        <h2>The knowledge is already being produced. Nothing catches it.</h2>
+        <p>
+          Every working session with an agent contains corrections that are not in the code and not
+          in any doc:
+        </p>
+        <ul class="quotes">
+          <li>"Don't run migrations against staging, the ETL job owns writes there."</li>
+          <li>"That permissions error is a read-only replica, not a network problem."</li>
+          <li>"The platform team owns that module. We don't fork it."</li>
+        </ul>
+        <p>
+          Then the session ends and it is gone. The next developer hits the same wall, and so does
+          the next agent, because none of it was ever written down anywhere a person or a model
+          would look.
+        </p>
+      </section>
+
+      <section>
+        <h2>What lands in your repo</h2>
+        <pre><code>---
+id: staging-read-only
+claim: Staging is read only outside the ETL window
+category: environment
+scope:
+  repo: acme/api
+  paths:
+    - db/migrations/**
+confidence: 0.9
+status: active
+provenance:
+  session_ids: [01J9F8Q2K7, 01J9M2B4RT]
+  authors: [dana@acme.example, sam@acme.example]
+  first_seen: 2026-09-02
+  last_reinforced: 2026-09-09
+---
+
+A migration run against staging failed with a permissions error, and the
+human said every write goes through the nightly ETL job.</code></pre>
+        <p class="caption">
+          Two authors on that file because two people hit the same wall in different words, and the
+          second session recognised the first one's claim instead of writing a second file about it.
+          A third session that contradicts it stops and asks you.
+        </p>
+      </section>
+
+      <section>
+        <h2>How it works</h2>
+        <ol class="steps">
+          <li>
+            <strong>It reads the transcripts you already have.</strong> The sessions Claude Code
+            wrote to your disk, once they have been idle a day, stripped down to the human turns.
+          </li>
+          <li>
+            <strong>Your own Claude session does the thinking.</strong> signposts pauses and asks it
+            to extract, criticise and classify — on the plan and quota you already pay for.
+          </li>
+          <li>
+            <strong>A pull request appears.</strong> You review it like any other. Anything that
+            edits, deletes or contradicts existing knowledge waits for you first.
+          </li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Why it is safe to leave running</h2>
+        <div class="cards">
+          <div class="card">
+            <h3>Nothing leaves the machine</h3>
+            <p>Transcripts are read locally and the search index is local. There is no server and no account.</p>
+          </div>
+          <div class="card">
+            <h3>No new API key</h3>
+            <p>The reasoning is answered by the Claude Code session you are already in.</p>
+          </div>
+          <div class="card">
+            <h3>Your working tree is untouched</h3>
+            <p>Proposals are committed through a separate worktree onto their own branch, mid-task or not.</p>
+          </div>
+          <div class="card">
+            <h3>Nothing merges itself</h3>
+            <p>Every signpost arrives as a pull request a person approves, and contradictions always stop.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Get started</h2>
+        <pre><code>curl -fsSL https://gregra81.github.io/signposts/install.sh | bash
+cd your-repo
+signpost init</code></pre>
+        <p>Then add the plugin, which carries the hook, the commands and the search server:</p>
+        <pre><code>/plugin marketplace add gregra81/signposts
+/plugin install signposts@signposts</code></pre>
+        <p class="caption">
+          After that you ask Claude to run signposts and read the pull request when it arrives. The
+          <a href="https://github.com/gregra81/signposts#readme">README</a> covers the commands you
+          can still type by hand.
+        </p>
+      </section>
 
       <footer>
-        Needs Node 24+. Source, docs and issues on
-        <a href="https://github.com/gregra81/signposts">GitHub</a>. MIT licensed.
+        <a href="https://github.com/gregra81/signposts">GitHub</a> ·
+        <a href="https://github.com/gregra81/signposts/releases/latest">Releases</a> ·
+        <a href="https://github.com/gregra81/signposts/issues">Issues</a> ·
+        <a href="https://github.com/gregra81/signposts/blob/main/LICENSE">MIT</a>
+        <p style="margin-top: 0.75rem">
+          Nothing here checks that a signpost is true, only that it is new and not obviously hedged.
+          The review is what catches a wrong one.
+        </p>
       </footer>
     </main>
+
+    <script>
+      const button = document.getElementById("copy");
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(button.dataset.copy);
+          button.textContent = "Copied";
+        } catch {
+          // Clipboard is blocked in some contexts; the command is on screen anyway.
+          button.textContent = "Select it above";
+        }
+        setTimeout(() => {
+          button.textContent = "Copy";
+        }, 2000);
+      });
+    </script>
   </body>
 </html>

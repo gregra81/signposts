@@ -44,6 +44,42 @@ describe("the plugin manifest", () => {
   });
 });
 
+describe("the marketplace manifest", () => {
+  // Without this file the plugin cannot be installed at all: `/plugin
+  // marketplace add` reads it, and `/plugin install <plugin>@<marketplace>`
+  // names the two things it declares. The repo carried plugin.json alone for
+  // its whole life, so the README described an install nobody could perform.
+  const marketplace = readJson(".claude-plugin/marketplace.json");
+  const plugins = marketplace["plugins"] as Record<string, unknown>[];
+  const entry = plugins[0]!;
+
+  it("offers this repo's own plugin, from the repo root", () => {
+    expect(plugins).toHaveLength(1);
+    expect(entry["name"]).toBe(manifest["name"]);
+    // "./" is the marketplace root, which is where .claude-plugin/plugin.json
+    // is. Anything else would have to be a directory that exists.
+    expect(entry["source"]).toBe("./");
+  });
+
+  it("declares the owner Claude Code requires", () => {
+    expect((marketplace["owner"] as Record<string, unknown>)["name"]).toBeTypeOf("string");
+  });
+
+  it("is what the README tells people to type", () => {
+    // The `@` suffix is the *marketplace* name, not the repository, and the
+    // repository is what `marketplace add` takes. Two names that look alike
+    // and are read from different files, in a pair of commands a person types
+    // by hand — so the README is checked against both rather than trusted.
+    const readme = read("README.md");
+    const repository = (packageJson["repository"] as { url: string }).url;
+    const slug = /github\.com\/([^/]+\/[^/.]+)/.exec(repository)?.[1];
+
+    expect(slug).toBeDefined();
+    expect(readme).toContain(`/plugin marketplace add ${slug!}`);
+    expect(readme).toContain(`/plugin install ${entry["name"] as string}@${marketplace["name"] as string}`);
+  });
+});
+
 describe("the SessionStart hook it installs", () => {
   const hooks = readJson("hooks/hooks.json");
 
