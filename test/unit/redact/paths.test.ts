@@ -81,6 +81,22 @@ describe("repoRelativePath", () => {
     expect(repoRelativePath("src/config.ts", repoRoot)).toBe("src/config.ts");
   });
 
+  // Same guard, and the case that actually pins it. `path.relative` resolves a
+  // relative input against `process.cwd()`, so without the early return this
+  // function's answer would depend on where the process happens to be standing
+  // — in a module whose header promises `path` only, no cwd.
+  //
+  // The test above cannot catch that: against an unrelated root the
+  // fallthrough computes `../../..`-something, sees the `..`, and returns the
+  // input anyway, so both versions agree. The two answers only diverge when
+  // the root contains the working directory, which is what this uses.
+  it("does not resolve a relative path against the working directory", () => {
+    const rootAboveCwd = path.dirname(process.cwd());
+    expect(rootAboveCwd).not.toBe(process.cwd());
+
+    expect(repoRelativePath("src/config.ts", rootAboveCwd)).toBe("src/config.ts");
+  });
+
   it("leaves a path above the root for the redactor chain to handle", () => {
     const outside = path.resolve("/work/other-repo/src/config.ts");
 
