@@ -532,6 +532,60 @@ function agrees(count: number, verb: string): string {
  * two notices or a vague one. The wording follows 07-triggering-and-ux.md's
  * worked example, "2 changes need your review — run `signpost review`".
  */
+/**
+ * What Claude is told, as distinct from what the developer is shown.
+ *
+ * `systemMessage` reaches the developer and nothing else — a session started
+ * behind one answers "no codeword" when asked what it can see, which is why
+ * the notice alone left the run waiting on somebody remembering a command.
+ * `additionalContext` is the field that reaches the model, so this is what
+ * turns the notice into an offer Claude can make.
+ *
+ * It stays an offer. A run spends this session's tokens on work the developer
+ * did not sit down to do (07-triggering-and-ux.md: "starting it is theirs to
+ * decide"), so the instruction is to ask, and to drop it on a no.
+ *
+ * Only the two developer-facing conditions produce it. A stale index is the
+ * worker's job and needs nobody's permission, and an offer to do work that is
+ * already happening is noise in a context window the developer is paying for.
+ */
+export function contextFor(reasons: WakeReasons): string | null {
+  const waiting: string[] = [];
+  if (reasons.sessions > 0) {
+    waiting.push(
+      `${plural(reasons.sessions, "session")} of this repo's history ready to distil into team knowledge (\`signpost run\`)`,
+    );
+  }
+  if (reasons.threads > 0) {
+    waiting.push(
+      `${plural(reasons.threads, "proposed change")} parked for the developer's review (\`signpost review\`)`,
+    );
+  }
+  if (waiting.length === 0) {
+    return null;
+  }
+
+  return (
+    `signposts has ${waiting.join(", and ")}. ` +
+    "Offer this to the developer before their next task and wait for an answer — a run spends this " +
+    "session's tokens, so it is theirs to start. On a yes, drive it with the signposts skill. On a no, " +
+    "drop it and do not raise it again this session."
+  );
+}
+
+/** `systemMessage` for the developer, `additionalContext` for Claude — see `contextFor`. */
+export function hookOutput(reasons: WakeReasons): Record<string, unknown> {
+  const context = contextFor(reasons);
+  const output: Record<string, unknown> = { systemMessage: noticeFor(reasons) };
+  if (context !== null) {
+    output["hookSpecificOutput"] = {
+      hookEventName: "SessionStart",
+      additionalContext: context,
+    };
+  }
+  return output;
+}
+
 export function noticeFor(reasons: WakeReasons): string {
   const parts: string[] = [];
   if (reasons.staleIndex) {
@@ -635,7 +689,7 @@ function main(): void {
     stampLockHolder(paths, workerPid, nowMs);
   }
 
-  process.stdout.write(JSON.stringify({ systemMessage: noticeFor(reasons) }) + "\n");
+  process.stdout.write(JSON.stringify(hookOutput(reasons)) + "\n");
 }
 
 /**

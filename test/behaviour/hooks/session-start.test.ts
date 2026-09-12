@@ -199,6 +199,12 @@ describe("the three wake conditions", () => {
 
     expect(JSON.parse(result.stdout)).toEqual({
       systemMessage: "🪧 signposts: 1 session ready — run `signpost run`",
+      // The developer sees the line above; only this reaches Claude, and it
+      // asks rather than acts — the run spends this session's tokens.
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: expect.stringContaining("1 session of this repo's history"),
+      },
     });
     // The hook has already exited; the detached worker has not yet run.
     expect(existsSync(f.workerLog)).toBe(false);
@@ -211,6 +217,10 @@ describe("the three wake conditions", () => {
 
     expect(JSON.parse(runHook(f).stdout)).toEqual({
       systemMessage: "🪧 signposts: 2 changes need your review — run `signpost review`",
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: expect.stringContaining("2 proposed changes parked"),
+      },
     });
     expect(await workerLines(f, 1)).toHaveLength(1);
   });
