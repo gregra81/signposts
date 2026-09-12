@@ -15,7 +15,6 @@
   "commands": "./commands/",
   "mcpServers": {
     "signposts": {
-      "type": "stdio",
       "command": "signpost",
       "args": [
         "mcp"
