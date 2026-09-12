@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>signposts</title>
+    <meta
+      name="description"
+      content="Turns the corrections you type at Claude Code into reviewed team knowledge, as markdown in your own repo."
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fbfaf8;
+        --fg: #1a1a18;
+        --muted: #5c5c56;
+        --rule: #e2ded6;
+        --code-bg: #f1efe9;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16161a;
+          --fg: #eceae5;
+          --muted: #a3a099;
+          --rule: #2e2e34;
+          --code-bg: #202027;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 12vh 20px 10vh;
+        background: var(--bg);
+        color: var(--fg);
+        font: 17px/1.6 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+      }
+      main { max-width: 40rem; margin: 0 auto; }
+      h1 { font-size: 1.6rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+      p.tagline { color: var(--muted); margin: 0 0 2rem; }
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        padding: 14px 16px;
+        overflow-x: auto;
+        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      ol { padding-left: 1.2rem; color: var(--muted); }
+      ol strong { color: var(--fg); font-weight: 600; }
+      footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.9rem; }
+      a { color: inherit; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>signposts</h1>
+      <p class="tagline">
+        The corrections you type at Claude Code — "staging is read-only", "that file is generated" —
+        become reviewed team knowledge, as markdown in your own repo.
+      </p>
+
+      <pre><code>curl -fsSL https://gregra81.github.io/signposts/install.sh | bash</code></pre>
+
+      <ol>
+        <li><strong>signpost init</strong> — asks once, then writes <code>.signposts/</code> and the skill.</li>
+        <li>Ask Claude to run signposts. It reads the transcripts already on your disk.</li>
+        <li>A pull request appears. You review it like any other, and nothing merges on its own.</li>
+      </ol>
+
+      <footer>
+        Needs Node 24+. Source, docs and issues on
+        <a href="https://github.com/gregra81/signposts">GitHub</a>. MIT licensed.
+      </footer>
+    </main>
+  </body>
+</html>

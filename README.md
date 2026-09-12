@@ -52,9 +52,14 @@ anyway: it is what still works when the server is not running.
 ## Using it
 
 ```
-npm i -g signposts
+curl -fsSL https://gregra81.github.io/signposts/install.sh | bash
 signpost init          # asks once, writes .signposts/ and the skill
 ```
+
+The script wants Node 24 or newer. It downloads the release tarball, checks it against the
+SHA256SUMS published beside it, and hands it to `npm install -g`. Pin a version with
+`SIGNPOSTS_VERSION=0.1.0`, and read it before you run it if you would rather not pipe a stranger's
+shell script into bash: it is [docs/install.sh](docs/install.sh) in this repo.
 
 The plugin is the second half, not an alternative to the first. It carries the session-start hook,
 the `/signposts:*` commands and the MCP server, so you never open a settings file — but a plugin is
@@ -103,3 +108,7 @@ Just getting started. Building it in layers, one PR at a time.
 
 One honest caveat: nothing here checks that a signpost is actually *true*, only that it's novel
 and not obviously hedged. The PR review is what catches a wrong one.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

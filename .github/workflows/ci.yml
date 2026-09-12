@@ -28,6 +28,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm run lint
+      # The installer is the first thing a user runs and the one file here that
+      # no test exercises: it is shell, it is piped into bash, and a typo in it
+      # fails on their machine rather than in this repo.
+      - run: shellcheck docs/install.sh
 
   test:
     runs-on: ubuntu-latest

@@ -1,0 +1,66 @@
+name: release
+
+# A tag is the release. Everything below is derived from it, so there is no
+# second place to remember to update — and the tag has to agree with
+# package.json, or the job stops before anything is published.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: tag matches package.json
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared="$(node -p "require('./package.json').version")"
+          if [ "$tagged" != "$declared" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json version $declared" >&2
+            exit 1
+          fi
+
+      # The same chain a pull request runs. A tag is not a reason to skip it:
+      # this artefact is what a `curl | bash` puts on someone's machine.
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm run test
+
+      # `prepack` builds dist/ and both standalone bundles, so the tarball is
+      # what an installed copy actually runs.
+      - name: pack
+        run: |
+          pnpm pack --pack-destination dist-release
+          cd dist-release && sha256sum ./*.tgz > SHA256SUMS && cat SHA256SUMS
+
+      # The tarball must carry the compiled output, not just src/. Installing
+      # from a tarball with no dist/ and no hooks/session-start.js is the
+      # failure 18-end-to-end-gaps.md item 9 records, and it is invisible until
+      # a user runs it.
+      - name: the tarball carries what an installed copy runs
+        run: |
+          for path in package/dist/app.js package/hooks/session-start.js package/statusline/statusline.js package/bin/signpost.js; do
+            tar -tzf dist-release/*.tgz | grep -qx "$path" || { echo "missing from the tarball: $path" >&2; exit 1; }
+          done
+
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist-release/*.tgz \
+            dist-release/SHA256SUMS
