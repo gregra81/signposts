@@ -20,6 +20,7 @@ import { openDb } from "./db/migrate.ts";
 import { markBootstrapComplete } from "./db/repo-state.ts";
 import { markProcessed, processedKeys } from "./db/sessions.ts";
 import { createEmbedder } from "./embed/embedder.ts";
+import type { Forge } from "./forge/forge.ts";
 import { ghForge } from "./forge/gh-forge.ts";
 import { resolveRepo } from "./git/remote-origin.ts";
 import { authorEmail } from "./git/worktree.ts";
@@ -38,7 +39,24 @@ function isoDate(now: Date): string {
   return now.toISOString().split("T")[0]!;
 }
 
-export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<OpenedRun> => {
+/**
+ * `openRun`, over a given forge.
+ *
+ * The forge is the one port here that talks to something outside the machine,
+ * so it is a parameter: an end-to-end test that drives a run through to
+ * `commit` has no GitHub to open a pull request on, and stubbing `gh` on PATH
+ * would be testing the shell rather than the run. Everything else — the
+ * database, the checkpointer, the embedder, git itself — stays real, and R2
+ * holds: this is still the only place any of them is constructed.
+ */
+export function makeOpenRun(forgeFor: (worktreeDir: string) => Forge): OpenRun {
+  return openRunWith.bind(null, forgeFor);
+}
+
+const openRunWith = async (
+  forgeFor: (worktreeDir: string) => Forge,
+  { config, repoRoot, warn }: Parameters<OpenRun>[0],
+): Promise<OpenedRun> => {
   const repo = resolveRepo(repoRoot);
   if (repo === null) {
     return { reason: NO_REPO };
@@ -77,7 +95,7 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
         worktreeDir: config.paths.worktreeDir,
         branchPattern: config.git.branch_pattern,
         author,
-        forge: ghForge(config.paths.worktreeDir),
+        forge: forgeFor(config.paths.worktreeDir),
         warn,
         committed: (outcome) => {
           commitOutcome = outcome;
@@ -146,3 +164,5 @@ export const openRun: OpenRun = async ({ config, repoRoot, warn }): Promise<Open
     throw error;
   }
 };
+
+export const openRun: OpenRun = makeOpenRun(ghForge);
