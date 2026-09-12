@@ -146,6 +146,18 @@ async function workerLines(f: Fixture, expected: number): Promise<string[]> {
   return existsSync(f.workerLog) ? readFileSync(f.workerLog, "utf8").split("\n").filter(Boolean) : [];
 }
 
+/**
+ * Polls until `done()` holds, or gives up quietly and lets the caller assert.
+ *
+ * A detached worker finishes on its own schedule, so every end state one
+ * leaves behind has to be waited for rather than read once.
+ */
+async function waitUntil(done: () => boolean, attempts = 600, intervalMs = 100): Promise<void> {
+  for (let attempt = 0; attempt < attempts && !done(); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 describe("silence when there is nothing to do", () => {
   it("emits nothing in a repo where init never ran", () => {
     const f = fixture();
@@ -427,22 +439,27 @@ describe("the hook and the worker together", () => {
       // `openDb` creates that within milliseconds and the indexing runs on
       // well after it.
       const statusPath = path.join(f.stateDir, "status.json");
-      let status: WorkerStatus | undefined;
-      for (let attempt = 0; attempt < 600; attempt += 1) {
-        status = existsSync(statusPath)
-          ? (JSON.parse(readFileSync(statusPath, "utf8")) as WorkerStatus)
-          : undefined;
-        if (status?.phase === "idle") {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+      const workerStatus = (): WorkerStatus | undefined =>
+        existsSync(statusPath) ? (JSON.parse(readFileSync(statusPath, "utf8")) as WorkerStatus) : undefined;
+      await waitUntil(() => workerStatus()?.phase === "idle");
+      const status = workerStatus();
 
       expect(existsSync(path.join(f.stateDir, "signposts.db"))).toBe(true);
       expect(status?.phase).toBe("idle");
       expect(status?.lastError).toBeUndefined();
+
       // Handed over and released: the next session start is not locked out.
-      expect(existsSync(path.join(f.stateDir, "run.lock"))).toBe(false);
+      //
+      // Waited for rather than read straight after `idle`, because `idle` does
+      // not imply released. The worker writes the finished status and *then*
+      // releases (src/cli/commands/worker.ts's finally block), in that order
+      // and deliberately: releasing first would let the next worker in while
+      // this one is still writing status.json, and they would both have it
+      // open. The gap is microseconds here and wide enough on a loaded CI
+      // runner to fail this line, which it did once.
+      const lockfile = path.join(f.stateDir, "run.lock");
+      await waitUntil(() => !existsSync(lockfile), 100, 20);
+      expect(existsSync(lockfile)).toBe(false);
     },
     180_000,
   );
