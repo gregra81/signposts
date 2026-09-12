@@ -36,11 +36,20 @@ describe("the plugin manifest", () => {
   });
 
   it("points at paths that exist", () => {
-    for (const key of ["hooks", "commands"]) {
-      const declared = manifest[key];
-      expect(typeof declared).toBe("string");
-      expect(existsSync(path.join(PROJECT_ROOT, declared as string))).toBe(true);
-    }
+    const declared = manifest["commands"];
+    expect(typeof declared).toBe("string");
+    expect(existsSync(path.join(PROJECT_ROOT, declared as string))).toBe(true);
+  });
+
+  it("does not declare hooks/hooks.json, which Claude Code loads on its own", () => {
+    // Declaring it is not redundant, it is fatal: `claude plugin list` reported
+    // "✘ failed to load — Duplicate hooks file detected: ./hooks/hooks.json
+    // resolves to already-loaded file", and the whole plugin — commands and
+    // MCP server included — was dropped. v0.1.0 shipped that way, and this
+    // file's other tests all passed, because the path it named did exist.
+    expect(manifest["hooks"]).toBeUndefined();
+    // Still discovered, so the file has to be where the convention says.
+    expect(existsSync(path.join(PROJECT_ROOT, "hooks/hooks.json"))).toBe(true);
   });
 });
 
@@ -131,8 +140,18 @@ function commandOf(hooks: Record<string, unknown>): string {
 }
 
 describe("the MCP server it registers", () => {
-  const servers = manifest["mcpServers"] as Record<string, { command: string; args: string[]; env?: unknown }>;
+  const servers = manifest["mcpServers"] as Record<
+    string,
+    { type?: string; command: string; args: string[]; env?: unknown }
+  >;
   const server = servers["signposts"]!;
+
+  it("declares its transport, or Claude Code tries to run one called `stdio`", () => {
+    // Without `type`, `claude mcp list` reported: Failed to connect — ENOENT:
+    // Executable not found in $PATH: "stdio". Shipped in v0.1.0, where the
+    // read path was simply dead for anyone who installed the plugin.
+    expect(server.type).toBe("stdio");
+  });
 
   it("starts the one CLI entry point, so it goes through the one composition root (R2)", () => {
     // The installed binary rather than `node ${CLAUDE_PLUGIN_ROOT}/bin/...`,

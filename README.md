@@ -28,21 +28,25 @@ SHA256SUMS published beside it, and hands it to `npm install -g`. Pin a version 
 `SIGNPOSTS_VERSION=0.1.0`, and read it before you run it if you would rather not pipe a stranger's
 shell script into bash: it is [docs/install.sh](docs/install.sh) in this repo.
 
-Then the plugin, which is the second half rather than an alternative:
+That one command installs both halves. The CLI is the code; the Claude Code plugin is the wiring —
+the session-start hook, the `/signposts:*` commands and the `search_signposts` server — and the
+script installs it for you with `claude plugin install`, so there is nothing to type inside Claude
+Code. Restart any session that was already open, so it picks the plugin up.
+
+The plugin cannot carry the code, which is why the order matters: a plugin is installed by cloning
+its repository, and a clone has no `node_modules` and none of the compiled output. Its manifest
+names `signpost` and `signpost-session-start`, the binaries the package puts on your PATH.
+
+If the `claude` CLI is not on your PATH, the installer says so and prints the two commands to run
+inside Claude Code instead:
 
 ```
 /plugin marketplace add gregra81/signposts
 /plugin install signposts@signposts
 ```
 
-It carries the session-start hook, the `/signposts:*` commands and the MCP server, so you never
-open a settings file. It cannot carry the code: a plugin is installed by cloning its repository,
-and a clone has no `node_modules` and none of the compiled output. So the manifest names `signpost`
-and `signpost-session-start`, which the install above puts on your PATH. Package first, then
-plugin.
-
-`signpost init` still asks for consent and still installs the status line, neither of which a
-plugin is allowed to do.
+`SIGNPOSTS_SKIP_PLUGIN=1` installs the CLI on its own. `signpost init` is still yours to run per
+repo: it asks for consent and installs the status line, neither of which a plugin is allowed to do.
 
 ## What you end up with
 

@@ -221,11 +221,11 @@ human said every write goes through the nightly ETL job.</code></pre>
         <pre><code>curl -fsSL https://gregra81.github.io/signposts/install.sh | bash
 cd your-repo
 signpost init</code></pre>
-        <p>Then add the plugin, which carries the hook, the commands and the search server:</p>
-        <pre><code>/plugin marketplace add gregra81/signposts
-/plugin install signposts@signposts</code></pre>
         <p class="caption">
-          After that you ask Claude to run signposts and read the pull request when it arrives. The
+          One command installs both halves: the CLI, and the Claude Code plugin that carries the
+          session-start hook, the <code>/signposts</code> commands and the search server. Restart a
+          session that was already open so it picks the plugin up. Then ask Claude to run signposts,
+          and read the pull request when it arrives — the
           <a href="https://github.com/gregra81/signposts#readme">README</a> covers the commands you
           can still type by hand.
         </p>
