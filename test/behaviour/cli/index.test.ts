@@ -124,6 +124,38 @@ describe("signpost index", () => {
     120_000,
   );
 
+  // The command printed nothing at all on the way through, including while a
+  // cold machine downloaded the embedding model before it could index a line —
+  // a wait indistinguishable from a hang (18-end-to-end-gaps.md's cold-install
+  // pass, 2026-09-12). The wording per cache state is
+  // test/unit/cli/index-lines.test.ts; what this pins is that the lines reach
+  // the terminal, on stderr, and that the second run does not claim work it
+  // skipped.
+  it(
+    "says what it is doing and what it indexed",
+    async () => {
+      writeSignpostFile(signpost({ id: "staging-db-read-only", claim: "The staging database is read-only." }));
+
+      const first = createFakeStdio();
+      expect(await runCli(["index"], { config, stdio: first })).toBe(0);
+
+      expect(first.writtenError()).toContain("signposts: rebuilding the index");
+      expect(first.writtenError()).toContain("signposts: indexed 1 signpost\n");
+      // stdout stays empty: `index` is not one of the commands whose output is
+      // parsed, and a progress line on stdout would make it one.
+      expect(first.writtenOutput()).toBe("");
+
+      // Nothing moved, so nothing is rebuilt — and it says so rather than
+      // reporting an index it did not build.
+      const second = createFakeStdio();
+      expect(await runCli(["index"], { config, stdio: second })).toBe(0);
+
+      expect(second.writtenError()).toContain("signposts: index already up to date (1 signpost)");
+      expect(second.writtenError()).not.toContain("rebuilding the index");
+    },
+    120_000,
+  );
+
   it(
     "N signposts: mirrors active ones into the signposts table",
     async () => {

@@ -7,3 +7,7 @@ coverage/
 # Build output: the pre-compiled hook bundle (scripts/build-hooks.mjs).
 hooks/*.js
 statusline/*.js
+
+# Release artefacts: `pnpm pack --pack-destination dist-release`, built in CI on a tag.
+dist-release/
+*.tgz

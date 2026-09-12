@@ -22,7 +22,11 @@
 
 import type { ExitCode } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
+import { EMBEDDING_MODEL } from "../../core/config/constants.ts";
 import { indexExitCode } from "../../core/cli/index-exit-code.ts";
+import { indexFinishedLine, indexStartedLine } from "../../core/cli/index-lines.ts";
+import type { ModelCacheStatus } from "../../core/doctor/report.ts";
+import { checkModelCache } from "../../io/doctor/model-cache.ts";
 import { openDb } from "../../io/db/migrate.ts";
 import { syncCorpus } from "../../io/signpost/sync-corpus.ts";
 import { resolveRepo } from "../../io/git/remote-origin.ts";
@@ -53,22 +57,39 @@ export async function runIndex({ config, repoRoot, stderr }: RunIndexInput): Pro
     return 1;
   }
 
-  let failures: string[];
+  let result;
   try {
-    ({ failures } = await syncCorpus({
+    result = await syncCorpus({
       db,
       repo,
       knowledgeDir: config.paths.knowledgeDir,
       modelCacheDir: config.paths.modelCacheDir,
       retrieval: config.retrieval,
-    }));
+      notify: () => stderr.write(`signposts: ${indexStartedLine(modelCache(config))}\n`),
+    });
   } finally {
     db.close();
   }
 
-  for (const failure of failures) {
+  for (const failure of result.failures) {
     stderr.write(`signposts: ${failure}\n`);
   }
+  stderr.write(`signposts: ${indexFinishedLine(result.indexed, result.rebuilt)}\n`);
 
-  return indexExitCode(failures.length > 0);
+  return indexExitCode(result.failures.length > 0);
+}
+
+/**
+ * Whether this machine can embed, and whether it has to fetch the model
+ * first — probed at the moment the rebuild starts rather than remembered,
+ * because the cache is global (src/core/config/paths.ts) and any repo on this
+ * machine may have filled it since this command started.
+ */
+function modelCache(config: ResolvedConfig): ModelCacheStatus {
+  return checkModelCache({
+    modelCacheDir: config.paths.modelCacheDir,
+    embeddingModel: EMBEDDING_MODEL,
+    localModelPath: config.retrieval.local_model_path,
+    allowRemoteModels: config.retrieval.allow_remote_models,
+  });
 }

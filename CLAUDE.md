@@ -120,7 +120,9 @@ replies keyed on `(node, system, user)` and treats a miss as an error.
 
 ## How it is used
 
-`npm i -g signposts`, then `signpost init` in a repo: consent, `.signposts/`, the CLAUDE.md pointer,
+`curl -fsSL https://gregra81.github.io/signposts/install.sh | bash` (docs/install.sh, served from
+GitHub Pages; it fetches the release tarball, verifies SHA256SUMS and runs `npm install -g` on it),
+then `signpost init` in a repo: consent, `.signposts/`, the CLAUDE.md pointer,
 and `.claude/skills/signposts/SKILL.md` — the skill is how the tool is driven, and it is rewritten
 on every accepted `init` so it cannot drift from the CLI it describes.
 
@@ -237,8 +239,8 @@ oversight.
 `node_modules`, and neither compiled bundle — `hooks/*.js`, `statusline/*.js` and `dist/` are all
 build output and all gitignored. `better-sqlite3` is native, so vendoring is not on the table
 either. So the manifest points at nothing inside the clone: it names `signpost` and
-`signpost-session-start`, the two binaries a global `npm i -g signposts` puts on PATH. The plugin
-carries the wiring; the npm package carries the code, and the README says to install it first.
+`signpost-session-start`, the two binaries the global install puts on PATH. The plugin
+carries the wiring; the release tarball carries the code, and the README says to install it first.
 
 The hook took that failure silently, and the general fix is in the lock rather than in the hook.
 `hooks/session-start.js` is zero-dependency and ran fine from a clone, took the run lock, and
