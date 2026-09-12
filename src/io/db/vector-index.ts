@@ -30,6 +30,18 @@ export interface RebuildIndexOptions {
   repo: string;
   /** Active signposts for this repo — the caller has already scope/status-filtered. */
   signposts: readonly ActiveSignpost[];
+  /**
+   * Called once, immediately before the embedder is built, and only when
+   * there is something to rebuild.
+   *
+   * It is here rather than at the caller because this is the only place that
+   * knows the answer. `shouldReindex` decides whether any of the expensive
+   * work happens at all, and building the embedder is where a cold machine
+   * spends ~23MB and the wall-clock time a user reads as a hang — so a caller
+   * announcing it up front would announce a download that often does not
+   * happen. `signpost index` prints from this; the worker passes nothing.
+   */
+  notify?: (() => void) | undefined;
 }
 
 interface IndexMetaRow {
@@ -41,8 +53,11 @@ interface IndexMetaRow {
  * Rebuilds signpost_vec / signpost_fts (and the embedding_model/dim mirror
  * on signposts) iff shouldReindex says so, in one transaction. Full rebuild
  * only — no incremental re-embed path.
+ *
+ * Returns whether it rebuilt, so a caller can tell a user it did the work
+ * from one that found nothing to do.
  */
-export async function rebuildIndex(db: Database.Database, options: RebuildIndexOptions): Promise<void> {
+export async function rebuildIndex(db: Database.Database, options: RebuildIndexOptions): Promise<boolean> {
   const embeddingModel = EMBEDDING_MODEL;
   const currentCorpusHash = computeCorpusHash(options.signposts);
 
@@ -59,8 +74,10 @@ export async function rebuildIndex(db: Database.Database, options: RebuildIndexO
   });
 
   if (!needsReindex) {
-    return;
+    return false;
   }
+
+  options.notify?.();
 
   const embedder = await createEmbedder({
     modelCacheDir: options.modelCacheDir,
@@ -123,4 +140,5 @@ export async function rebuildIndex(db: Database.Database, options: RebuildIndexO
   });
 
   rebuild();
+  return true;
 }

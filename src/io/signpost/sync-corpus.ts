@@ -42,11 +42,17 @@ export interface SyncCorpusInput {
   knowledgeDir: string;
   modelCacheDir: string;
   retrieval: RebuildIndexOptions["retrieval"];
+  /** Forwarded to `rebuildIndex` — see the note on its `notify`. */
+  notify?: RebuildIndexOptions["notify"] | undefined;
 }
 
 export interface SyncCorpusResult {
   /** One line per file that did not parse, ready to print. Empty when all did. */
   failures: string[];
+  /** Active signposts now mirrored for this repo — what a caller reports. */
+  indexed: number;
+  /** Whether the index was rebuilt, or already matched the corpus on disk. */
+  rebuilt: boolean;
 }
 
 /**
@@ -81,12 +87,13 @@ export async function syncCorpus(input: SyncCorpusInput): Promise<SyncCorpusResu
     claim: signpost.claim,
     evidence: signpost.evidence,
   }));
-  await rebuildIndex(input.db, {
+  const rebuilt = await rebuildIndex(input.db, {
     modelCacheDir: input.modelCacheDir,
     retrieval: input.retrieval,
     repo: input.repo,
     signposts,
+    notify: input.notify,
   });
 
-  return { failures };
+  return { failures, indexed: signposts.length, rebuilt };
 }
