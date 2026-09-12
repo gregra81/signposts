@@ -4,13 +4,24 @@
 // still needs appending. All pure — persistence and prompting are the
 // caller's job (src/cli/commands/init.ts, src/io/init/*).
 
-/** Verbatim block from 03-memory-model.md "The CLAUDE.md pointer", appended once on first run. */
+/**
+ * Block from 03-memory-model.md "The CLAUDE.md pointer", appended once on first run.
+ *
+ * `index.md` is named conditionally, because on the repo this is written into it
+ * does not exist yet and will not for a while. It is generated output with one
+ * writer — `writeCorpus`, inside the commit worktree — so it reaches the checkout
+ * with the first merged pull request and not before (src/cli/commands/index.ts
+ * explains why nothing else may create it). An unconditional pointer sends every
+ * fresh repo to a missing file, which reads as a broken install and invites the
+ * developer to fix something that is working.
+ */
 export const CLAUDE_MD_POINTER = `## Team knowledge
 
-This repo carries hard-won team knowledge in \`.signposts/\`. Before starting work —
-especially anything touching infrastructure, migrations, or deployment — read
-\`.signposts/index.md\` and any signpost whose scope matches the files you're changing.
-These are things you cannot infer from the code.
+This repo carries hard-won team knowledge as markdown in \`.signposts/\`. Before starting
+work — especially anything touching infrastructure, migrations, or deployment — read any
+signpost whose scope matches the files you're changing. Once \`.signposts/index.md\` is
+there, it tables every active claim and is the place to start. These are things you cannot
+infer from the code.
 `;
 
 /**
