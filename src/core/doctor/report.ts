@@ -208,7 +208,11 @@ function hookLine(facts: DoctorFacts): string {
     case "settings":
       return "session-start hook: installed — in a Claude Code settings file";
     case "absent":
-      return "session-start hook: not found in settings or in an enabled plugin — install the signposts plugin, or run `signpost init`";
+      // Not `signpost init`, which this line used to name: init writes the
+      // skill, the pointer and the status line, and has never installed the
+      // hook. The hook arrives with the plugin, so a person following the old
+      // advice re-ran init and read the same line again.
+      return "session-start hook: not found in settings or in an enabled plugin — install the plugin inside Claude Code with `/plugin marketplace add gregra81/signposts` then `/plugin install signposts@signposts`";
   }
 }
 

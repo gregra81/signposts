@@ -264,6 +264,17 @@ describe("buildDoctorReport", () => {
     expect(buildDoctorReport({ ...BASE_FACTS, hook })[6]).toContain(expected);
   });
 
+  // The remedy used to be "install the signposts plugin, or run `signpost
+  // init`", and init installs no hook — so the one command the line named was
+  // the one that changes nothing here. Whatever it says, it may not send a
+  // person back to init.
+  it("sends a missing hook to the plugin, not to init", () => {
+    const line = buildDoctorReport({ ...BASE_FACTS, hook: "absent" })[6]!;
+
+    expect(line).toContain("/plugin install signposts@signposts");
+    expect(line).not.toContain("signpost init");
+  });
+
   // 18-end-to-end-gaps.md item 7: the two failures that halt the loop outright
   // and were reported by no command that a person runs before hitting them.
   it("says which command an unset git author will stop", () => {
