@@ -21,6 +21,12 @@ REPO="gregra81/signposts"
 NODE_MIN_MAJOR=24
 REQUESTED="${SIGNPOSTS_VERSION:-latest}"
 
+# Script-scoped, not local to main(): the EXIT trap below runs after main has
+# returned, and a `local` is out of scope by then — which under `set -u` made
+# the cleanup itself the last thing a successful install printed, and left the
+# directory on disk.
+tmp=""
+
 say() { printf 'signposts: %s\n' "$1"; }
 die() { printf 'signposts: %s\n' "$1" >&2; exit 1; }
 
@@ -73,7 +79,7 @@ main() {
   have npm || die "npm is required and was not found — it ships with node."
   require_node
 
-  local tag version tmp tarball base expected actual
+  local tag version tarball base expected actual
   tag="$(resolve_tag)"
   version="${tag#v}"
   tarball="signposts-$version.tgz"
@@ -88,7 +94,11 @@ main() {
   curl -fsSL -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" ||
     die "could not download the checksums for $tag, so the tarball cannot be verified."
 
-  expected="$(awk -v file="$tarball" '$2 == file || $2 == "*" file { print $1 }' "$tmp/SHA256SUMS" | head -1)"
+  # The name in a sha256sum line comes in three shapes: bare, `*`-prefixed
+  # (binary mode), and `./`-prefixed (whatever glob produced it). Normalise
+  # before comparing — matching only the bare form made this script reject the
+  # first release it was ever pointed at.
+  expected="$(awk -v file="$tarball" '{ name = $2; sub(/^\*/, "", name); sub(/^\.\//, "", name); if (name == file) print $1 }' "$tmp/SHA256SUMS" | head -1)"
   [ -n "$expected" ] || die "$tarball is not listed in the release's SHA256SUMS."
   actual="$(sha256_of "$tmp/$tarball")"
   [ "$expected" = "$actual" ] ||

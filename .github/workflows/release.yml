@@ -43,7 +43,11 @@ jobs:
       - name: pack
         run: |
           pnpm pack --pack-destination dist-release
-          cd dist-release && sha256sum ./*.tgz > SHA256SUMS && cat SHA256SUMS
+          cd dist-release
+          # Bare names, so `sha256sum -c SHA256SUMS` works for a person who
+          # downloads both files into a directory.
+          sha256sum "$(ls ./*.tgz | sed 's|^\./||')" > SHA256SUMS
+          cat SHA256SUMS
 
       # The tarball must carry the compiled output, not just src/. Installing
       # from a tarball with no dist/ and no hooks/session-start.js is the
