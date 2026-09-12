@@ -107,12 +107,18 @@ export interface StatusLineInstall extends StatusLinePlan {
 export function installStatusLine(
   repoRoot: string,
   claudeConfigRoot: string,
+  script: string = statuslineScriptPath(),
 ): StatusLineInstall | null {
   // Never point the setting at a script that is not there. A missing command
   // exits non-zero, which blanks the bar — and when we are wrapping, that
   // takes the developer's own status line down with it. `pnpm build:hooks`
   // produces this file; a package that shipped without it must change nothing.
-  const script = statuslineScriptPath();
+  //
+  // The path is a parameter so the absent case has a seam. The test for it
+  // used to rename the real bundle aside and back, and the suite runs files in
+  // parallel: the statusLine's own behaviour tests spawn that same file, and
+  // caught it missing often enough to fail about one full run in three, in
+  // whichever of them happened to land inside the window.
   if (!existsSync(script)) {
     return null;
   }

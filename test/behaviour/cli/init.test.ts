@@ -7,7 +7,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -21,7 +20,7 @@ import { deriveOwnerRepo } from "../../../src/core/git/owner-repo.js";
 import { getOriginUrl } from "../../../src/io/git/remote-origin.js";
 import { openDb } from "../../../src/io/db/migrate.js";
 import { hasConsented } from "../../../src/io/db/repo-state.js";
-import { statuslineScriptPath } from "../../../src/io/init/statusline-file.js";
+import { installStatusLine, statuslineScriptPath } from "../../../src/io/init/statusline-file.js";
 import { runCli } from "../helpers/run-cli.js";
 import { createEofStdio, createFakeStdio } from "../helpers/fake-stdio.js";
 
@@ -154,20 +153,25 @@ describe("signpost init", () => {
 
   // A command that is not there exits non-zero, which blanks the bar — and
   // when it is wrapping, it takes the developer's own status line with it.
-  it("changes nothing when the compiled status line is not on disk", async () => {
+  //
+  // Below the CLI, and deliberately: reaching this through `runCli` meant
+  // renaming the one built bundle aside and back, and vitest runs files in
+  // parallel — the statusLine's own behaviour tests spawn that same file, and
+  // caught it missing about one full run in three. A path this build never
+  // wrote is the same absence with nothing shared in it.
+  it("changes nothing when the compiled status line is not on disk", () => {
     mkdirSync(path.join(repoRoot, ".claude"), { recursive: true });
     const settingsFile = path.join(repoRoot, ".claude", "settings.local.json");
     writeFileSync(settingsFile, JSON.stringify({ statusLine: { type: "command", command: "mine" } }));
-    const built = statuslineScriptPath();
-    const parked = `${built}.parked`;
-    renameSync(built, parked);
 
-    try {
-      await runCli(["init"], { config, stdio: createFakeStdio("y") });
-      expect(JSON.parse(readFileSync(settingsFile, "utf8")).statusLine.command).toBe("mine");
-    } finally {
-      renameSync(parked, built);
-    }
+    const installed = installStatusLine(
+      repoRoot,
+      path.dirname(config.paths.transcriptRoot),
+      path.join(repoRoot, "no-statusline.js"),
+    );
+
+    expect(installed).toBeNull();
+    expect(JSON.parse(readFileSync(settingsFile, "utf8")).statusLine.command).toBe("mine");
   });
 
   // Where a status line almost always is: `~/.claude/settings.json`. Project
