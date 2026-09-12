@@ -1,0 +1,21 @@
+{
+  "$schema": "https://code.claude.com/schemas/marketplace.json",
+  "name": "signposts",
+  "description": "The signposts plugin: the SessionStart hook, the /signposts commands and the search_signposts MCP server.",
+  "owner": {
+    "name": "Greg Rashkevitch",
+    "url": "https://github.com/gregra81"
+  },
+  "plugins": [
+    {
+      "name": "signposts",
+      "source": "./",
+      "description": "Turns the corrections in your idle Claude Code sessions into reviewed team knowledge in your repo, and searches it back out again.",
+      "homepage": "https://gregra81.github.io/signposts/",
+      "repository": "https://github.com/gregra81/signposts",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": ["knowledge", "memory", "retrieval", "code-review"]
+    }
+  ]
+}

@@ -7,17 +7,25 @@
 # Downloads the tarball from the GitHub release, checks it against the
 # SHA256SUMS published beside it, and installs it globally with npm.
 #
-# It installs and stops there. `signpost init` asks for consent on stdin, and
+# Then it installs the Claude Code plugin, which is what carries the
+# session-start hook, the /signposts commands and the search server. Doing that
+# by hand was two commands typed inside Claude Code that nothing verified, and
+# the CLI alone leaves a user with no hook, no commands and no read path.
+#
+# What it does not do is `signpost init`. That asks for consent on stdin, and
 # stdin here is the script itself coming down the pipe — a consent prompt that
 # cannot be answered is worse than one the user types deliberately, so the
 # install ends by telling them to run it.
 #
 # Environment:
-#   SIGNPOSTS_VERSION   a release to pin, e.g. 0.1.0 or v0.1.0 (default: latest)
+#   SIGNPOSTS_VERSION       a release to pin, e.g. 0.1.0 or v0.1.0 (default: latest)
+#   SIGNPOSTS_SKIP_PLUGIN   set to anything to install the CLI only
 
 set -euo pipefail
 
 REPO="gregra81/signposts"
+# `<plugin>@<marketplace>`, both declared in .claude-plugin/marketplace.json.
+PLUGIN="signposts@signposts"
 NODE_MIN_MAJOR=24
 REQUESTED="${SIGNPOSTS_VERSION:-latest}"
 
@@ -116,6 +124,8 @@ main() {
     exit 0
   fi
 
+  install_plugin
+
   cat <<'NEXT'
 
 signposts is installed. Next, in a repo you work in:
@@ -123,7 +133,47 @@ signposts is installed. Next, in a repo you work in:
   signpost init      asks once, then writes .signposts/, the CLAUDE.md pointer and the skill
   signpost doctor    checks this machine if anything looks wrong
 
-Then ask Claude to run signposts. The full picture: https://github.com/gregra81/signposts
+Then ask Claude to run signposts. Restart any Claude Code session that was already
+open, so it picks the plugin up. The full picture: https://github.com/gregra81/signposts
+NEXT
+}
+
+# The plugin half: the SessionStart hook, the /signposts commands and the
+# search_signposts server. Both commands are idempotent and exit 0 when the
+# marketplace or the plugin is already there, so re-running the installer is
+# safe.
+#
+# A failure here never fails the install. The CLI is on disk and useful without
+# the plugin; what a person needs in that case is the two commands to type, not
+# a non-zero exit on an install that mostly worked.
+install_plugin() {
+  if [ -n "${SIGNPOSTS_SKIP_PLUGIN:-}" ]; then
+    say "skipping the Claude Code plugin (SIGNPOSTS_SKIP_PLUGIN is set)."
+    return
+  fi
+
+  if ! have claude; then
+    say "the Claude Code CLI is not on PATH, so the plugin was not installed."
+    plugin_by_hand
+    return
+  fi
+
+  say "installing the Claude Code plugin"
+  local output
+  if ! output="$(claude plugin marketplace add "$REPO" 2>&1)" ||
+    ! output="$(claude plugin install "$PLUGIN" --scope user --yes 2>&1)"; then
+    say "the plugin did not install: ${output}"
+    plugin_by_hand
+  fi
+}
+
+plugin_by_hand() {
+  cat <<NEXT
+
+Inside Claude Code, run these two to finish:
+
+  /plugin marketplace add $REPO
+  /plugin install $PLUGIN
 NEXT
 }
 

@@ -36,11 +36,56 @@ describe("the plugin manifest", () => {
   });
 
   it("points at paths that exist", () => {
-    for (const key of ["hooks", "commands"]) {
-      const declared = manifest[key];
-      expect(typeof declared).toBe("string");
-      expect(existsSync(path.join(PROJECT_ROOT, declared as string))).toBe(true);
-    }
+    const declared = manifest["commands"];
+    expect(typeof declared).toBe("string");
+    expect(existsSync(path.join(PROJECT_ROOT, declared as string))).toBe(true);
+  });
+
+  it("does not declare hooks/hooks.json, which Claude Code loads on its own", () => {
+    // Declaring it is not redundant, it is fatal: `claude plugin list` reported
+    // "✘ failed to load — Duplicate hooks file detected: ./hooks/hooks.json
+    // resolves to already-loaded file", and the whole plugin — commands and
+    // MCP server included — was dropped. v0.1.0 shipped that way, and this
+    // file's other tests all passed, because the path it named did exist.
+    expect(manifest["hooks"]).toBeUndefined();
+    // Still discovered, so the file has to be where the convention says.
+    expect(existsSync(path.join(PROJECT_ROOT, "hooks/hooks.json"))).toBe(true);
+  });
+});
+
+describe("the marketplace manifest", () => {
+  // Without this file the plugin cannot be installed at all: `/plugin
+  // marketplace add` reads it, and `/plugin install <plugin>@<marketplace>`
+  // names the two things it declares. The repo carried plugin.json alone for
+  // its whole life, so the README described an install nobody could perform.
+  const marketplace = readJson(".claude-plugin/marketplace.json");
+  const plugins = marketplace["plugins"] as Record<string, unknown>[];
+  const entry = plugins[0]!;
+
+  it("offers this repo's own plugin, from the repo root", () => {
+    expect(plugins).toHaveLength(1);
+    expect(entry["name"]).toBe(manifest["name"]);
+    // "./" is the marketplace root, which is where .claude-plugin/plugin.json
+    // is. Anything else would have to be a directory that exists.
+    expect(entry["source"]).toBe("./");
+  });
+
+  it("declares the owner Claude Code requires", () => {
+    expect((marketplace["owner"] as Record<string, unknown>)["name"]).toBeTypeOf("string");
+  });
+
+  it("is what the README tells people to type", () => {
+    // The `@` suffix is the *marketplace* name, not the repository, and the
+    // repository is what `marketplace add` takes. Two names that look alike
+    // and are read from different files, in a pair of commands a person types
+    // by hand — so the README is checked against both rather than trusted.
+    const readme = read("README.md");
+    const repository = (packageJson["repository"] as { url: string }).url;
+    const slug = /github\.com\/([^/]+\/[^/.]+)/.exec(repository)?.[1];
+
+    expect(slug).toBeDefined();
+    expect(readme).toContain(`/plugin marketplace add ${slug!}`);
+    expect(readme).toContain(`/plugin install ${entry["name"] as string}@${marketplace["name"] as string}`);
   });
 });
 
@@ -95,8 +140,18 @@ function commandOf(hooks: Record<string, unknown>): string {
 }
 
 describe("the MCP server it registers", () => {
-  const servers = manifest["mcpServers"] as Record<string, { command: string; args: string[]; env?: unknown }>;
+  const servers = manifest["mcpServers"] as Record<
+    string,
+    { type?: string; command: string; args: string[]; env?: unknown }
+  >;
   const server = servers["signposts"]!;
+
+  it("declares its transport, or Claude Code tries to run one called `stdio`", () => {
+    // Without `type`, `claude mcp list` reported: Failed to connect — ENOENT:
+    // Executable not found in $PATH: "stdio". Shipped in v0.1.0, where the
+    // read path was simply dead for anyone who installed the plugin.
+    expect(server.type).toBe("stdio");
+  });
 
   it("starts the one CLI entry point, so it goes through the one composition root (R2)", () => {
     // The installed binary rather than `node ${CLAUDE_PLUGIN_ROOT}/bin/...`,
