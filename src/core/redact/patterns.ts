@@ -130,8 +130,13 @@ export const redactHighEntropy: Redactor = (text) => {
   const mixedCase = (segment: string): boolean => /[a-z]/.test(segment) && /[A-Z]/.test(segment);
   const oneBlob = (run: string): boolean => /[0-9]/.test(run) && run.split("/").every(mixedCase);
 
+  // No `!run.includes("/")` shortcut before the test: a run with no slash is a
+  // single segment, and a single segment always clears ENTROPY_MIN_LEN, so the
+  // fallback below replaces it whole anyway. The shortcut said the same thing
+  // twice — mutating it changed no output on any input, which is how it turned
+  // up: as a mutant nothing could kill.
   return text.replace(highEntropyRe, (run: string) => {
-    if (!run.includes("/") || oneBlob(run)) {
+    if (oneBlob(run)) {
       return placeholderFor("high-entropy");
     }
     return run
