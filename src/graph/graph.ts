@@ -1,6 +1,6 @@
 // The topology of 04-extraction-graph.md, wired.
 //
-// Ten nodes, and four things a linear pipeline cannot express — which is the
+// Eleven nodes, and four things a linear pipeline cannot express — which is the
 // entire case for using a graph here rather than three chained LLM calls:
 //
 //   1. a reflection loop     critic -> extract, bounded at MAX_EXTRACT_ATTEMPTS
@@ -12,6 +12,10 @@
 //
 // Both loops fail open: on exhaustion the offending candidate is dropped and
 // the run continues. Neither can fail the run, and neither can spin.
+//
+// `recheck_neighbours` can send a candidate back through `classify` too, but
+// only when another session has proposed something since it was classified,
+// so it is bounded by the sessions in the run rather than by a budget.
 //
 // The checkpointer is a parameter, not a construction. 04-extraction-graph.md:
 // "Build against the checkpointer *interface*, not the SQLite implementation."
@@ -30,6 +34,7 @@ import { fanOutToClassify, makeRetrieveNeighboursNode } from "./nodes/retrieve-n
 import { makeClassifyNode } from "./nodes/classify.ts";
 import { makeResolveConflictNode } from "./nodes/resolve-conflict.ts";
 import { makeValidateNode } from "./nodes/validate.ts";
+import { makeRecheckNeighboursNode } from "./nodes/recheck-neighbours.ts";
 import { makeConfidenceGateNode } from "./nodes/confidence-gate.ts";
 import { humanReviewNode } from "./nodes/human-review.ts";
 import { makeCommitNode } from "./nodes/commit.ts";
@@ -58,18 +63,19 @@ export function afterCritic(
 }
 
 /**
- * The self-correction loop. "drop-invalid" and "continue" both go to the gate:
- * by then the offending candidates are already out of `validated`, and
- * carrying on with what survived is the whole point of bounding the loop.
+ * The self-correction loop. "drop-invalid" and "continue" both go on towards
+ * the gate, through `recheck_neighbours`: by then the offending candidates are
+ * already out of `validated`, and carrying on with what survived is the whole
+ * point of bounding the loop.
  */
 export function afterValidate(
   state: ExtractionState,
-): typeof NODE_IDS.extract | typeof NODE_IDS.confidenceGate {
+): typeof NODE_IDS.extract | typeof NODE_IDS.recheckNeighbours {
   const route = validateRoute({
     validationErrors: state.validationErrors,
     validateAttempts: state.validateAttempts,
   });
-  return route === "retry-extract" ? NODE_IDS.extract : NODE_IDS.confidenceGate;
+  return route === "retry-extract" ? NODE_IDS.extract : NODE_IDS.recheckNeighbours;
 }
 
 /** Node 9 is entered only if the gate actually produced something for a person. */
@@ -110,6 +116,11 @@ export function buildExtractionGraph({ ports, checkpointer }: BuildGraphOptions)
     // as the first branch reached it and again after the slower
     // resolve_conflict branch — validating half a fan-out, twice.
     .addNode(NODE_IDS.validate, makeValidateNode(ports), { defer: true })
+    // Routes by Command as well: back to `classify` for the candidates whose
+    // neighbours changed under them, otherwise on to the gate.
+    .addNode(NODE_IDS.recheckNeighbours, makeRecheckNeighboursNode(ports), {
+      ends: [NODE_IDS.classify, NODE_IDS.confidenceGate],
+    })
     .addNode(NODE_IDS.confidenceGate, makeConfidenceGateNode(ports))
     .addNode(NODE_IDS.humanReview, humanReviewNode)
     .addNode(NODE_IDS.commit, makeCommitNode(ports))
@@ -130,7 +141,7 @@ export function buildExtractionGraph({ ports, checkpointer }: BuildGraphOptions)
     .addEdge(NODE_IDS.resolveConflict, NODE_IDS.validate)
     .addConditionalEdges(NODE_IDS.validate, afterValidate, [
       NODE_IDS.extract,
-      NODE_IDS.confidenceGate,
+      NODE_IDS.recheckNeighbours,
     ])
     .addConditionalEdges(NODE_IDS.confidenceGate, afterGate, [
       NODE_IDS.humanReview,

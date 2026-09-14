@@ -18,7 +18,7 @@ A run's resources — a database handle, a checkpointer, an embedder that loads 
 live for one invocation, so `openRun` is a function rather than a built object: `doctor` has to
 run in a repo with no database, and `init` must not create one before consent.
 
-The extraction graph is a LangGraph state machine in `src/graph/`, ten nodes, four of which call a
+The extraction graph is a LangGraph state machine in `src/graph/`, eleven nodes, four of which call a
 model: `extract`, `critic`, `classify`, `resolve_conflict`.
 
 ## Who answers the model calls

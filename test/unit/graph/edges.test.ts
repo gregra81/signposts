@@ -45,17 +45,17 @@ describe("afterValidate", () => {
     expect(afterValidate(state)).toBe(NODE_IDS.extract);
   });
 
-  it("carries on to the gate once the budget is spent", () => {
+  it("carries on towards the gate, through the recheck, once the budget is spent", () => {
     const state = graphState({
       validationErrors: ["bad claim"],
       validateAttempts: MAX_VALIDATE_ATTEMPTS,
     });
 
-    expect(afterValidate(state)).toBe(NODE_IDS.confidenceGate);
+    expect(afterValidate(state)).toBe(NODE_IDS.recheckNeighbours);
   });
 
-  it("carries on to the gate when everything validated", () => {
-    expect(afterValidate(graphState({ validationErrors: [] }))).toBe(NODE_IDS.confidenceGate);
+  it("carries on towards the gate, through the recheck, when everything validated", () => {
+    expect(afterValidate(graphState({ validationErrors: [] }))).toBe(NODE_IDS.recheckNeighbours);
   });
 });
 

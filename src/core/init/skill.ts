@@ -18,6 +18,14 @@
 //     developer's own way to answer one later, at their terminal; the skill
 //     is told not to run it, and the command refuses a stdin that is not a
 //     terminal anyway.
+//
+//   - Sessions run one at a time. Each session's proposals are indexed for the
+//     next one to classify against (06-review-and-pr.md, "Reindex within a
+//     run"), and that only works in order. "One per session" alone read as
+//     permission to start them all at once, and an agent did: two sessions on
+//     gregra81/earnest each added the same signpost. `recheck_neighbours`
+//     catches most of that now, but not two sessions that settle within
+//     seconds of each other.
 
 export const SKILL_DIR = ".claude/skills/signposts";
 export const SKILL_FILENAME = "SKILL.md";
@@ -40,9 +48,12 @@ Every command prints one JSON object. A run advances one halt at a time.
 
 1. \`signpost sessions\` lists what is eligible (idle 24h+, not already processed).
    Stop here and say so if the list is empty.
-2. **Delegate the rest to a subagent, one per session.** The prompts below are
-   thousands of tokens each and belong in a subagent's context, not the user's.
-   Give the subagent this file and the session id.
+2. **Delegate the rest to a subagent, one per session, one session at a time.**
+   The prompts below are thousands of tokens each and belong in a subagent's
+   context, not the user's. Give the subagent this file and the session id, and
+   start the next subagent only after this one comes back. Never run sessions in
+   parallel: each session compares its candidates against what the earlier ones
+   proposed, and two sessions running at once can each propose the same signpost.
 3. \`signpost run --session <id>\` — add \`--first\` for the first session of this
    run only. It clears what the previous run left pending.
 4. Read \`status\`:

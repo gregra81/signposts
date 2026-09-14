@@ -103,7 +103,8 @@ describe("the extraction graph, happy path", () => {
 
     await startRun(graph, checkpointer, RUN_INPUT);
 
-    expect(ports.neighbours.calls).toEqual(["t1"]);
+    // t1 at retrieval and again at the recheck; t2, rejected, at neither.
+    expect(ports.neighbours.calls).toEqual(["t1", "t1"]);
     expect(ports.commit.operations).toHaveLength(1);
   });
 

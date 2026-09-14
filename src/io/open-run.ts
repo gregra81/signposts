@@ -49,12 +49,12 @@ function isoDate(now: Date): string {
  * database, the checkpointer, the embedder, git itself — stays real, and R2
  * holds: this is still the only place any of them is constructed.
  */
-export function makeOpenRun(forgeFor: (worktreeDir: string) => Forge): OpenRun {
+export function makeOpenRun(forgeFor: (repoRoot: string) => Forge): OpenRun {
   return openRunWith.bind(null, forgeFor);
 }
 
 const openRunWith = async (
-  forgeFor: (worktreeDir: string) => Forge,
+  forgeFor: (repoRoot: string) => Forge,
   { config, repoRoot, warn }: Parameters<OpenRun>[0],
 ): Promise<OpenedRun> => {
   const repo = resolveRepo(repoRoot);
@@ -95,7 +95,9 @@ const openRunWith = async (
         worktreeDir: config.paths.worktreeDir,
         branchPattern: config.git.branch_pattern,
         author,
-        forge: forgeFor(config.paths.worktreeDir),
+        // The checkout, not the worktree: the forge is asked which branch to
+        // create the worktree on, before it exists (src/io/forge/gh-forge.ts).
+        forge: forgeFor(repoRoot),
         warn,
         committed: (outcome) => {
           commitOutcome = outcome;
