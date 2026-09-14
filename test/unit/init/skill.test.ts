@@ -46,4 +46,11 @@ describe("the installed skill", () => {
   it("says answers are keyed by pending id", () => {
     expect(SKILL_DOC).toContain('"replies"');
   });
+
+  // Each session classifies against what the earlier ones proposed, which only
+  // holds in order. "One per session" alone was read as "all at once".
+  it("runs the sessions one at a time", () => {
+    expect(SKILL_DOC).toContain("one session at a time");
+    expect(SKILL_DOC).toContain("Never run sessions in");
+  });
 });

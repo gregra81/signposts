@@ -30,7 +30,7 @@ const KEEP_THREE = {
 };
 
 describe("the conditional fan-out", () => {
-  it("retrieves neighbours once per surviving candidate", async () => {
+  it("retrieves neighbours for each surviving candidate, and again at the recheck", async () => {
     const { ports, checkpointer, graph } = run({
       extract: [{ candidates: THREE }],
       critic: [KEEP_THREE],
@@ -43,7 +43,9 @@ describe("the conditional fan-out", () => {
 
     await startRun(graph, checkpointer, RUN_INPUT);
 
-    expect(ports.neighbours.calls.sort()).toEqual(["t1", "t2", "t3"]);
+    // Twice each: `retrieve_neighbours`, then `recheck_neighbours` for every
+    // candidate that would add (src/graph/nodes/recheck-neighbours.ts).
+    expect(ports.neighbours.calls.sort()).toEqual(["t1", "t1", "t2", "t2", "t3", "t3"]);
   });
 
   it("classifies each candidate in its own call", async () => {

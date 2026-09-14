@@ -215,51 +215,56 @@ describe("two sessions in one run", () => {
     ]);
 
     while (output.status === "waiting") {
-      output = await answer(session, output, (pending) => {
-        if (!isModelRequest(pending.request)) {
-          // A review: accept everything it is holding.
-          const request = pending.request as { needsHuman: { operation: unknown }[] };
-          return Object.fromEntries(
-            request.needsHuman.map(({ operation }) => [
-              operationKey(operation as Parameters<typeof operationKey>[0]),
-              { decision: "accept", decidedAt: "2026-09-06" },
-            ]),
-          );
-        }
-
-        switch (pending.request.node) {
-          case "extract":
-            return {
-              candidates: [
-                {
-                  tempId: "t1",
-                  claim,
-                  category: "environment",
-                  scope: { repo: "acme/api" },
-                  evidence: "The human corrected a migration run against staging.",
-                  confidence: 0.9,
-                  hedged: false,
-                },
-              ],
-            };
-          case "critic":
-            return { verdicts: [{ tempId: "t1", keep: true, reason: "durable" }] };
-          case "classify": {
-            classifyTurns.push(pending.request.user);
-            // The classifier reads its own input: a neighbour that is already
-            // about this is a duplicate, nothing retrieved is novel.
-            const relatedId = /"id":"([^"]+)"/.exec(pending.request.user)?.[1];
-            return relatedId === undefined
-              ? { tempId: "t1", kind: "NOVEL", rationale: "nothing recorded is about this" }
-              : { tempId: "t1", kind: "DUPLICATE", relatedId, rationale: "the same lesson, reworded" };
-          }
-          default:
-            throw new Error(`unexpected node ${pending.request.node}`);
-        }
-      });
+      output = await answer(session, output, replyAs(claim));
     }
 
     return output;
+  }
+
+  /** How the skill answers one halt for a session that teaches `claim`. */
+  function replyAs(claim: string): (request: PendingRequest) => unknown {
+    return (pending) => {
+      if (!isModelRequest(pending.request)) {
+        // A review: accept everything it is holding.
+        const request = pending.request as { needsHuman: { operation: unknown }[] };
+        return Object.fromEntries(
+          request.needsHuman.map(({ operation }) => [
+            operationKey(operation as Parameters<typeof operationKey>[0]),
+            { decision: "accept", decidedAt: "2026-09-06" },
+          ]),
+        );
+      }
+
+      switch (pending.request.node) {
+        case "extract":
+          return {
+            candidates: [
+              {
+                tempId: "t1",
+                claim,
+                category: "environment",
+                scope: { repo: "acme/api" },
+                evidence: "The human corrected a migration run against staging.",
+                confidence: 0.9,
+                hedged: false,
+              },
+            ],
+          };
+        case "critic":
+          return { verdicts: [{ tempId: "t1", keep: true, reason: "durable" }] };
+        case "classify": {
+          classifyTurns.push(pending.request.user);
+          // The classifier reads its own input: a neighbour that is already
+          // about this is a duplicate, nothing retrieved is novel.
+          const relatedId = /"id":"([^"]+)"/.exec(pending.request.user)?.[1];
+          return relatedId === undefined
+            ? { tempId: "t1", kind: "NOVEL", rationale: "nothing recorded is about this" }
+            : { tempId: "t1", kind: "DUPLICATE", relatedId, rationale: "the same lesson, reworded" };
+        }
+        default:
+          throw new Error(`unexpected node ${pending.request.node}`);
+      }
+    };
   }
 
   /** A signpost as a merged pull request leaves it: on disk, in nobody's index. */
@@ -363,5 +368,46 @@ describe("two sessions in one run", () => {
     expect(classifyTurns.at(-1)).toContain('"pending"');
     expect(second.proposed.join("\n")).toContain("reinforce ");
     expect(second.proposed.join("\n")).not.toContain("add ");
+  }, 60_000);
+
+  // Two sessions that overlap, the way two subagents driving the loop at once
+  // made them overlap on gregra81/earnest. The first halts on its classify call
+  // having retrieved nothing, and the second runs start to finish before that
+  // call is answered. Only `recheck_neighbours` can show the first session
+  // what landed in the meantime.
+  it("classifies an overlapping session again once another has proposed the same lesson", async () => {
+    const listed = (await invoke(["sessions"])) as unknown as {
+      sessions: { sessionId: string; contentHash: string }[];
+    };
+    const [first, second] = SESSIONS.map((session) => {
+      const found = listed.sessions.find((entry) => entry.sessionId === session.id)!;
+      return { id: session.id, contentHash: found.contentHash, claim: session.claim };
+    });
+
+    const halted = (output: RunOutput) =>
+      output.pending.some(
+        (pending) => isModelRequest(pending.request) && pending.request.node === "classify",
+      );
+    let output = await invoke(["run", "--session", first!.id, "--first"]);
+    while (output.status === "waiting" && !halted(output)) {
+      output = await answer(first!, output, replyAs(first!.claim));
+    }
+    expect(halted(output)).toBe(true);
+
+    const landed = await runSession(second!, second!.claim);
+    expect(landed.proposed.join("\n")).toContain("add ");
+
+    while (output.status === "waiting") {
+      output = await answer(first!, output, replyAs(first!.claim));
+    }
+
+    // Asked twice: once against nothing, once against the second session's
+    // proposal, which is pending because nobody has merged it.
+    const firstTurns = classifyTurns.filter((turn) => turn.includes(FIRST_CLAIM));
+    expect(firstTurns).toHaveLength(2);
+    expect(firstTurns[1]).toContain(SECOND_CLAIM);
+    expect(firstTurns[1]).toContain('"pending"');
+    expect(output.proposed.join("\n")).toContain("reinforce ");
+    expect(output.proposed.join("\n")).not.toContain("add ");
   }, 60_000);
 });
