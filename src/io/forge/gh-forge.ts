@@ -39,8 +39,13 @@ interface PrView {
 
 /**
  * `gh` runs against the repository it is invoked in, so the forge is bound to
- * a working directory — the worktree, whose `origin` is the same remote the
- * developer's checkout has.
+ * a working directory — the developer's checkout, which `gh` only reads the
+ * `origin` remote from.
+ *
+ * Not the worktree, though its `origin` is the same remote: `branchesUnder` is
+ * what picks the branch the worktree is created on, so on a repo's first commit
+ * the directory does not exist yet, and `spawnSync` reports a missing `cwd` as
+ * ENOENT — which read as "gh could not be run" while `gh` was on PATH.
  */
 export function ghForge(cwd: string): Forge {
   const view = (prNumber: number): PrView =>
@@ -110,6 +115,23 @@ export function ghForge(cwd: string): Forge {
     async setLabels(prNumber: number, labels: readonly string[]): Promise<void> {
       if (labels.length === 0) {
         return;
+      }
+      // `--add-label` names a label and does not create one, and a repository
+      // starts with none of ours: the first pull request signposts opened
+      // failed its labels with "'signposts' not found". Created bare rather
+      // than with `--force`, which would overwrite a colour or description the
+      // team has since given it. `--search` rather than one listing, because a
+      // listing is a page and a label past it would be "missing" and then
+      // fail to create. Compared without case, as GitHub compares label names:
+      // a team's `Signposts` is ours, and creating `signposts` beside it fails.
+      // A search that matches nothing prints nothing at all, not `[]`, and
+      // `JSON.parse("")` throws.
+      for (const label of labels) {
+        const listed = gh(cwd, ["label", "list", "--search", label, "--json", "name"]).trim();
+        const found = (listed === "" ? [] : JSON.parse(listed)) as { name: string }[];
+        if (!found.some((existing) => existing.name.toLowerCase() === label.toLowerCase())) {
+          gh(cwd, ["label", "create", label]);
+        }
       }
       gh(cwd, ["pr", "edit", String(prNumber), ...labels.flatMap((label) => ["--add-label", label])]);
     },
