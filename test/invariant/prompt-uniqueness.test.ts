@@ -2,7 +2,7 @@
 //
 // A system prompt that exists in two places drifts, and a drifted prompt
 // breaks caching silently — the call still works, it just costs full price
-// and behaves slightly differently from the one the golden set measured.
+// and behaves slightly differently from the one its quality was measured with.
 // This walks the tree rather than trusting review to notice a copy-paste,
 // and checks every substantial line, not only whole-prompt copies.
 

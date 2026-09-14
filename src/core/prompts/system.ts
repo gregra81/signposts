@@ -1,7 +1,7 @@
 // The four system prompts, transcribed verbatim from 14-prompts.md's fenced
 // blocks. Wording is the document's, including anything that reads awkwardly:
-// the prompts are versioned against a golden set, so an unmeasured "improvement"
-// here is a silent quality regression.
+// extraction quality is measured against this exact wording, so an unmeasured
+// "improvement" here is a silent quality regression.
 //
 // These strings must be byte-stable across every call — that is what makes them
 // cacheable (08-models-and-credentials.md). Nothing per-run goes in here; the

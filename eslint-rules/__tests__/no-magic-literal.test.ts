@@ -106,7 +106,7 @@ ruleTester.run("no-magic-literal", rule, {
       // module (src/core/config/constants.ts landed in the config
       // build step), so this is no longer a no-op case. Built from the
       // real IDLE_HOURS rather than a hardcoded 24, so this stays true
-      // even after the golden set re-tunes it.
+      // even after it is re-tuned.
       code: `const idleHours = ${IDLE_HOURS};`,
       filename: "src/core/eligibility/index.ts",
       errors: [{ messageId: "duplicatesConstant" }],

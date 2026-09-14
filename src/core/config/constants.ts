@@ -3,8 +3,8 @@
 //
 // This is the module `eslint-rules/no-magic-literal.js` looks for: no
 // other file under src/ may repeat one of these literal values inline.
-// Re-tuning a constant (the golden set is expected to re-tune several)
-// must stay a one-line change here.
+// Re-tuning a constant (several are judgement calls, expected to move once
+// extraction quality is measured) must stay a one-line change here.
 
 // ---------------------------------------------------------------------------
 // Runtime
@@ -161,7 +161,7 @@ export const MAX_EXTRACT_ATTEMPTS = 2;
 /** Bounds self-correction. */
 export const MAX_VALIDATE_ATTEMPTS = 2;
 
-/** Above this ratio of critic rejections → retry extraction. Judgement; tune with golden set. */
+/** Above this ratio of critic rejections → retry extraction. Judgement; tune by measuring extraction quality. */
 export const CRITIC_REJECT_RATIO = 0.66;
 
 /** Unrecognised → discard thread, re-run from transcript. */
@@ -174,7 +174,7 @@ export const MAX_CANDIDATES_PER_SESSION = 10;
 // Review gate
 // ---------------------------------------------------------------------------
 
-/** Saddle. Primary knob the golden set should calibrate. */
+/** Saddle. The main knob to calibrate against measured extraction quality. */
 export const AUTO_PUBLISH_CONFIDENCE = 0.85;
 
 /**
