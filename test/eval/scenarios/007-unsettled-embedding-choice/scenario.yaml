@@ -1,0 +1,26 @@
+# unsettled-embedding-choice
+#
+# A contradiction nobody settles: the resolver cannot pick, so the operation is
+# held under the `unresolved_contradiction` gate reason rather than applied on
+# its own authority.
+#
+# The session is written so the human explicitly declines to decide and says
+# so, because that is the honest shape of this case: an unresolved
+# contradiction is not a failure to extract, it is a reason to ask a person.
+repo: gregra81/signposts
+
+steps:
+  - transcript: 01-establish.jsonl
+    intent: "local embeddings chosen, with the privacy reason as the load-bearing part"
+    expect_operations: [add, add]
+    expect_mirror_size: 2
+
+  - transcript: 02-unsettled.jsonl
+    intent: "speed argues the other way; the human refuses to settle it"
+    # This is the scenario that reaches resolve_conflict. The contradiction is
+    # resolved as `undecidable`, which maps to `add` held under the
+    # `unresolved_contradiction` gate reason — an unsettled conflict is not a
+    # failure to extract, it is a reason to ask a person. The second `add` and
+    # the `reinforce` are the other claims the session carries.
+    expect_operations: [add, refine, reinforce]
+    expect_mirror_size: 3

@@ -177,9 +177,9 @@ describe("what the published package carries", () => {
     // Both trees, and both earn their place. `dist/` is what an installed copy
     // runs, because Node refuses to strip types beneath node_modules
     // (18-end-to-end-gaps.md, item 9). `src/` stays because a consumer that
-    // runs through `tsx` imports it directly — dropping it broke
-    // `signposts-eval`, which is exactly the dependant CLAUDE.md's language
-    // section describes.
+    // runs through `tsx` imports it directly — dropping it once broke such a
+    // consumer at import, which is the dependant CLAUDE.md's language section
+    // describes.
     "src/",
     "dist/",
     ".claude-plugin/",

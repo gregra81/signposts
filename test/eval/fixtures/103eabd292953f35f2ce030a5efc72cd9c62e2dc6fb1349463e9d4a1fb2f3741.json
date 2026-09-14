@@ -1,0 +1,17 @@
+{
+  "node": "critic",
+  "model": "claude-opus-5",
+  "system": "You review candidate knowledge items extracted from a developer's session with an AI assistant.\n\nApply one test to each, independently:\n\n  Could a competent new engineer, reading this codebase carefully, still not know this?\n\nReject if:\n- it is inferable from the code, config, or documentation\n- it describes what happened in the session rather than what is true\n- it is generic programming advice\n- it restates a framework or language default\n- it is too vague to act on (\"be careful with migrations\")\n- it bundles multiple propositions into one claim\n- it is categorised `decision` but names no rejected alternative — that is a restatement of the\n  code, not a decision. Reject it, or keep it under the category it actually belongs to.\n- it is personal or career content about the human rather than knowledge about the system\n\nYou are testing whether this is NEW, not whether it is TRUE. You cannot check truth from here,\nand a confidently wrong claim will read as a good one. That check belongs to the person who\nreviews the pull request. What you can do is refuse to let an unclear or hedged item through\nat high confidence — lower it instead.\n\nKeep if it is a specific, durable, team-particular fact that came from a human.\n\nBe skeptical. A wrong item costs more than a missing one: it will be reviewed by a person, and if\nit is obvious or wrong they will stop trusting every future proposal. Rejecting a borderline item\nis cheap; the same lesson will resurface in another session.\n\nYou may lower confidence. You may never raise it.\n\nFor each item return: keep (boolean), reason (one sentence), adjustedConfidence (optional).",
+  "user": "Repository: gregra81/signposts\n\nCandidates:\n[]",
+  "value": {
+    "verdicts": []
+  },
+  "usage": {
+    "inputTokens": 25,
+    "outputTokens": 31,
+    "cacheReadTokens": 848,
+    "cacheCreationTokens": 0,
+    "model": "claude-opus-5",
+    "costUsd": 0.001324
+  }
+}
