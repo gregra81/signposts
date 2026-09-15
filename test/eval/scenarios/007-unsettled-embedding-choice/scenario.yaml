@@ -14,6 +14,8 @@ steps:
     intent: "local embeddings chosen, with the privacy reason as the load-bearing part"
     expect_operations: [add, add]
     expect_mirror_size: 2
+    expect_claims:
+      - "Embeddings run locally rather than through a hosted API, because sending transcripts to a third party would disclose private conversations."
 
   - transcript: 02-unsettled.jsonl
     intent: "speed argues the other way; the human refuses to settle it"
@@ -24,3 +26,5 @@ steps:
     # the `reinforce` are the other claims the session carries.
     expect_operations: [add, refine, reinforce]
     expect_mirror_size: 3
+    expect_claims:
+      - "Whether to keep local embeddings for privacy or move to a hosted API for speed is deliberately left undecided."

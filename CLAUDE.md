@@ -116,6 +116,12 @@ signposts the earlier steps produced, and asserts which operations came out and 
 exist afterwards. A change to the gutter, the redactor, routing, the gate or `applyOperations` that
 alters the outcome fails here.
 
+A step can also list `expect_claims`: gists of what the human said. Each gist and every produced
+claim go through the local embedding model, and some claim must reach cosine ≥ 0.8 with each gist.
+Write a gist from the transcript, never from the recorded reply — a gist copied from the output
+measures nothing. A related claim that means something else scores around 0.7, so the margin is
+real but not wide.
+
 A prompt edit misses every recorded reply and fails with "no fixture recorded". That is the signal
 to re-record and read what the model now says, not something to route around. Never edit
 `expect_operations` to make a run pass without saying why the output changed.
