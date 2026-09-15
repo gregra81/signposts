@@ -67,9 +67,9 @@ Node 24 with native type stripping, so **erasable syntax only**: no `enum`, no p
 properties, no `namespace`. Relative imports carry the `.ts` extension, because that is the file
 that exists at runtime. A checkout needs no build step; a tarball does — see below.
 
-That last point has a consequence worth knowing: another package cannot import this one under
-plain `node`, which refuses to strip types beneath `node_modules`. `signposts-eval` runs its
-scripts through `tsx` for exactly this reason.
+That last point has a consequence worth knowing: another package cannot import this one's `src/`
+under plain `node`, which refuses to strip types beneath `node_modules`. A consumer that does has
+to run through `tsx`.
 
 It is also why distribution has a build step even though development does not. `pnpm build`
 (`prepack` runs it) compiles `src/` into `dist/` with `tsconfig.build.json`, whose one interesting
@@ -80,10 +80,9 @@ so there is no hand-written build script — an earlier version of this used
 prefers `dist/` and falls back to `src/`, so one wrapper serves both layouts.
 
 The tarball ships **both** trees. `dist/` is what an installed copy runs; `src/` stays because a
-consumer running through `tsx` imports it directly, which is what `signposts-eval` does. Dropping
-`src/` from `files` broke that repo's whole suite at import, and the failure is invisible from here
-— this repo has no reference to it, by design. Run `pnpm test` in `signposts-eval` after touching
-`files` or the layout.
+consumer running through `tsx` imports it directly. Dropping `src/` from `files` once broke such a
+consumer at import, and nothing in this repo's suite shows that failure — so treat `files` and the
+layout as a public interface.
 
 ## Tests
 
@@ -108,15 +107,30 @@ the whole chain.
 
 Never edit an existing test to make a change pass without saying so and getting agreement.
 
-## Evaluation lives elsewhere
+## Evaluation
 
-The golden set, the synthetic scenarios and the recorded model responses are in the private
-`signposts-eval` repo, which depends on this one. This repo has no reference to it: no import, no
-path, no config. Keep it that way: fixtures are one person's private corpus, and `src/` is what a
-user's runtime touches.
+`test/eval/` checks extraction quality end to end without calling a model. It holds scenarios —
+ordered, hand-written Claude Code sessions over one repo — and the model replies recorded for
+each call they make. The suite runs inside `pnpm test`: each step runs the real graph against the
+signposts the earlier steps produced, and asserts which operations came out and how many signposts
+exist afterwards. A change to the gutter, the redactor, routing, the gate or `applyOperations` that
+alters the outcome fails here.
 
-`FixtureModelProvider` stays here because the repo's own tests need a model double — it replays
-replies keyed on `(node, system, user)` and treats a miss as an error.
+A step can also list `expect_claims`: gists of what the human said. Each gist and every produced
+claim go through the local embedding model, and some claim must reach cosine ≥ 0.8 with each gist.
+Write a gist from the transcript, never from the recorded reply — a gist copied from the output
+measures nothing. A related claim that means something else scores around 0.7, so the margin is
+real but not wide.
+
+A prompt edit misses every recorded reply and fails with "no fixture recorded". That is the signal
+to re-record and read what the model now says, not something to route around. Never edit
+`expect_operations` to make a run pass without saying why the output changed.
+
+Every transcript here is synthetic. Do not add a real session: redaction removes secrets, not the
+confidential context that makes a real correction worth learning from.
+
+`FixtureModelProvider` lives in `src/` because the tests need a model double — it replays replies
+keyed on `(node, system, user)` and treats a miss as an error.
 
 ## How it is used
 

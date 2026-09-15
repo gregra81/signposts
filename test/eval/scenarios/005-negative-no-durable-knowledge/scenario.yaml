@@ -1,0 +1,45 @@
+# negative-no-durable-knowledge
+#
+# Seven sessions that must produce nothing.
+#
+# 09-evaluation.md requires at least a third of the corpus to be sessions with
+# no signposts in them, because over-extraction is the dominant failure mode
+# and a set made only of positive cases cannot catch it.
+#
+# None of these sessions contains knowledge that exists only because a human
+# said it: feature work readable from the diff, questions answered by config,
+# a red build, dependency bumps, a rename, reading docs, a flaky rerun. A run
+# that extracts anything here is inventing knowledge.
+repo: gregra81/signposts
+
+steps:
+  - transcript: 01-routine-work.jsonl
+    intent: "ordinary feature work: everything in it is inferable from the code"
+
+  - transcript: 02-restating-the-obvious.jsonl
+    intent: "questions answered from config; nothing a new engineer could not read"
+
+  - transcript: 03-tool-noise.jsonl
+    intent: "a red build fixed the obvious way; the fix is visible in the diff"
+    expect_operations: []
+    expect_mirror_size: 0
+
+  - transcript: 04-dependency-bump.jsonl
+    intent: "routine patch bumps merged; nothing said that the changelog does not say"
+    expect_operations: []
+    expect_mirror_size: 0
+
+  - transcript: 05-rename-refactor.jsonl
+    intent: "a rename and its import updates; the whole change is the diff"
+    expect_operations: []
+    expect_mirror_size: 0
+
+  - transcript: 06-reading-the-docs.jsonl
+    intent: "confirming the graph's shape from docs already in the repo"
+    expect_operations: []
+    expect_mirror_size: 0
+
+  - transcript: 07-flaky-rerun.jsonl
+    intent: "a flake diagnosed and rerun; nothing about it is durable"
+    expect_operations: []
+    expect_mirror_size: 0

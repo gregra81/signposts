@@ -1,0 +1,35 @@
+{
+  "node": "critic",
+  "model": "claude-opus-5",
+  "system": "You review candidate knowledge items extracted from a developer's session with an AI assistant.\n\nApply one test to each, independently:\n\n  Could a competent new engineer, reading this codebase carefully, still not know this?\n\nReject if:\n- it is inferable from the code, config, or documentation\n- it describes what happened in the session rather than what is true\n- it is generic programming advice\n- it restates a framework or language default\n- it is too vague to act on (\"be careful with migrations\")\n- it bundles multiple propositions into one claim\n- it is categorised `decision` but names no rejected alternative — that is a restatement of the\n  code, not a decision. Reject it, or keep it under the category it actually belongs to.\n- it is personal or career content about the human rather than knowledge about the system\n\nYou are testing whether this is NEW, not whether it is TRUE. You cannot check truth from here,\nand a confidently wrong claim will read as a good one. That check belongs to the person who\nreviews the pull request. What you can do is refuse to let an unclear or hedged item through\nat high confidence — lower it instead.\n\nKeep if it is a specific, durable, team-particular fact that came from a human.\n\nBe skeptical. A wrong item costs more than a missing one: it will be reviewed by a person, and if\nit is obvious or wrong they will stop trusting every future proposal. Rejecting a borderline item\nis cheap; the same lesson will resurface in another session.\n\nYou may lower confidence. You may never raise it.\n\nFor each item return: keep (boolean), reason (one sentence), adjustedConfidence (optional).",
+  "user": "Repository: gregra81/signposts\n\nCandidates:\n[{\"tempId\":\"c1\",\"claim\":\"Embeddings are computed locally with transformers.js instead of a hosted API to avoid sending private transcript content to a third party.\",\"category\":\"decision\",\"scope\":{\"repo\":\"gregra81/signposts\",\"paths\":[],\"tools\":[]},\"evidence\":\"We run embeddings locally with transformers.js rather than calling a hosted API. The reason is that transcripts are the input... shipping them to a third party for vectorisation is a disclosure we have not asked anyone to consent to.\",\"confidence\":0.95,\"hedged\":false},{\"tempId\":\"c2\",\"claim\":\"The team deliberately accepts slower local embedding performance as a tradeoff for not sending transcript data to third parties.\",\"category\":\"decision\",\"scope\":{\"repo\":\"gregra81/signposts\",\"paths\":[],\"tools\":[]},\"evidence\":\"Local is slower and I am accepting that cost deliberately.\",\"confidence\":0.9,\"hedged\":false},{\"tempId\":\"c3\",\"claim\":\"Any future reconsideration of the local embedding model choice must address the privacy rationale, not the performance cost.\",\"category\":\"decision\",\"scope\":{\"repo\":\"gregra81/signposts\",\"paths\":[],\"tools\":[]},\"evidence\":\"The privacy argument is the load-bearing part — if someone revisits this, that is the thing they have to answer, not the speed.\",\"confidence\":0.9,\"hedged\":false}]",
+  "value": {
+    "verdicts": [
+      {
+        "tempId": "c1",
+        "keep": true,
+        "reason": "Specific architectural decision with a named rejected alternative (hosted embedding API) and a rationale (transcript privacy) that is not inferable from the code itself.",
+        "adjustedConfidence": 0.9
+      },
+      {
+        "tempId": "c2",
+        "keep": true,
+        "reason": "Adds the non-obvious fact that the known performance penalty of local embedding is an accepted cost rather than an unaddressed problem, which guards against future 'optimisation' proposals.",
+        "adjustedConfidence": 0.75
+      },
+      {
+        "tempId": "c3",
+        "keep": false,
+        "reason": "Restates c1's rationale as meta-guidance about how to argue in the future rather than a concrete fact about the system, and is too vague to act on independently."
+      }
+    ]
+  },
+  "usage": {
+    "inputTokens": 484,
+    "outputTokens": 684,
+    "cacheReadTokens": 848,
+    "cacheCreationTokens": 0,
+    "model": "claude-opus-5",
+    "costUsd": 0.019944
+  }
+}
