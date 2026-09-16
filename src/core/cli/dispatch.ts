@@ -67,7 +67,14 @@ export interface CommandOptions {
   verbose: boolean;
 }
 
-export type ParsedCommand = { name: KnownCommand; options: CommandOptions } | { name: "unknown" };
+export type ParsedCommand =
+  | { name: KnownCommand; options: CommandOptions }
+  | { name: "help" }
+  | { name: "version" }
+  | { name: "unknown" };
+
+const HELP_ARGS: readonly string[] = ["--help", "-h", "help"];
+const VERSION_ARGS: readonly string[] = ["--version", "-v"];
 
 const SESSION_FLAG = "--session";
 const CONTENT_HASH_FLAG = "--content-hash";
@@ -124,6 +131,13 @@ function isKnownCommand(value: string | undefined): value is KnownCommand {
 
 /** `argv` is the user-supplied argument list (not `process.argv` — no `node`/script path prefix). */
 export function parseCommand(argv: readonly string[]): ParsedCommand {
+  // Anywhere on the line, not only first: `signpost run --help` must not run.
+  if (argv.some((arg) => HELP_ARGS.includes(arg))) {
+    return { name: "help" };
+  }
+  if (VERSION_ARGS.includes(argv[0] ?? "")) {
+    return { name: "version" };
+  }
   const [first, ...rest] = argv;
   if (isKnownCommand(first)) {
     return { name: first, options: parseOptions(rest) };

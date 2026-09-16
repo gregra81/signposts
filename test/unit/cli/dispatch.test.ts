@@ -120,3 +120,20 @@ describe("spendsTokens", () => {
     expect(spendsTokens(command)).toBe(false);
   });
 });
+
+// 19-value-to-a-user.md item 5: both printed the one-line usage and exited 1.
+describe("help and version", () => {
+  it.each([["--help"], ["-h"], ["help"]])("%s asks for help", (flag) => {
+    expect(parseCommand([flag])).toEqual({ name: "help" });
+  });
+
+  it.each([["--version"], ["-v"]])("%s asks for the version", (flag) => {
+    expect(parseCommand([flag])).toEqual({ name: "version" });
+  });
+
+  it("a command's own --help asks for help rather than running it", () => {
+    // `signpost run --help` spending tokens on the oldest session is the worst
+    // possible reading of that command line.
+    expect(parseCommand(["run", "--help"])).toEqual({ name: "help" });
+  });
+});

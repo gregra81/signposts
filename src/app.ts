@@ -58,6 +58,11 @@ export interface CreateAppInput {
   openRun: OpenRun;
   /** Defaults to the real process streams — see module comment. */
   stdio?: Stdio;
+  /**
+   * What `--version` prints. Read from package.json by the composition root,
+   * which is the one place that knows where the package is.
+   */
+  version?: string;
 }
 
 export interface App {
@@ -71,6 +76,28 @@ export interface App {
 // `mcp` typed at a terminal is a server talking JSON-RPC to a keyboard.
 const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|review> [--verbose]\n";
 
+// What `--help` prints. The one-line USAGE above named no flag at all, so the
+// only way to learn `--content-hash` was to read the skill or the source
+// (19-value-to-a-user.md item 5).
+const HELP = `${USAGE}
+  init       consent, create .signposts/, and install the skill and status line
+  index      rebuild the search index from the signposts on disk
+  doctor     check this machine and repo; exits 1 if something blocks a run
+  sessions   list transcripts eligible for a run (JSON)
+  run        start a session and stop at its first halt (JSON)
+               --session <id>        which session (default: the oldest eligible)
+               --first               first session of a run: clears what the last run left pending
+  resume     answer a halt and continue to the next (JSON)
+               --session <id>        the session the halt reported
+               --content-hash <hash> the contentHash the halt reported
+               --replies <path|->    answers keyed by pending id; - reads stdin
+  review     answer pending reviews yourself, at a terminal
+
+  --verbose  narrate sessions, run and resume on stderr; stdout stays one JSON object
+  --help     this text
+  --version  the installed version
+`;
+
 function defaultStdio(): Stdio {
   return {
     input: process.stdin,
@@ -80,7 +107,7 @@ function defaultStdio(): Stdio {
   };
 }
 
-export function createApp({ config, openRun, stdio }: CreateAppInput): App {
+export function createApp({ config, openRun, stdio, version }: CreateAppInput): App {
   const io = stdio ?? defaultStdio();
   const repoRoot = config.paths.repoRoot;
 
@@ -90,6 +117,14 @@ export function createApp({ config, openRun, stdio }: CreateAppInput): App {
       if (command.name === "unknown") {
         io.error.write(USAGE);
         return 1;
+      }
+      if (command.name === "help") {
+        io.output.write(HELP);
+        return EXIT_CODES.ok;
+      }
+      if (command.name === "version") {
+        io.output.write(`${version ?? "unknown"}\n`);
+        return EXIT_CODES.ok;
       }
 
       // The three run commands share their input; only which one is called

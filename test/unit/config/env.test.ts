@@ -76,12 +76,19 @@ describe("parseEnvLayer", () => {
     const layer = parseEnvLayer({
       SIGNPOSTS_RETRIEVAL_K: "10",
       SIGNPOSTS_GIT_BRANCH_PATTERN: "custom/{author_slug}",
-      SIGNPOSTS_VERSION: "1",
+      SIGNPOSTS_CONFIG_VERSION: "1",
     });
     expect(layer).toEqual({
       version: 1,
       retrieval: { k: 10 },
       git: { branch_pattern: "custom/{author_slug}" },
     });
+  });
+
+  // 19-value-to-a-user.md item 5. docs/install.sh documents SIGNPOSTS_VERSION as
+  // the release to pin, and this layer used to read the same name as the config
+  // schema version — so `SIGNPOSTS_VERSION=0.1.0` broke every command.
+  it("ignores SIGNPOSTS_VERSION, which is the installer's release pin", () => {
+    expect(parseEnvLayer({ SIGNPOSTS_VERSION: "0.1.0" })).toEqual({});
   });
 });

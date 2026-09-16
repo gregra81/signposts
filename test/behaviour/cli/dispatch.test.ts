@@ -38,6 +38,29 @@ describe("unknown/missing subcommand", () => {
     expect(stdio.writtenOutput()).toBe("");
   });
 
+  it("--help prints usage, naming every flag, to stdout and exits 0", async () => {
+    const stdio = createFakeStdio();
+    const exitCode = await runCli(["--help"], { config, stdio });
+
+    expect(exitCode).toBe(0);
+    const help = stdio.writtenOutput();
+    for (const flag of ["--session", "--content-hash", "--replies", "--first", "--verbose", "--help", "--version"]) {
+      expect(help).toContain(flag);
+    }
+    for (const command of ["init", "index", "doctor", "sessions", "run", "resume", "review"]) {
+      expect(help).toContain(command);
+    }
+    expect(stdio.writtenError()).toBe("");
+  });
+
+  it("--version prints the version it was built with and exits 0", async () => {
+    const stdio = createFakeStdio();
+    const exitCode = await runCli(["--version"], { config, stdio, version: "9.9.9" });
+
+    expect(exitCode).toBe(0);
+    expect(stdio.writtenOutput()).toBe("9.9.9\n");
+  });
+
   it("no subcommand at all prints usage to stderr and exits 1", async () => {
     const stdio = createFakeStdio();
     const exitCode = await runCli([], { config, stdio });
