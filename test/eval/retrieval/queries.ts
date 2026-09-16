@@ -158,6 +158,43 @@ export const EVAL_QUERIES: readonly EvalQuery[] = [
     relevant: ["breaking-change-over-two-releases"],
   },
 
+  // --- rare identifiers, which are what the lexical half is for ------------
+  //
+  // 05-retrieval.md's second acceptance criterion, and the reason hybrid search
+  // exists at all rather than a vector index alone: a filename, an env var, a
+  // config key or a redis policy name is a token an embedding represents badly
+  // and BM25 represents exactly. 19-value-to-a-user.md item 15 lists this case
+  // as having no test anywhere.
+  //
+  // They are also what stops FTS_RRF_WEIGHT being set from the semantic queries
+  // alone. Without them the lexical list only ever adds noise to this eval and
+  // the measured-best weight is zero, which would delete the half of the system
+  // that answers "where is .nvmrc read".
+  {
+    id: "rare-reset-script",
+    shape: "question",
+    text: "what does reset-dev-db.sh do",
+    relevant: ["dev-db-reset-drops-tables"],
+  },
+  {
+    id: "rare-allkeys-lru",
+    shape: "question",
+    text: "what does allkeys-lru mean for what we store",
+    relevant: ["redis-is-allkeys-lru"],
+  },
+  {
+    id: "rare-nvmrc",
+    shape: "question",
+    text: "who reads .nvmrc",
+    relevant: ["node-version-from-nvmrc"],
+  },
+  {
+    id: "rare-samesite-lax",
+    shape: "question",
+    text: "SameSite=Lax",
+    relevant: ["session-cookie-is-samesite-lax"],
+  },
+
   // --- relevant to nothing -------------------------------------------------
   {
     id: "none-sourdough",

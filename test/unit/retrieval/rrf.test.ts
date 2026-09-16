@@ -1,12 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { RRF_K } from "../../../src/core/config/constants.js";
+import { FTS_RRF_WEIGHT, RRF_K } from "../../../src/core/config/constants.js";
 import { fuseRrf } from "../../../src/core/retrieval/rrf.js";
 
 describe("fuseRrf", () => {
-  it("scores a document present in both lists as the sum of both reciprocal ranks", () => {
+  it("scores a document present in both lists as the sum of both weighted reciprocal ranks", () => {
     const fused = fuseRrf(["a", "b"], ["a", "c"]);
     const a = fused.find((entry) => entry.id === "a");
-    expect(a?.score).toBeCloseTo(1 / (RRF_K + 1) + 1 / (RRF_K + 1), 10);
+    // The lexical term carries FTS_RRF_WEIGHT and the vector term does not —
+    // see rrf.ts on why the two halves are not equally informative.
+    expect(a?.score).toBeCloseTo(1 / (RRF_K + 1) + FTS_RRF_WEIGHT / (RRF_K + 1), 10);
+  });
+
+  it("weights an id the lexical list alone ranked below the same rank in the vector list", () => {
+    // The backstop-not-a-vote rule, as arithmetic: "v" at vector rank 1 and
+    // "l" at lexical rank 1 are the same position in their own list, and "v"
+    // has to win. Equal weights made these a tie and let BM25 decide ordinary
+    // queries on shared words (19-value-to-a-user.md item 9).
+    const fused = fuseRrf(["v"], ["l"]);
+    expect(fused.map((entry) => entry.id)).toEqual(["v", "l"]);
   });
 
   it("omits a term for a document missing from one list, rather than treating it as zero-ranked", () => {
@@ -51,9 +62,9 @@ describe("fuseRrf", () => {
   });
 
   it("pins the exact closed-form score for a hand-computed case", () => {
-    // "z" is rank 2 in a and rank 4 in b.
+    // "z" is rank 2 in the vector list and rank 4 in the lexical one.
     const fused = fuseRrf(["w", "z"], ["p", "q", "r", "z"]);
     const z = fused.find((entry) => entry.id === "z");
-    expect(z?.score).toBeCloseTo(1 / (RRF_K + 2) + 1 / (RRF_K + 4), 10);
+    expect(z?.score).toBeCloseTo(1 / (RRF_K + 2) + FTS_RRF_WEIGHT / (RRF_K + 4), 10);
   });
 });
