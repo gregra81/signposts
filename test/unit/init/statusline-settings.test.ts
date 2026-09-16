@@ -233,6 +233,8 @@ describe("ourScriptPath", () => {
 
   it("is undefined for a status line that is not ours", () => {
     expect(ourScriptPath("git branch --show-current")).toBeUndefined();
+    // Shaped exactly like ours, and still somebody else's script.
+    expect(ourScriptPath("node '/opt/mine/bar.js'")).toBeUndefined();
     expect(ourScriptPath("")).toBeUndefined();
   });
 });

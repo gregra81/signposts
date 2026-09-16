@@ -135,7 +135,7 @@ export function parseCommand(argv: readonly string[]): ParsedCommand {
   if (argv.some((arg) => HELP_ARGS.includes(arg))) {
     return { name: "help" };
   }
-  if (VERSION_ARGS.includes(argv[0] ?? "")) {
+  if (VERSION_ARGS.some((arg) => arg === argv[0])) {
     return { name: "version" };
   }
   const [first, ...rest] = argv;

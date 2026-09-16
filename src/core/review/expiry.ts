@@ -25,8 +25,5 @@ export function daysLeftToWarn(expiresAt: Date, now: Date): number | undefined {
 
 /** The soonest of several expiries, or undefined when there are none. */
 export function soonestExpiry(expiries: readonly Date[]): Date | undefined {
-  return expiries.reduce<Date | undefined>(
-    (soonest, next) => (soonest === undefined || next < soonest ? next : soonest),
-    undefined,
-  );
+  return expiries.length === 0 ? undefined : new Date(Math.min(...expiries.map((expiry) => expiry.getTime())));
 }

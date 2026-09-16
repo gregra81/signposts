@@ -31,8 +31,8 @@ describe("soonestExpiry", () => {
   it("picks the earliest, whatever the order", () => {
     const a = new Date(NOW.getTime() + DAY);
     const b = new Date(NOW.getTime() + 2 * DAY);
-    expect(soonestExpiry([b, a])).toBe(a);
-    expect(soonestExpiry([a, b])).toBe(a);
+    expect(soonestExpiry([b, a])).toEqual(a);
+    expect(soonestExpiry([a, b])).toEqual(a);
   });
 
   it("is undefined for none", () => {
