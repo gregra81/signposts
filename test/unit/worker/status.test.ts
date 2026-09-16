@@ -500,3 +500,39 @@ describe("judgedSessions", () => {
     expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 })).not.toHaveProperty("judgedSessions");
   });
 });
+
+// 19-value-to-a-user.md item 3: the soonest a parked review expires, for the
+// status line and the hook to warn before it goes.
+describe("reviewExpiresAt", () => {
+  const EXPIRES = new Date("2026-09-12T12:00:00.000Z");
+
+  it("is written with the census the run takes", () => {
+    const status = runProgressStatus(undefined, {
+      now: NOW,
+      remaining: 0,
+      sessionFinished: false,
+      found: 0,
+      threadsWaiting: 1,
+      freshRun: false,
+      reviewExpiresAt: EXPIRES,
+    });
+    expect(status.reviewExpiresAt).toBe(EXPIRES.toISOString());
+  });
+
+  it("is retaken rather than carried: no review waiting, no expiry", () => {
+    const previous = runProgressStatus(undefined, {
+      now: NOW, remaining: 0, sessionFinished: false, found: 0, threadsWaiting: 1, freshRun: false, reviewExpiresAt: EXPIRES,
+    });
+    const answered = runProgressStatus(previous, {
+      now: NOW, remaining: 0, sessionFinished: true, found: 0, threadsWaiting: 0, freshRun: false,
+    });
+    expect(answered).not.toHaveProperty("reviewExpiresAt");
+  });
+
+  it("is written with the census the worker takes", () => {
+    expect(
+      finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 1, reviewExpiresAt: EXPIRES }).reviewExpiresAt,
+    ).toBe(EXPIRES.toISOString());
+    expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 })).not.toHaveProperty("reviewExpiresAt");
+  });
+});

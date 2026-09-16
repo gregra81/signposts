@@ -41,6 +41,8 @@ import { fileURLToPath } from "node:url";
 /** A run's progress, or a worker's phase, older than this belongs to nothing. */
 const RUN_PROGRESS_STALE_MINUTES = 15;
 const MS_PER_MINUTE = 60_000;
+const MS_PER_DAY = 86_400_000;
+const REVIEW_EXPIRY_WARN_DAYS = 7;
 const RUN_PROGRESS_STALE_MS = RUN_PROGRESS_STALE_MINUTES * MS_PER_MINUTE;
 
 const SIGNPOSTS_DIRNAME = ".signposts";
@@ -137,6 +139,8 @@ export interface WorkerStatus {
   /** When the worker last wrote this snapshot — what ages `phase` out. */
   updatedAt?: string;
   threadsWaiting?: number;
+  /** When the soonest parked review is dropped (19-value-to-a-user.md item 3). */
+  reviewExpiresAt?: string;
   lastError?: string;
   runProgress?: RunProgress;
 }
@@ -191,6 +195,20 @@ function liveProgress(status: WorkerStatus, nowMs: number): RunProgress | undefi
 }
 
 /**
+ * ` · expires in N days` inside REVIEW_EXPIRY_WARN_DAYS, and nothing outside
+ * it. Transcribed from src/core/review/expiry.ts's `daysLeftToWarn`: a review
+ * used to reach the developer only after it had been deleted.
+ */
+function expiryClause(status: WorkerStatus, nowMs: number): string {
+  const expiresMs = typeof status.reviewExpiresAt === "string" ? Date.parse(status.reviewExpiresAt) : Number.NaN;
+  if (Number.isNaN(expiresMs)) {
+    return "";
+  }
+  const days = Math.max(0, Math.ceil((expiresMs - nowMs) / MS_PER_DAY));
+  return days <= REVIEW_EXPIRY_WARN_DAYS ? ` · expires in ${plural(days, "day")}` : "";
+}
+
+/**
  * What signposts has to say right now, or "" for the common case of nothing.
  *
  * The order is by immediacy, and only one of these renders: a bar is one row
@@ -206,7 +224,7 @@ export function statusLine(status: WorkerStatus, nowMs: number): string {
   // exactly the moment it had something to ask for.
   const waiting = whole(status.threadsWaiting);
   if (waiting > 0) {
-    return `${PREFIX}${plural(waiting, "change")} ${agrees(waiting, "need")} your review`;
+    return `${PREFIX}${plural(waiting, "change")} ${agrees(waiting, "need")} your review${expiryClause(status, nowMs)}`;
   }
 
   const progress = liveProgress(status, nowMs);

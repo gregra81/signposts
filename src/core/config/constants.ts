@@ -281,8 +281,21 @@ export const HEDGE_CONFIDENCE_CAP = 0.6;
 /** Not configurable — anything altering approved knowledge. */
 export const ALWAYS_HUMAN_OPS = ["refine", "supersede", "retire"] as const;
 
-/** Older → drop with a log line. */
+/**
+ * Older → drop with a log line. Only `signpost review` drops one, with the
+ * developer at the terminal; a background reader leaves it where it is
+ * (19-value-to-a-user.md item 3).
+ */
 export const THREAD_EXPIRY_DAYS = 30;
+
+/**
+ * How close to THREAD_EXPIRY_DAYS a parked review has to be before the status
+ * line, the session-start notice and `signpost review` say how long it has
+ * left. A week, so a developer who opens Claude Code most working days sees it
+ * several times before it goes. Transcribed in hooks/session-start.ts and
+ * statusline/statusline.ts.
+ */
+export const REVIEW_EXPIRY_WARN_DAYS = 7;
 
 /** Not configurable. See 06-review-and-pr.md. */
 export const AUTO_MERGE = false;

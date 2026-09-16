@@ -48,7 +48,9 @@ export function runReview(input: ReviewCommandInput): Promise<ExitCode> {
     { config: input.config, repoRoot: input.repoRoot, openRun: input.openRun, stderr: input.stdio.error },
     async (handle) => {
       const now = new Date();
-      const pending = await handle.pendingReviews(now);
+      // The one reader with a person in front of it, so the one that drops an
+      // expired review and says so (19-value-to-a-user.md item 3).
+      const pending = await handle.pendingReviews(now, { dropExpired: true });
       if (pending.length === 0) {
         input.stdio.output.write(`${NOTHING}\n`);
         return EXIT_CODES.ok;
@@ -59,6 +61,7 @@ export function runReview(input: ReviewCommandInput): Promise<ExitCode> {
           pending.map((review) => ({
             sessionId: review.sessionId,
             waitingSince: review.waitingSince,
+            expiresAt: review.expiresAt,
             operations: review.needsHuman.length,
           })),
           now,

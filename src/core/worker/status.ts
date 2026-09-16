@@ -136,6 +136,13 @@ export interface WorkerStatus {
    * Owned by `settle`, carried forward by the worker, like the two above.
    */
   judgedSessions?: Record<string, string>;
+  /**
+   * When the soonest parked review is dropped, for the status line and the
+   * hook to warn inside REVIEW_EXPIRY_WARN_DAYS (19-value-to-a-user.md item 3).
+   * Part of the census, like `threadsWaiting`: retaken by whoever counts, never
+   * carried forward, and absent when nothing is waiting.
+   */
+  reviewExpiresAt?: string;
 }
 
 export interface SnapshotInput {
@@ -150,6 +157,8 @@ export interface SnapshotInput {
   runProgress?: RunProgress | undefined;
   /** Likewise. */
   judgedSessions?: Record<string, string> | undefined;
+  /** The census's, like the counts above. */
+  reviewExpiresAt?: Date | undefined;
 }
 
 /**
@@ -181,6 +190,10 @@ export function runningStatus(
     threadsWaiting: 0,
     ...runCommandFields({ lastRunFinishedAt, runProgress, judgedSessions }),
   };
+}
+
+function expiryField(expiresAt: Date | undefined): Pick<WorkerStatus, "reviewExpiresAt"> {
+  return expiresAt === undefined ? {} : { reviewExpiresAt: expiresAt.toISOString() };
 }
 
 /**
@@ -223,6 +236,7 @@ export function finishedStatus(input: SnapshotInput): WorkerStatus {
     threadsWaiting: count(input.threadsWaiting),
     ...(input.indexedAt === undefined ? {} : { lastIndexedAt: input.indexedAt.toISOString() }),
     ...(input.error === undefined ? {} : { lastError: input.error }),
+    ...expiryField(input.reviewExpiresAt),
     ...runCommandFields(input),
   };
 }
@@ -307,6 +321,8 @@ export function runProgressStatus(
      * stop counting. Absent while the session is halted: nothing is judged yet.
      */
     judged?: { sessionId: string; lastActivityAt: Date };
+    /** The soonest parked review's expiry, retaken with `threadsWaiting`. */
+    reviewExpiresAt?: Date;
   },
 ): WorkerStatus {
   const base: WorkerStatus = previous ?? {
@@ -326,10 +342,11 @@ export function runProgressStatus(
     // unparseable watermark is 0, which forgets nothing on its account.
     Math.max(new Date(base.lastRunFinishedAt ?? 0).getTime() || 0, input.now.getTime() - MAX_AGE_MS),
   );
-  const { judgedSessions: _previous, ...rest } = base;
+  const { judgedSessions: _previous, reviewExpiresAt: _retaken, ...rest } = base;
   return {
     ...rest,
     ...(judgedSessions === undefined ? {} : { judgedSessions }),
+    ...expiryField(input.reviewExpiresAt),
     // Re-stamped, because this write is a snapshot: the two counts below are
     // taken now, and leaving `updatedAt` at whatever the worker last wrote
     // would date fresh numbers by a census that happened minutes ago.

@@ -11,6 +11,7 @@
 import type { ExitCode } from "../app.ts";
 import type { ResolvedConfig } from "../core/config/resolve.ts";
 import { pendingProposals } from "../core/graph/pending.ts";
+import { soonestExpiry } from "../core/review/expiry.ts";
 import type { RunResult } from "../graph/index.ts";
 import { recordRunFinished, recordRunProgress } from "../io/worker/status-file.ts";
 import {
@@ -143,7 +144,7 @@ export async function settle(input: SettleInput): Promise<void> {
       remaining: handle.eligible(input.now).length,
       sessionFinished: false,
       found: 0,
-      threadsWaiting: (await handle.pendingReviews(input.now)).length,
+      ...(await reviewCensus(handle, input.now)),
       freshRun: input.isFirst,
     });
     return;
@@ -179,6 +180,20 @@ export async function settleSkipped(input: Omit<SettleInput, "result"> & { reaso
   await recordJudged(input, 0);
 }
 
+/**
+ * How many reviews are parked and when the soonest is dropped, from one read of
+ * the checkpoint database. The second half is what lets the status line warn
+ * before a review is lost rather than after (19-value-to-a-user.md item 3).
+ */
+export async function reviewCensus(
+  handle: RunHandle,
+  now: Date,
+): Promise<{ threadsWaiting: number; reviewExpiresAt?: Date }> {
+  const reviews = await handle.pendingReviews(now);
+  const soonest = soonestExpiry(reviews.map((review) => review.expiresAt));
+  return { threadsWaiting: reviews.length, ...(soonest === undefined ? {} : { reviewExpiresAt: soonest }) };
+}
+
 /** What `settle` and `settleSkipped` both write once a session is judged. */
 async function recordJudged(input: Omit<SettleInput, "result">, found: number): Promise<void> {
   const { handle, session } = input;
@@ -204,7 +219,7 @@ async function recordJudged(input: Omit<SettleInput, "result">, found: number): 
     // Retaken here too, and this is the direction that matters: answering the
     // last review is what takes the count back to zero, and nothing else in
     // the system would notice until a worker woke.
-    threadsWaiting: (await handle.pendingReviews(input.now)).length,
+    ...(await reviewCensus(handle, input.now)),
     freshRun: input.isFirst,
     // What lets the hook stop counting this transcript now, rather than once
     // the watermark below can move — which a backlog of five judged two at a

@@ -64,6 +64,7 @@ import { fileURLToPath } from "node:url";
 /** Load-bearing: sessions are resumable, lower means extracting from unfinished work. */
 const IDLE_HOURS = 24;
 const MAX_AGE_DAYS = 90;
+const REVIEW_EXPIRY_WARN_DAYS = 7;
 /** Older lock -> assume dead worker, take over. */
 const LOCK_STALE_MINUTES = 60;
 
@@ -249,6 +250,8 @@ export interface WorkerState {
    * the watermark can move (19-value-to-a-user.md item 2).
    */
   judgedSessions?: Record<string, string>;
+  /** When the soonest parked review is dropped (19-value-to-a-user.md item 3). */
+  reviewExpiresAt?: string;
 }
 
 export function readWorkerState(statuslineState: string): WorkerState {
@@ -546,6 +549,22 @@ export interface WakeReasons {
   sessions: number;
   threads: number;
   staleIndex: boolean;
+  /** Days before the soonest parked review is dropped, when that is inside the warning window. */
+  reviewExpiresInDays?: number;
+}
+
+/**
+ * Days left before the soonest parked review is dropped, rounded up, or
+ * undefined outside REVIEW_EXPIRY_WARN_DAYS or when nothing says. Transcribed
+ * from src/core/review/expiry.ts's `daysLeftToWarn`.
+ */
+export function reviewExpiresInDays(state: WorkerState, nowMs: number): number | undefined {
+  const expiresMs = typeof state.reviewExpiresAt === "string" ? Date.parse(state.reviewExpiresAt) : Number.NaN;
+  if (Number.isNaN(expiresMs)) {
+    return undefined;
+  }
+  const days = Math.max(0, Math.ceil((expiresMs - nowMs) / MS_PER_DAY));
+  return days <= REVIEW_EXPIRY_WARN_DAYS ? days : undefined;
 }
 
 export function anyWork(reasons: WakeReasons): boolean {
@@ -640,8 +659,10 @@ export function noticeFor(reasons: WakeReasons): string {
     parts.push(`${plural(reasons.sessions, "session")} ready — run \`signpost run\``);
   }
   if (reasons.threads > 0) {
+    const expiry =
+      reasons.reviewExpiresInDays === undefined ? "" : ` (expires in ${plural(reasons.reviewExpiresInDays, "day")})`;
     parts.push(
-      `${plural(reasons.threads, "change")} ${agrees(reasons.threads, "need")} your review — run \`signpost review\``,
+      `${plural(reasons.threads, "change")} ${agrees(reasons.threads, "need")} your review — run \`signpost review\`${expiry}`,
     );
   }
   return NOTICE_PREFIX + parts.join("; ");
@@ -708,6 +729,10 @@ function main(): void {
     threads: countThreadsWaiting(state),
     staleIndex: indexIsStale(paths),
   };
+  const expiresIn = reviewExpiresInDays(state, nowMs);
+  if (expiresIn !== undefined) {
+    reasons.reviewExpiresInDays = expiresIn;
+  }
   if (!anyWork(reasons)) {
     return;
   }

@@ -11,6 +11,7 @@
 // PURE: operations in, text out. Nothing here reads a clock; `formatWaited`
 // takes both ends of the interval as arguments.
 
+import { daysLeftToWarn } from "./expiry.ts";
 import {
   GATE_REASONS,
   OPERATION_TAGS,
@@ -179,6 +180,8 @@ export interface PendingSummary {
   sessionId: string;
   waitingSince: Date;
   operations: number;
+  /** When it is dropped. Said only inside REVIEW_EXPIRY_WARN_DAYS (./expiry.ts). */
+  expiresAt?: Date;
 }
 
 /**
@@ -199,6 +202,12 @@ function plural(count: number, noun: string): string {
 }
 
 /** The listing `signpost review` opens with. */
+/** `, expires in N days` inside the warning window, and nothing outside it. */
+function expiryClause(expiresAt: Date | undefined, now: Date): string {
+  const days = expiresAt === undefined ? undefined : daysLeftToWarn(expiresAt, now);
+  return days === undefined ? "" : `, expires in ${plural(days, "day")}`;
+}
+
 export function renderPendingList(pending: readonly PendingSummary[], now: Date): string {
   if (pending.length === 0) {
     return "Nothing is waiting for review.";
@@ -206,7 +215,8 @@ export function renderPendingList(pending: readonly PendingSummary[], now: Date)
   const lines = pending.map(
     (entry, position) =>
       `  ${String(position + 1)}. session ${entry.sessionId} — ` +
-      `${plural(entry.operations, "operation")}, waiting ${formatWaited(entry.waitingSince, now)}`,
+      `${plural(entry.operations, "operation")}, waiting ${formatWaited(entry.waitingSince, now)}` +
+      expiryClause(entry.expiresAt, now),
   );
   return [`${plural(pending.length, "session")} waiting for review:`, ...lines].join("\n");
 }
