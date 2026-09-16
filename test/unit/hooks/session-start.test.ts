@@ -12,6 +12,7 @@ import {
   IDLE_HOURS,
   LOCK_STALE_MINUTES,
   MAX_AGE_DAYS,
+  REVIEW_EXPIRY_WARN_DAYS,
 } from "../../../src/core/config/constants.ts";
 import { derivePaths as deriveAppPaths } from "../../../src/core/config/paths.ts";
 import {
@@ -24,6 +25,7 @@ import {
   lockIsHeld,
   looksEligible,
   noticeFor,
+  reviewExpiresInDays,
   watermarkMs,
 } from "../../../hooks/session-start.ts";
 
@@ -260,5 +262,34 @@ describe("alreadyJudged", () => {
 
   it("does not match a session nobody judged", () => {
     expect(alreadyJudged(undefined, at)).toBe(false);
+  });
+});
+
+// 19-value-to-a-user.md item 3.
+describe("a review close to its expiry, in the session-start notice", () => {
+  it("says how long is left", () => {
+    expect(noticeFor({ sessions: 0, threads: 2, staleIndex: false, reviewExpiresInDays: 3 })).toBe(
+      "🪧 signposts: 2 changes need your review — run `signpost review` (expires in 3 days)",
+    );
+    expect(noticeFor({ sessions: 0, threads: 1, staleIndex: false, reviewExpiresInDays: 1 })).toBe(
+      "🪧 signposts: 1 change needs your review — run `signpost review` (expires in 1 day)",
+    );
+  });
+
+  it("reads the days left off the status file, only inside the warning window", () => {
+    expect(reviewExpiresInDays({ reviewExpiresAt: new Date(NOW + 3 * DAY - 1).toISOString() }, NOW)).toBe(3);
+    expect(reviewExpiresInDays({ reviewExpiresAt: new Date(NOW + 30 * DAY).toISOString() }, NOW)).toBeUndefined();
+    expect(reviewExpiresInDays({}, NOW)).toBeUndefined();
+    expect(reviewExpiresInDays({ reviewExpiresAt: "soon" }, NOW)).toBeUndefined();
+  });
+
+  it("transcribes the warning window from 13-constants.md", () => {
+    // Just inside and just outside REVIEW_EXPIRY_WARN_DAYS.
+    expect(reviewExpiresInDays({ reviewExpiresAt: new Date(NOW + REVIEW_EXPIRY_WARN_DAYS * DAY).toISOString() }, NOW)).toBe(
+      REVIEW_EXPIRY_WARN_DAYS,
+    );
+    expect(
+      reviewExpiresInDays({ reviewExpiresAt: new Date(NOW + REVIEW_EXPIRY_WARN_DAYS * DAY + 1).toISOString() }, NOW),
+    ).toBeUndefined();
   });
 });

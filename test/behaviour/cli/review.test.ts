@@ -148,8 +148,8 @@ function openRunWith(harness: Harness, manualCommand: string | null = null): Ope
           ? null
           : { branch: "signposts/greg/2026-09-10", pr: null, url: null, reason: "no forge", manualCommand },
       syncCorpus: () => Promise.resolve({ failures: [] }),
-      pendingReviews: (now) =>
-        listPendingReviews({ graph, checkpointer, repo: RUN_INPUT.repo, now, warn }),
+      pendingReviews: (now, options) =>
+        listPendingReviews({ graph, checkpointer, repo: RUN_INPUT.repo, now, warn, ...options }),
       close,
     };
     return { handle };
@@ -357,6 +357,58 @@ describe("signpost review", () => {
         "Dropping it.",
     );
     expect(stdio.writtenOutput()).toContain("Nothing is waiting for review.");
+  });
+});
+
+// 19-value-to-a-user.md item 3: a review reached the developer only after it
+// was deleted, and usually not even then — the worker deleted it with its
+// stderr going to /dev/null.
+describe("a review close to its expiry", () => {
+  it("says how long it has left", async () => {
+    await haltForReview();
+    await backdate(THREAD_EXPIRY_DAYS - 3);
+
+    const stdio = createScriptedStdio(["q"]);
+    await runCli(["review"], { config, stdio, openRun: openRunWith(makeHarness(gatedOptions())) });
+
+    expect(stdio.writtenOutput()).toContain("expires in 3 days");
+  });
+
+  it("says nothing about expiry while there is plenty of time", async () => {
+    await haltForReview();
+
+    const stdio = createScriptedStdio(["q"]);
+    await runCli(["review"], { config, stdio, openRun: openRunWith(makeHarness(gatedOptions())) });
+
+    expect(stdio.writtenOutput()).not.toContain("expires");
+  });
+
+  it("is never deleted by a reader nobody is watching", async () => {
+    await haltForReview();
+    await backdate(THREAD_EXPIRY_DAYS + 1);
+
+    // The census the worker and `settle` take: no terminal behind either.
+    const { checkpointer, close } = openCheckpointer(checkpointPath);
+    const warnings: string[] = [];
+    try {
+      const graph = buildExtractionGraph({ ports: makeHarness(gatedOptions()), checkpointer });
+      const listed = await listPendingReviews({
+        graph,
+        checkpointer,
+        repo: RUN_INPUT.repo,
+        now: new Date(),
+        warn: (message) => warnings.push(message),
+      });
+      expect(listed).toEqual([]);
+    } finally {
+      close();
+    }
+    expect(warnings).toEqual([]);
+
+    // Still there for the developer's own `signpost review` to drop, and say so.
+    const stdio = createScriptedStdio(["q"]);
+    await runCli(["review"], { config, stdio, openRun: openRunWith(makeHarness(gatedOptions())) });
+    expect(stdio.writtenError()).toContain("Dropping it.");
   });
 });
 

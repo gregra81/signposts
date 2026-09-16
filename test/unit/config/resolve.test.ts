@@ -98,10 +98,10 @@ describe("resolveConfig — missing and malformed files", () => {
   });
 
   it("rejects a non-numeric version via the env route as an env-coercion error, not a schema error", () => {
-    // SIGNPOSTS_VERSION="abc" never reaches the schema at all — env.ts's
+    // SIGNPOSTS_CONFIG_VERSION="abc" never reaches the schema at all — env.ts's
     // own number coercion rejects it first, with its own distinct message.
-    expect(() => resolveConfig(baseInput({ env: { SIGNPOSTS_VERSION: "abc" } }))).toThrow(
-      /SIGNPOSTS_VERSION.*not a valid number/,
+    expect(() => resolveConfig(baseInput({ env: { SIGNPOSTS_CONFIG_VERSION: "abc" } }))).toThrow(
+      /SIGNPOSTS_CONFIG_VERSION.*not a valid number/,
     );
   });
 

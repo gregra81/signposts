@@ -46,7 +46,13 @@ describe("signpost doctor", () => {
       stdio,
     });
 
-    expect(exitCode).toBe(0);
+    // It still runs and reports every line with no origin at all (R5). What
+    // changed is the exit code: no origin blocks `init`, `index` and `run`, and
+    // a doctor that exits 0 over that tells a script everything is fine
+    // (19-value-to-a-user.md item 4).
+    expect(exitCode).toBe(1);
+    expect(stdio.writtenOutput()).toContain("blocked: ");
+    expect(stdio.writtenOutput()).toContain("no origin remote");
     const output = stdio.writtenOutput();
     expect(output).toContain("node:");
     expect(output).toContain("gh:");
@@ -58,6 +64,9 @@ describe("signpost doctor", () => {
   it("against an initialised repo: reports db ok after `init` has created it", async () => {
     // `init` (unlike `doctor`) needs a repo key, so it needs an origin remote.
     execFileSync("git", ["remote", "add", "origin", "git@github.com:test/repo.git"], { cwd: repoRoot });
+    // Set here rather than inherited from whoever runs the suite: an unset
+    // author now blocks, and a CI runner has none.
+    execFileSync("git", ["config", "user.email", "dev@example.com"], { cwd: repoRoot });
 
     await runCli(["init"], {
       config,
@@ -74,6 +83,55 @@ describe("signpost doctor", () => {
 
     expect(exitCode).toBe(0);
     expect(stdio.writtenOutput()).toContain("database: ok");
+    expect(stdio.writtenOutput()).toContain("consent: given");
+    expect(stdio.writtenOutput()).toContain("ready: nothing blocks");
+  });
+
+  // 19-value-to-a-user.md items 4 and 6.
+  describe("in a repo that could otherwise run", () => {
+    beforeEach(() => {
+      execFileSync("git", ["remote", "add", "origin", "git@github.com:test/repo.git"], { cwd: repoRoot });
+      execFileSync("git", ["config", "user.email", "dev@example.com"], { cwd: repoRoot });
+    });
+
+    it("exits 1 when this repo has not consented, and says how to", async () => {
+      const stdio = createFakeStdio();
+      const exitCode = await runCli(["doctor"], { config, stdio });
+
+      expect(exitCode).toBe(1);
+      expect(stdio.writtenOutput()).toContain("consent: not given — run `signpost init`");
+      expect(stdio.writtenOutput()).toContain("blocked: no consent");
+    });
+
+    it("reports the error the background worker left, which the status line sends people here for", async () => {
+      await runCli(["init"], { config, stdio: createFakeStdio("y") });
+      mkdirSync(config.paths.stateDir, { recursive: true });
+      writeFileSync(
+        config.paths.statuslineState,
+        JSON.stringify({ phase: "idle", updatedAt: "2026-09-16T00:00:00.000Z", eligibleSessions: 0, threadsWaiting: 0, lastError: "index rebuild exited 1" }),
+      );
+
+      const stdio = createFakeStdio();
+      const exitCode = await runCli(["doctor"], { config, stdio });
+
+      expect(stdio.writtenOutput()).toContain("last background error: index rebuild exited 1");
+      // A failed reindex degrades search; it does not stop a run.
+      expect(exitCode).toBe(0);
+    });
+
+    it("names a status line whose script has gone", async () => {
+      await runCli(["init"], { config, stdio: createFakeStdio("y") });
+      const gone = path.join(homeDir, "uninstalled", "signposts", "statusline", "statusline.js");
+      writeFileSync(
+        path.join(repoRoot, ".claude", "settings.local.json"),
+        JSON.stringify({ statusLine: { type: "command", command: `node '${gone}' --wrap 'git branch --show-current'` } }),
+      );
+
+      const stdio = createFakeStdio();
+      await runCli(["doctor"], { config, stdio });
+
+      expect(stdio.writtenOutput()).toContain(`status line: points at ${gone}`);
+    });
   });
 
   it("reports a signposts SessionStart hook when one is present in .claude/settings.json", async () => {

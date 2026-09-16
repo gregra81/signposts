@@ -263,6 +263,7 @@ describe("the watermark a finished run leaves for the hook", () => {
         contentHash: SESSION.contentHash,
         interruptId: "i-1",
         waitingSince: LAST_ACTIVITY,
+        expiresAt: new Date("2026-10-01T09:00:00Z"),
         needsHuman: [],
       },
     ];
@@ -270,6 +271,9 @@ describe("the watermark a finished run leaves for the hook", () => {
     await runCli(["run"], { config, openRun: seam(gated()), stdio: createFakeStdio() });
 
     expect(status()?.threadsWaiting).toBe(1);
+    // 19-value-to-a-user.md item 3: and when it will be dropped, so the status
+    // line and the hook can warn before it is.
+    expect(status()?.reviewExpiresAt).toBe("2026-10-01T09:00:00.000Z");
   });
 
   it("takes it back to zero when the last review is answered", async () => {

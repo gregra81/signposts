@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { RUN_PROGRESS_STALE_MINUTES } from "../../../src/core/config/constants.ts";
+import { REVIEW_EXPIRY_WARN_DAYS, RUN_PROGRESS_STALE_MINUTES } from "../../../src/core/config/constants.ts";
 import { hashRepoRoot } from "../../../src/core/config/paths.ts";
 import type { WorkerStatus } from "../../../src/core/worker/status.ts";
 
@@ -198,6 +198,31 @@ describe("progress during a run", () => {
     });
 
     expect(render(f).stdout.trim()).toBe("🪧 signposts: 2 changes need your review");
+  });
+
+  // 19-value-to-a-user.md item 3: warned while there is still time to answer.
+  it("says when a parked review is about to expire", () => {
+    const f = withStatus(fixture(), {
+      phase: "idle",
+      updatedAt: new Date().toISOString(),
+      eligibleSessions: 0,
+      threadsWaiting: 2,
+      reviewExpiresAt: new Date(Date.now() + 3 * 86_400_000 - 60_000).toISOString(),
+    });
+
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: 2 changes need your review · expires in 3 days");
+  });
+
+  it("does not mention expiry while it is further off than REVIEW_EXPIRY_WARN_DAYS", () => {
+    const f = withStatus(fixture(), {
+      phase: "idle",
+      updatedAt: new Date().toISOString(),
+      eligibleSessions: 0,
+      threadsWaiting: 1,
+      reviewExpiresAt: new Date(Date.now() + (REVIEW_EXPIRY_WARN_DAYS + 1) * 86_400_000).toISOString(),
+    });
+
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
   });
 
   // A detached worker's stderr goes to /dev/null, so this is the only place a

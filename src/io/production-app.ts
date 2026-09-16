@@ -17,11 +17,14 @@
 // (src/io/git/remote-origin.ts's resolveRepo) and fails gracefully if it
 // can't.
 
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import type { App } from "../app.ts";
 import { createApp } from "../app.ts";
+import { EXIT_CODES } from "../core/cli/exit-codes.ts";
 import { resolveConfig } from "../core/config/resolve.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
 import { findRepoRoot } from "./git/repo-root.ts";
@@ -82,18 +85,54 @@ function resolveRepoRoot(override: string | undefined): string {
   }
 }
 
+/**
+ * The installed version, from package.json. This file is `src/io/` in a
+ * checkout and `dist/io/` in an install, two levels below the package root
+ * either way.
+ */
+function packageVersion(): string | undefined {
+  try {
+    const root = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
+    const parsed = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as { version?: unknown };
+    return typeof parsed.version === "string" ? parsed.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildProductionApp(): App {
   const repoRoot = resolveRepoRoot(process.env[REPO_ROOT_ENV_VAR]);
   const homeDir = os.homedir();
 
-  const config = resolveConfig({
-    repoRoot,
-    homeDir,
-    repoFileContents: readRepoConfigFile(repoRoot),
-    userFileContents: readUserConfigFile(homeDir),
-    env: process.env,
-    claudeConfigDir: process.env["CLAUDE_CONFIG_DIR"],
-  });
+  let config;
+  try {
+    config = resolveConfig({
+      repoRoot,
+      homeDir,
+      repoFileContents: readRepoConfigFile(repoRoot),
+      userFileContents: readUserConfigFile(homeDir),
+      env: process.env,
+      claudeConfigDir: process.env["CLAUDE_CONFIG_DIR"],
+    });
+  } catch (error) {
+    // A bad config value is the developer's to fix, and its message already
+    // names the variable or the key. bin/signpost.js has no handler, so this
+    // used to reach the terminal as a Node stack trace (19-value-to-a-user.md
+    // item 5). Every command fails the same way, since none of them can run
+    // without a config.
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      run: () => {
+        process.stderr.write(`signposts: ${message}\n`);
+        return Promise.resolve(EXIT_CODES.failure);
+      },
+    };
+  }
 
-  return createApp({ config, openRun });
+  return createApp({ config, openRun, ...versionField() });
+}
+
+function versionField(): { version?: string } {
+  const version = packageVersion();
+  return version === undefined ? {} : { version };
 }

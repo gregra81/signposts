@@ -42,6 +42,7 @@ import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { finishedStatus, runningStatus } from "../../core/worker/status.ts";
 import { takeLock } from "../../io/worker/lock.ts";
 import { readStatus, writeStatus } from "../../io/worker/status-file.ts";
+import { reviewCensus } from "../with-run.ts";
 import type { OpenRun } from "../run-port.ts";
 import { runIndex } from "./index.ts";
 
@@ -85,6 +86,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
   let error: string | undefined;
   let eligibleSessions = 0;
   let threadsWaiting = 0;
+  let reviewExpiresAt: Date | undefined;
 
   try {
     // `rebuildIndex` consults `shouldReindex` itself and returns without
@@ -102,6 +104,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
     const counts = await census(input);
     eligibleSessions = counts.eligibleSessions;
     threadsWaiting = counts.threadsWaiting;
+    reviewExpiresAt = counts.reviewExpiresAt;
     if (counts.reason !== undefined) {
       error = counts.reason;
     }
@@ -121,6 +124,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
         now: input.now(),
         eligibleSessions,
         threadsWaiting,
+        reviewExpiresAt,
         indexedAt,
         error,
         lastRunFinishedAt: current?.lastRunFinishedAt,
@@ -139,6 +143,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
 interface Census {
   eligibleSessions: number;
   threadsWaiting: number;
+  reviewExpiresAt?: Date;
   /** Why the census is zeroes rather than counted, when it could not be taken. */
   reason?: string;
 }
@@ -158,8 +163,8 @@ async function census(input: WorkerInput): Promise<Census> {
     config: input.config,
     repoRoot: input.repoRoot,
     warn: () => {
-      // A dropped expired thread is worth a line to a person running `review`,
-      // and worth nothing written to a detached process's discarded stderr.
+      // Nothing here has anyone to tell, and since the census stopped dropping
+      // expired threads (19-value-to-a-user.md item 3) nothing here warns either.
     },
   });
   if ("reason" in opened) {
@@ -173,7 +178,7 @@ async function census(input: WorkerInput): Promise<Census> {
     const now = input.now();
     return {
       eligibleSessions: handle.eligible(now).length,
-      threadsWaiting: (await handle.pendingReviews(now)).length,
+      ...(await reviewCensus(handle, now)),
     };
   } finally {
     handle.close();

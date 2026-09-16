@@ -72,7 +72,20 @@ export interface PendingReview {
   interruptId: string;
   /** When the halt was checkpointed. How long the developer has left it. */
   waitingSince: Date;
+  /** When it will be dropped, THREAD_EXPIRY_DAYS after `waitingSince`. */
+  expiresAt: Date;
   needsHuman: ReviewRequest["needsHuman"];
+}
+
+export interface PendingReviewsOptions {
+  /**
+   * Delete threads past THREAD_EXPIRY_DAYS, and say so. Only `signpost review`
+   * sets it: it is the one reader with a person at the other end. The worker's
+   * census and `settle` leave an expired thread where it is, because a drop
+   * they announce goes to /dev/null or to a subagent (19-value-to-a-user.md
+   * item 3).
+   */
+  dropExpired?: boolean;
 }
 
 export interface RunHandle {
@@ -120,7 +133,7 @@ export interface RunHandle {
    * that run's process exited, possibly days ago. A thread past
    * THREAD_EXPIRY_DAYS is dropped here rather than listed.
    */
-  pendingReviews(now: Date): Promise<PendingReview[]>;
+  pendingReviews(now: Date, options?: PendingReviewsOptions): Promise<PendingReview[]>;
   close(): void;
 }
 

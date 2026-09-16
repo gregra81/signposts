@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  blockers,
   buildDoctorReport,
   detectSignpostPlugin,
   classifyDbIntegrity,
@@ -17,6 +18,9 @@ const BASE_FACTS: DoctorFacts = {
   dbIntegrity: "no-database",
   hook: "absent",
   git: { authorEmail: "greg@example.com", repo: "acme/api" },
+  consent: "given",
+  statusLine: { state: "ok" },
+  lastError: null,
 };
 
 describe("isNodeVersionSupported", () => {
@@ -199,7 +203,7 @@ describe("detectSignpostPlugin", () => {
 describe("buildDoctorReport", () => {
   it("reports every fact as one line, in order", () => {
     const lines = buildDoctorReport(BASE_FACTS);
-    expect(lines).toHaveLength(7);
+    expect(lines).toHaveLength(11);
     expect(lines[0]).toContain("node:");
     expect(lines[1]).toContain("git author:");
     expect(lines[2]).toContain("git origin:");
@@ -207,6 +211,10 @@ describe("buildDoctorReport", () => {
     expect(lines[4]).toContain("embedding model cache:");
     expect(lines[5]).toContain("database:");
     expect(lines[6]).toContain("session-start hook:");
+    expect(lines[7]).toContain("consent:");
+    expect(lines[8]).toContain("status line:");
+    expect(lines[9]).toContain("last background error:");
+    expect(lines[10]).toContain("nothing blocks");
   });
 
   it("node below floor is called out", () => {
@@ -289,5 +297,83 @@ describe("buildDoctorReport", () => {
 
     expect(lines[2]).toContain("no 'origin' remote");
     expect(lines[2]).toContain("index");
+  });
+});
+
+// 19-value-to-a-user.md items 4 and 6.
+describe("the facts doctor learned to read", () => {
+  it.each([
+    ["given", "consent: given"],
+    ["not-given", "consent: not given — run `signpost init`"],
+    ["unknown", "consent: unknown — needs an origin remote and a readable database to check"],
+  ] as const)("consent %s", (consent, expected) => {
+    expect(buildDoctorReport({ ...BASE_FACTS, consent })[7]).toBe(expected);
+  });
+
+  it("names a status line whose script has gone, and what it costs", () => {
+    const line = buildDoctorReport({
+      ...BASE_FACTS,
+      statusLine: { state: "missing", scriptPath: "/old/node/lib/signposts/statusline/statusline.js" },
+    })[8]!;
+
+    expect(line).toContain("/old/node/lib/signposts/statusline/statusline.js");
+    // A missing script exits non-zero, which blanks the whole bar — the
+    // developer's own wrapped status line with it.
+    expect(line).toContain("blanks");
+    expect(line).toContain("signpost init");
+  });
+
+  it.each([
+    [{ state: "ok" } as const, "status line: installed"],
+    [{ state: "absent" } as const, "status line: not installed by signposts"],
+  ])("status line %j", (statusLine, expected) => {
+    expect(buildDoctorReport({ ...BASE_FACTS, statusLine })[8]).toBe(expected);
+  });
+
+  it("reports the background worker's last error, which nothing else ever showed", () => {
+    expect(buildDoctorReport({ ...BASE_FACTS, lastError: "index rebuild exited 1" })[9]).toBe(
+      "last background error: index rebuild exited 1",
+    );
+    expect(buildDoctorReport(BASE_FACTS)[9]).toBe("last background error: none");
+  });
+});
+
+describe("blockers", () => {
+  it("is empty for a machine that can run", () => {
+    expect(blockers(BASE_FACTS)).toEqual([]);
+    expect(buildDoctorReport(BASE_FACTS)[10]).toBe("ready: nothing blocks `signpost run`");
+  });
+
+  it.each([
+    [{ nodeMajorVersion: 22 }, "node below floor"],
+    [{ git: { authorEmail: null, repo: "acme/api" } }, "no git author"],
+    [{ git: { authorEmail: "greg@example.com", repo: null } }, "no origin remote"],
+    [{ dbIntegrity: "corrupt" as const }, "database corrupt"],
+    [{ consent: "not-given" as const }, "no consent"],
+  ])("%j blocks a run", (override, reason) => {
+    const facts = { ...BASE_FACTS, ...override };
+    expect(blockers(facts)).toEqual([reason]);
+    expect(buildDoctorReport(facts)[10]).toBe(`blocked: ${reason}`);
+  });
+
+  it("does not count what only degrades a run", () => {
+    // Worth saying, not worth failing on: each of these leaves `run` working.
+    expect(
+      blockers({
+        ...BASE_FACTS,
+        gh: { installed: false, authenticated: false },
+        modelCache: "unavailable",
+        dbIntegrity: "no-database",
+        hook: "absent",
+        consent: "unknown",
+        statusLine: { state: "missing", scriptPath: "/gone" },
+        lastError: "index rebuild exited 1",
+      }),
+    ).toEqual([]);
+  });
+
+  it("lists every blocker, not only the first", () => {
+    const facts = { ...BASE_FACTS, git: { authorEmail: null, repo: null }, consent: "unknown" as const };
+    expect(buildDoctorReport(facts)[10]).toBe("blocked: no git author, no origin remote");
   });
 });

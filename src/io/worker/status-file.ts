@@ -63,6 +63,7 @@ export function recordRunProgress(
     threadsWaiting: number;
     freshRun: boolean;
     judged?: { sessionId: string; lastActivityAt: Date };
+    reviewExpiresAt?: Date;
   },
 ): void {
   writeStatus(statusPath, runProgressStatus(readStatus(statusPath), progress));

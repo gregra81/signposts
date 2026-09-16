@@ -155,6 +155,22 @@ export interface GitFacts {
   repo: string | null;
 }
 
+/**
+ * Whether this repo has consented to spend tokens (07-triggering-and-ux.md,
+ * "First-run consent"). `unknown` when it cannot be read: no origin gives no
+ * key to look it up under, and an unreadable database has nowhere to look.
+ * Both of those are reported, and blocked on, by their own lines.
+ */
+export type ConsentFact = "given" | "not-given" | "unknown";
+
+/**
+ * The status line `init` installed, if it did (19-value-to-a-user.md item 6).
+ * The command holds an absolute path into one install, so a Node upgrade or an
+ * uninstall leaves it pointing at nothing — and a command that is not there
+ * exits non-zero, which blanks the whole bar, a wrapped status line with it.
+ */
+export type StatusLineFact = { state: "ok" } | { state: "absent" } | { state: "missing"; scriptPath: string };
+
 export interface DoctorFacts {
   nodeMajorVersion: number;
   nodeMinVersion: number;
@@ -163,6 +179,14 @@ export interface DoctorFacts {
   dbIntegrity: DbIntegrityStatus;
   hook: HookInstall;
   git: GitFacts;
+  consent: ConsentFact;
+  statusLine: StatusLineFact;
+  /**
+   * `lastError` from status.json: what the detached worker last failed at. Its
+   * stderr goes to /dev/null, and the status line tells the developer to run
+   * doctor about it — which, until this, read nothing at all.
+   */
+  lastError: string | null;
 }
 
 function nodeLine(facts: DoctorFacts): string {
@@ -221,8 +245,50 @@ function gitLine(label: string, value: string | null, absent: string): string {
   return `${label}: ${value ?? absent}`;
 }
 
-/** One line per fact, in the order 15-spec.md's story 72 lists them. */
+function consentLine(facts: DoctorFacts): string {
+  switch (facts.consent) {
+    case "given":
+      return "consent: given";
+    case "not-given":
+      return "consent: not given — run `signpost init`";
+    case "unknown":
+      return "consent: unknown — needs an origin remote and a readable database to check";
+  }
+}
+
+function statusLineLine(facts: DoctorFacts): string {
+  switch (facts.statusLine.state) {
+    case "ok":
+      return "status line: installed";
+    case "absent":
+      return "status line: not installed by signposts";
+    case "missing":
+      return (
+        `status line: points at ${facts.statusLine.scriptPath}, which is gone — it blanks your whole status bar, ` +
+        "including any status line it wraps; run `signpost init` to repoint it"
+      );
+  }
+}
+
+/**
+ * What stops `signpost run` outright, in report order (19-value-to-a-user.md
+ * item 4). Everything else doctor says degrades a run or a search without
+ * stopping it — a cold cache downloads, a missing `gh` leaves the work on a
+ * branch, a failed reindex leaves search stale — and is reported, not failed.
+ */
+export function blockers(facts: DoctorFacts): string[] {
+  return [
+    ...(isNodeVersionSupported(facts.nodeMajorVersion, facts.nodeMinVersion) ? [] : ["node below floor"]),
+    ...(facts.git.authorEmail === null ? ["no git author"] : []),
+    ...(facts.git.repo === null ? ["no origin remote"] : []),
+    ...(facts.dbIntegrity === "corrupt" ? ["database corrupt"] : []),
+    ...(facts.consent === "not-given" ? ["no consent"] : []),
+  ];
+}
+
+/** One line per fact, in the order 15-spec.md's story 72 lists them, then the verdict. */
 export function buildDoctorReport(facts: DoctorFacts): string[] {
+  const blocked = blockers(facts);
   return [
     nodeLine(facts),
     gitLine(
@@ -239,5 +305,9 @@ export function buildDoctorReport(facts: DoctorFacts): string[] {
     modelCacheLine(facts),
     dbIntegrityLine(facts),
     hookLine(facts),
+    consentLine(facts),
+    statusLineLine(facts),
+    `last background error: ${facts.lastError ?? "none"}`,
+    blocked.length === 0 ? "ready: nothing blocks `signpost run`" : `blocked: ${blocked.join(", ")}`,
   ];
 }

@@ -296,6 +296,33 @@ describe("renderPendingList", () => {
     expect(renderPendingList([], NOW)).toBe("Nothing is waiting for review.");
   });
 
+  // 19-value-to-a-user.md item 3.
+  it("says when a review expires, inside the warning window only", () => {
+    const text = renderPendingList(
+      [
+        {
+          sessionId: "sess-1",
+          waitingSince: new Date("2026-08-15T12:00:00.000Z"),
+          operations: 1,
+          expiresAt: new Date(NOW.getTime() + 2 * 86_400_000),
+        },
+        {
+          sessionId: "sess-2",
+          waitingSince: new Date("2026-09-08T11:00:00.000Z"),
+          operations: 1,
+          expiresAt: new Date(NOW.getTime() + 20 * 86_400_000),
+        },
+      ],
+      NOW,
+    );
+
+    expect(text).toBe(
+      "2 sessions waiting for review:\n" +
+        "  1. session sess-1 — 1 operation, waiting 24 days, expires in 2 days\n" +
+        "  2. session sess-2 — 1 operation, waiting 1 hour",
+    );
+  });
+
   it("numbers each session, with what it holds and how long it has held it", () => {
     const text = renderPendingList(
       [

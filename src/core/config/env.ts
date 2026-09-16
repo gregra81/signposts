@@ -59,7 +59,12 @@ const SECTION_MAPPINGS: Readonly<Record<string, readonly LeafMapping[]>> = {
   ],
 };
 
-const TOP_LEVEL_MAPPING = { envVar: "SIGNPOSTS_VERSION", leaf: "version", type: "number" } as const;
+// Not `SIGNPOSTS_VERSION`. docs/install.sh documents that name as the release
+// to pin, and this layer used to read it as the config schema version — a
+// number — so a developer who exported the pin the installer told them about
+// got a stack trace out of every command, doctor included
+// (19-value-to-a-user.md item 5). The installer's use is the published one.
+const TOP_LEVEL_MAPPING = { envVar: "SIGNPOSTS_CONFIG_VERSION", leaf: "version", type: "number" } as const;
 
 function coerce(raw: string, type: EnvType, envVar: string): unknown {
   switch (type) {

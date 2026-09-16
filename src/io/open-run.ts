@@ -125,7 +125,7 @@ const openRunWith = async (
           now,
         }),
 
-      pendingReviews: (now) => listPendingReviews({ graph, checkpointer, repo, now, warn }),
+      pendingReviews: (now, options) => listPendingReviews({ graph, checkpointer, repo, now, warn, ...options }),
 
       syncCorpus: () =>
         syncCorpus({

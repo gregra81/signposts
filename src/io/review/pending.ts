@@ -10,7 +10,8 @@
 // The judging is deliberately the same code `startRun` and `resumeRun` use
 // (decideCheckpoint). A thread this build cannot resume is not shown, because
 // showing it would invite a decision that `resumeRun` then refuses; a thread
-// past THREAD_EXPIRY_DAYS is dropped here and said so, for the reason
+// past THREAD_EXPIRY_DAYS is dropped here and said so — by `signpost review`
+// only, see `dropExpired` — for the reason
 // 04-extraction-graph.md gives — its partition was computed against
 // neighbours, ids and a bootstrap flag the repo has long since moved past, so
 // there is nothing honest left to review.
@@ -23,6 +24,7 @@ import type {
 import type { PendingReview } from "../../cli/run-port.ts";
 import { THREAD_EXPIRY_DAYS } from "../../core/config/constants.ts";
 import { decideCheckpoint } from "../../core/graph/state-version.ts";
+import { reviewExpiresAt } from "../../core/review/expiry.ts";
 import {
   pendingOnThread,
   threadConfigFor,
@@ -40,6 +42,8 @@ export interface PendingReviewsInput {
   now: Date;
   /** Where the drop of an expired thread is logged. */
   warn: (message: string) => void;
+  /** See PendingReviewsOptions in ../../cli/run-port.ts. Off unless a person is reading. */
+  dropExpired?: boolean;
 }
 
 /** What a checkpoint carries about the session it belongs to. */
@@ -86,6 +90,13 @@ export async function listPendingReviews(input: PendingReviewsInput): Promise<Pe
     }
 
     if (decision.action === "expired") {
+      if (input.dropExpired !== true) {
+        // Not listed — `resumeRun` would refuse it — and not deleted: whoever
+        // is reading this has nobody to tell. The developer's own `signpost
+        // review` drops it, in front of them, after the status line and the
+        // session-start notice have spent a week saying it was coming.
+        continue;
+      }
       input.warn(
         `Pending review for thread ${threadId} is ${decision.ageDays.toFixed(0)} days old ` +
           `(expiry ${String(THREAD_EXPIRY_DAYS)} days). Dropping it.`,
@@ -101,6 +112,7 @@ export async function listPendingReviews(input: PendingReviewsInput): Promise<Pe
         contentHash: identity.contentHash,
         interruptId: halt.id,
         waitingSince: new Date(tuple.checkpoint.ts),
+        expiresAt: reviewExpiresAt(new Date(tuple.checkpoint.ts)),
         needsHuman: halt.request.needsHuman,
       });
     }
