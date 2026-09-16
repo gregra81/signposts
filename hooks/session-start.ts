@@ -242,6 +242,13 @@ export interface WorkerState {
    * act on it.
    */
   threadsWaiting?: number;
+  /**
+   * Session id to the last activity it was judged at — the transcript's mtime
+   * then. Written by the run commands for every session they finish or skip,
+   * so a run that judged two of five stops the hook counting those two before
+   * the watermark can move (19-value-to-a-user.md item 2).
+   */
+  judgedSessions?: Record<string, string>;
 }
 
 export function readWorkerState(statuslineState: string): WorkerState {
@@ -260,6 +267,25 @@ export function watermarkMs(state: WorkerState): number {
   }
   const parsed = Date.parse(state.lastRunFinishedAt);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/**
+ * `judgedSessions` as epoch ms, dropping any entry that does not parse — a
+ * malformed entry must make the hook count that transcript, never hide it.
+ */
+export function judgedSessions(state: WorkerState): Record<string, number> {
+  const judged: Record<string, number> = {};
+  const entries = state.judgedSessions;
+  if (typeof entries !== "object" || entries === null) {
+    return judged;
+  }
+  for (const [sessionId, at] of Object.entries(entries)) {
+    const ms = typeof at === "string" ? Date.parse(at) : Number.NaN;
+    if (!Number.isNaN(ms)) {
+      judged[sessionId] = ms;
+    }
+  }
+  return judged;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,8 +310,24 @@ export function looksEligible(
   return idle && notTooOld && sinceLastRun;
 }
 
+/**
+ * Whether a run has judged this exact transcript: same session id, and an
+ * mtime within a millisecond of the one it was judged at. The recorded value
+ * is a `Date` built from the same stat, which carries whole milliseconds where
+ * `mtimeMs` carries a fraction — hence a window rather than equality. A
+ * transcript touched since has moved further than that, and counts again.
+ */
+export function alreadyJudged(judgedAtMs: number | undefined, mtimeMs: number): boolean {
+  return judgedAtMs !== undefined && Math.abs(mtimeMs - judgedAtMs) < 1;
+}
+
 /** How many of this repo's transcripts are worth waking the worker for. */
-export function countEligibleSessions(paths: HookPaths, nowMs: number, watermark: number): number {
+export function countEligibleSessions(
+  paths: HookPaths,
+  nowMs: number,
+  watermark: number,
+  judged: Record<string, number> = {},
+): number {
   const projectDir = path.join(paths.transcriptRoot, projectDirName(paths.repoRoot));
 
   let entries: string[];
@@ -305,6 +347,9 @@ export function countEligibleSessions(paths: HookPaths, nowMs: number, watermark
     try {
       stats = statSync(path.join(projectDir, entry));
     } catch {
+      continue;
+    }
+    if (alreadyJudged(judged[entry.slice(0, -TRANSCRIPT_EXTENSION.length)], stats.mtimeMs)) {
       continue;
     }
     if (looksEligible({ lastActivityMs: stats.mtimeMs, startedMs: stats.birthtimeMs }, nowMs, watermark)) {
@@ -659,7 +704,7 @@ function main(): void {
 
   const state = readWorkerState(paths.statuslineState);
   const reasons: WakeReasons = {
-    sessions: countEligibleSessions(paths, nowMs, watermarkMs(state)),
+    sessions: countEligibleSessions(paths, nowMs, watermarkMs(state), judgedSessions(state)),
     threads: countThreadsWaiting(state),
     staleIndex: indexIsStale(paths),
   };

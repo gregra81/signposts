@@ -18,7 +18,7 @@ import { makeCommitPort } from "./commit/commit-port.ts";
 import { openCheckpointer } from "./db/checkpointer.ts";
 import { openDb } from "./db/migrate.ts";
 import { markBootstrapComplete } from "./db/repo-state.ts";
-import { markProcessed, processedKeys } from "./db/sessions.ts";
+import { markProcessed, markSkipped, processedKeys } from "./db/sessions.ts";
 import { createEmbedder } from "./embed/embedder.ts";
 import type { Forge } from "./forge/forge.ts";
 import { ghForge } from "./forge/gh-forge.ts";
@@ -148,9 +148,20 @@ const openRunWith = async (
           contentHash: session.contentHash,
           repo,
           repoRoot,
-          lastActivityAt: session.lastActivityAt.toISOString(),
+          lastActivityAt: session.lastActivityAt?.toISOString() ?? null,
           tokenEstimate: session.tokenEstimate,
         });
+      },
+
+      skip: (session) => {
+        markSkipped(db, {
+          sessionId: session.sessionId,
+          contentHash: session.contentHash,
+          repo,
+          repoRoot,
+          lastActivityAt: session.lastActivityAt?.toISOString() ?? null,
+          tokenEstimate: null,
+        }, session.reason);
       },
 
       close: () => {

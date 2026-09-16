@@ -120,6 +120,34 @@ describe("signpost worker", () => {
     120_000,
   );
 
+  // 19-value-to-a-user.md item 2. The map is the run commands' half of the
+  // file, and both of the worker's writes replace the file whole: dropping it
+  // here would make the hook forget every judged session whenever a session
+  // start woke a worker, which is every session start.
+  it(
+    "carries the sessions a run judged through its own writes",
+    async () => {
+      writeSignpostFile(signpost("a-claim", "Something true about the system"));
+      const judged = { "sess-a": "2026-09-01T09:00:00.000Z" };
+      mkdirSync(config.paths.stateDir, { recursive: true });
+      writeFileSync(
+        config.paths.statuslineState,
+        JSON.stringify({
+          phase: "idle",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          eligibleSessions: 0,
+          threadsWaiting: 0,
+          judgedSessions: judged,
+        }),
+      );
+
+      expect(await worker()).toBe(0);
+
+      expect(status().judgedSessions).toEqual(judged);
+    },
+    120_000,
+  );
+
   // The whole reason the worker takes a census instead of doing the work.
   it(
     "never writes the session watermark, so a backlog keeps waking the hook",

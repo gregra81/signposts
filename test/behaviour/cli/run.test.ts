@@ -151,6 +151,31 @@ describe("the run loop", () => {
     expect(output.sessions.map((session) => session.sessionId)).toEqual([SESSION_ID]);
   });
 
+  // 19-value-to-a-user.md item 1, through the production seam: the real gutter,
+  // the real `sessions` table, and the real `eligible` that reads it back.
+  it("skips an empty transcript once, and never offers it again", async () => {
+    const empty = "01J9FEMPTY";
+    const emptyPath = path.join(homeDir, ".claude", "projects", projectDirName(repoRoot), `${empty}.jsonl`);
+    writeFileSync(emptyPath, "", "utf8");
+    const idle = new Date(Date.now() - IDLE_DAYS * 24 * 60 * 60 * 1000);
+    utimesSync(emptyPath, idle, idle);
+
+    const ran = createFakeStdio();
+    const exitCode = await runCli(["run", "--session", empty], { config, stdio: ran });
+
+    expect(exitCode).toBe(0);
+    expect(firstJson(ran.writtenOutput())).toMatchObject({
+      sessionId: empty,
+      status: "skipped",
+      reason: expect.stringContaining("no usable transcript lines"),
+    });
+
+    const listed = createFakeStdio();
+    await runCli(["sessions"], { config, stdio: listed });
+    const { sessions } = firstJson(listed.writtenOutput()) as { sessions: { sessionId: string }[] };
+    expect(sessions.map((session) => session.sessionId)).toEqual([SESSION_ID]);
+  }, 30_000);
+
   it("halts on the first model call, carrying everything needed to answer it", async () => {
     const stdio = createFakeStdio();
 

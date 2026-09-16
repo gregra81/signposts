@@ -24,12 +24,35 @@ export interface RunSession {
   lastActivityAt: Date;
 }
 
+/**
+ * A session as a command settles it: the listed session, or one named back by a
+ * halt whose transcript has since moved on. For the second kind the last
+ * activity of the bytes the thread was built from is not known, and is `null`
+ * rather than a guess (../cli/with-run.ts, `namedSession`).
+ */
+export interface SettledSession extends Omit<RunSession, "lastActivityAt"> {
+  lastActivityAt: Date | null;
+}
+
 /** What a finished session is recorded as, so no later run picks it up again. */
 export interface FinishedSession {
   sessionId: string;
   contentHash: string;
-  lastActivityAt: Date;
+  /** `null` when unknown — see SettledSession. */
+  lastActivityAt: Date | null;
   tokenEstimate: number | null;
+}
+
+/**
+ * A session recorded as judged without being extracted, because its transcript
+ * never can be (../core/errors/unusable-transcript.ts). `reason` is for the
+ * caller; the record itself only has to stop the session being offered again.
+ */
+export interface SkippedSession {
+  sessionId: string;
+  contentHash: string;
+  lastActivityAt: Date | null;
+  reason: string;
 }
 
 /**
@@ -76,6 +99,12 @@ export interface RunHandle {
   commitOutcome(): CommitOutcome | null;
   /** Records a session as processed, and the repo as past its bootstrap run. */
   finish(session: FinishedSession): void;
+  /**
+   * Records a session as judged and not processed, so no later run offers it.
+   * Unlike `finish` it does not end the bootstrap run: nothing was extracted,
+   * so nothing has been through the gate a person was meant to check.
+   */
+  skip(session: SkippedSession): void;
   /**
    * Brings the mirror and the index up to the signposts on disk, and reports
    * any file that would not parse.

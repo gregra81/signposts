@@ -389,3 +389,114 @@ describe("progressIsLive", () => {
     expect(progressIsLive(progress("last tuesday"), NOW)).toBe(false);
   });
 });
+
+// 19-value-to-a-user.md item 2: what the hook reads to stop counting a session
+// a run has judged, before the watermark can move.
+describe("judgedSessions", () => {
+  const judging = (sessionId: string, lastActivityAt: Date) => ({
+    now: NOW,
+    remaining: 1,
+    sessionFinished: true,
+    found: 0,
+    threadsWaiting: 0,
+    freshRun: false,
+    judged: { sessionId, lastActivityAt },
+  });
+
+  it("records the judged session at its own last activity", () => {
+    const status = runProgressStatus(undefined, judging("sess-a", FINISHED_THROUGH));
+    expect(status.judgedSessions).toEqual({ "sess-a": FINISHED_THROUGH.toISOString() });
+  });
+
+  it("adds to what earlier invocations of the run recorded", () => {
+    const first = runProgressStatus(undefined, judging("sess-a", FINISHED_THROUGH));
+    const later = new Date(FINISHED_THROUGH.getTime() + 1000);
+    const second = runProgressStatus(first, judging("sess-b", later));
+
+    expect(second.judgedSessions).toEqual({
+      "sess-a": FINISHED_THROUGH.toISOString(),
+      "sess-b": later.toISOString(),
+    });
+  });
+
+  it("keeps them, and adds nothing, while a session is halted", () => {
+    const first = runProgressStatus(undefined, judging("sess-a", FINISHED_THROUGH));
+    const { judged: _none, ...halted } = judging("unused", NOW);
+    const status = runProgressStatus(first, { ...halted, sessionFinished: false });
+
+    expect(status.judgedSessions).toEqual({ "sess-a": FINISHED_THROUGH.toISOString() });
+  });
+
+  it("omits the map rather than writing an empty one", () => {
+    const { judged: _none, ...halted } = judging("unused", NOW);
+    expect(runProgressStatus(undefined, halted)).not.toHaveProperty("judgedSessions");
+  });
+
+  it("forgets what the watermark already covers", () => {
+    const previous = {
+      phase: "idle" as const,
+      updatedAt: WATERMARK,
+      eligibleSessions: 0,
+      threadsWaiting: 0,
+      lastRunFinishedAt: WATERMARK,
+      judgedSessions: { "at-watermark": WATERMARK, "before-watermark": "2026-09-09T11:00:00.000Z" },
+    };
+    const later = new Date("2026-09-09T11:45:00.000Z");
+
+    expect(runProgressStatus(previous, judging("after", later)).judgedSessions).toEqual({
+      after: later.toISOString(),
+    });
+  });
+
+  it("forgets what is too old for the hook to count", () => {
+    // MAX_AGE_DAYS is 90: a transcript that old is out of the hook's window
+    // whatever the map says, so remembering it only grows the file.
+    const old = new Date(NOW.getTime() - 91 * 86_400_000);
+    const recent = new Date(NOW.getTime() - 89 * 86_400_000);
+    const withOld = runProgressStatus(undefined, judging("old", old));
+    expect(withOld).not.toHaveProperty("judgedSessions");
+
+    expect(runProgressStatus(undefined, judging("recent", recent)).judgedSessions).toEqual({
+      recent: recent.toISOString(),
+    });
+  });
+
+  it("is trimmed to what is after the watermark when the watermark moves", () => {
+    const previous = {
+      phase: "idle" as const,
+      updatedAt: WATERMARK,
+      eligibleSessions: 0,
+      threadsWaiting: 0,
+      judgedSessions: {
+        covered: FINISHED_THROUGH.toISOString(),
+        newer: "2026-09-09T11:45:00.000Z",
+      },
+    };
+
+    expect(runFinishedStatus(previous, FINISHED_THROUGH).judgedSessions).toEqual({
+      newer: "2026-09-09T11:45:00.000Z",
+    });
+  });
+
+  it("is dropped entirely when the watermark covers all of it", () => {
+    const previous = {
+      phase: "idle" as const,
+      updatedAt: WATERMARK,
+      eligibleSessions: 0,
+      threadsWaiting: 0,
+      judgedSessions: { covered: FINISHED_THROUGH.toISOString() },
+    };
+
+    expect(runFinishedStatus(previous, FINISHED_THROUGH)).not.toHaveProperty("judgedSessions");
+  });
+
+  it("is carried through both of the worker's writes", () => {
+    const judged = { "sess-a": WATERMARK };
+    expect(runningStatus(NOW, undefined, undefined, judged).judgedSessions).toEqual(judged);
+    expect(
+      finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0, judgedSessions: judged }).judgedSessions,
+    ).toEqual(judged);
+    expect(runningStatus(NOW)).not.toHaveProperty("judgedSessions");
+    expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 })).not.toHaveProperty("judgedSessions");
+  });
+});

@@ -173,6 +173,31 @@ const migrations: MigrationStep[] = [
   (db) => {
     db.exec(`ALTER TABLE signposts ADD COLUMN pending_review INTEGER NOT NULL DEFAULT 0`);
   },
+  // `sessions.last_activity_at` becomes nullable. A review answered after the
+  // developer carried on in the halted Claude Code session has no recorded
+  // activity for the bytes the thread was built from, and the only value
+  // available to fill a NOT NULL column with was the clock — which then also
+  // became the hook's watermark (../../cli/with-run.ts, `namedSession`). Same
+  // copy-drop-rename as repo_state above, preserving every row.
+  (db) => {
+    db.exec(`
+      CREATE TABLE sessions_new (
+        session_id TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        repo TEXT NOT NULL,
+        repo_root TEXT NOT NULL,
+        last_activity_at TEXT,
+        token_estimate INTEGER,
+        status TEXT NOT NULL,
+        skip_reason TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, content_hash)
+      )
+    `);
+    db.exec(`INSERT INTO sessions_new SELECT * FROM sessions`);
+    db.exec(`DROP TABLE sessions`);
+    db.exec(`ALTER TABLE sessions_new RENAME TO sessions`);
+  },
 ];
 
 /**

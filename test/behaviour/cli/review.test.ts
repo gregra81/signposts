@@ -140,6 +140,7 @@ function openRunWith(harness: Harness, manualCommand: string | null = null): Ope
       index: harness.index,
       eligible: () => [],
       finish: (session) => finished.push(session),
+      skip: () => {},
       // What the commit port left undone, if anything — answering the last
       // review is often the invocation that commits.
       commitOutcome: () =>

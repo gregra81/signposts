@@ -86,6 +86,7 @@ describe("what a run reports to whatever ran it", () => {
         return [SESSION];
       },
       finish: () => {},
+      skip: () => {},
       commitOutcome: () =>
         manualCommand === null
           ? null

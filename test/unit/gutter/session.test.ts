@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { UnusableTranscriptError } from "../../../src/core/errors/unusable-transcript.js";
 import { gutterSession } from "../../../src/io/gutter/session.js";
 import { AUTHOR_PSEUDONYM_PREFIX } from "../../../src/core/config/constants.js";
 
@@ -159,5 +160,35 @@ describe("gutterSession — redaction", () => {
 
     expect(session.turns[0]?.text).toBe("the build fails on node 24");
     expect(session.redactionCount).toBe(0);
+  });
+});
+
+describe("gutterSession — a transcript that can never be extracted", () => {
+  let dir: string;
+  let transcript: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "signposts-session-unusable-"));
+    transcript = path.join(dir, "session.jsonl");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  // 19-value-to-a-user.md item 1. These are properties of the bytes, so they
+  // throw a type the run loop can record as judged rather than retry forever.
+  it("rejects an empty file as unusable", async () => {
+    writeFileSync(transcript, "", "utf8");
+    await expect(gutterSession(transcript, SCOPE)).rejects.toBeInstanceOf(UnusableTranscriptError);
+  });
+
+  it("rejects a file whose every line is a sidechain as unusable", async () => {
+    const sidechain = JSON.stringify(
+      envelope({ isSidechain: true, type: "user", origin: { kind: "human" }, message: { role: "user", content: "hi" } }),
+    );
+    writeFileSync(transcript, `${sidechain}\n`, "utf8");
+    await expect(gutterSession(transcript, SCOPE)).rejects.toThrow(/no usable transcript lines/);
+    await expect(gutterSession(transcript, SCOPE)).rejects.toBeInstanceOf(UnusableTranscriptError);
   });
 });

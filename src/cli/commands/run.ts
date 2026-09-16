@@ -22,10 +22,11 @@ import { JSON_INDENT } from "../../core/config/constants.ts";
 import { parseReplies } from "../../core/cli/replies.ts";
 import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import { OPERATION_TAGS } from "../../core/contracts/graph.ts";
+import { UnusableTranscriptError } from "../../core/errors/unusable-transcript.ts";
 import { REVIEW_REQUEST_KIND, resumeRun, startRun, type RunResult } from "../../graph/index.ts";
 import type { RunOutput, SessionRef, SessionsOutput } from "../protocol.ts";
-import type { OpenRun, RunHandle, RunSession } from "../run-port.ts";
-import { fail, namedSession, settle, withRun } from "../with-run.ts";
+import type { OpenRun, RunHandle, RunSession, SettledSession } from "../run-port.ts";
+import { fail, namedSession, settle, settleSkipped, withRun } from "../with-run.ts";
 import {
   contextLines,
   eligibleLine,
@@ -93,12 +94,12 @@ function tracer(input: RunCommandInput): (lines: () => string | readonly string[
 }
 
 /** A session in the shape ../../core/cli/verbose.ts prints, dates already formatted. */
-function traceable(session: RunSession): VerboseSession {
+function traceable(session: SettledSession): VerboseSession {
   return {
     sessionId: session.sessionId,
     contentHash: session.contentHash,
     transcriptPath: session.transcriptPath,
-    lastActivityAt: session.lastActivityAt.toISOString(),
+    lastActivityAt: session.lastActivityAt?.toISOString() ?? "unknown",
   };
 }
 
@@ -153,15 +154,66 @@ export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
       }
     }
 
-    const result = await startRun(handle.graph, handle.checkpointer, {
-      repo: handle.repo,
-      repoRoot: input.repoRoot,
-      sessionId: session.sessionId,
-      contentHash: session.contentHash,
-      transcriptPath: session.transcriptPath,
-    });
+    let result: RunResult;
+    try {
+      result = await startRun(handle.graph, handle.checkpointer, {
+        repo: handle.repo,
+        repoRoot: input.repoRoot,
+        sessionId: session.sessionId,
+        contentHash: session.contentHash,
+        transcriptPath: session.transcriptPath,
+      });
+    } catch (error) {
+      // Only here. `extract` re-reads the transcript each time it runs, resumes
+      // included, so a file emptied or grown into a redactor failure during a
+      // halt reaches `resume` or `review` as this same error — and there it is
+      // left to `withRun` as an ordinary failure. That is deliberate: the
+      // thread holds answers already given for the old bytes, and recording
+      // the session as skipped would discard them on a file that may change
+      // again. Anything else that throws here is not known to be a property of
+      // the file either, so `withRun` reports it and the session stays eligible.
+      if (!(error instanceof UnusableTranscriptError)) {
+        throw error;
+      }
+      return skipped(input, handle, session, error.message);
+    }
     return report(input, handle, session, result);
   });
+}
+
+/**
+ * Records and reports a transcript that can never be extracted
+ * (19-value-to-a-user.md item 1). Exit 0, because nothing went wrong that
+ * anyone can fix: the skill reads 1 as "signposts crashed", and used to say so
+ * about an empty file every day.
+ */
+async function skipped(
+  input: RunCommandInput,
+  handle: RunHandle,
+  session: RunSession,
+  reason: string,
+): Promise<ExitCode> {
+  await settleSkipped({
+    handle,
+    session,
+    reason,
+    statusPath: input.config.paths.statuslineState,
+    now: new Date(),
+    isFirst: input.isFirst === true,
+  });
+  tracer(input)(() => `skipped ${session.sessionId}: ${reason}`);
+
+  const output: RunOutput = {
+    sessionId: session.sessionId,
+    contentHash: session.contentHash,
+    status: "skipped",
+    pending: [],
+    proposed: [],
+    commit: null,
+    reason,
+  };
+  write(input.stdout, output);
+  return EXIT_CODES.ok;
 }
 
 /** Answers what a halted session asked for and continues it. */
@@ -208,7 +260,7 @@ function pick(input: RunCommandInput, handle: RunHandle): RunSession | undefined
  * from the file — `namedSession` in ../with-run.ts explains why both halves of
  * the thread id have to be handed back rather than re-derived.
  */
-function resuming(input: RunCommandInput, handle: RunHandle): RunSession | undefined {
+function resuming(input: RunCommandInput, handle: RunHandle): SettledSession | undefined {
   if (input.sessionId === undefined || input.contentHash === undefined) {
     return undefined;
   }
@@ -219,7 +271,7 @@ function resuming(input: RunCommandInput, handle: RunHandle): RunSession | undef
 async function report(
   input: RunCommandInput,
   handle: RunHandle,
-  session: RunSession,
+  session: SettledSession,
   result: RunResult,
 ): Promise<ExitCode> {
   await settle({
