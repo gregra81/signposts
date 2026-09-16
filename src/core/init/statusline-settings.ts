@@ -96,6 +96,26 @@ function isOurs(command: string): boolean {
   return command.includes(OUR_SCRIPT_SUFFIX);
 }
 
+/** `node '<path>'`, as `ourCommand` writes it, with `'\''` escapes inside. */
+const QUOTED_SCRIPT = /^node '((?:[^']|'\\'')*)'/;
+/** `node <path>`, as a hand edit might leave it. */
+const BARE_SCRIPT = /^node (\S+)/;
+
+/**
+ * The script our entry runs, or undefined when the command is not ours. For
+ * `doctor`, which checks that it still exists (19-value-to-a-user.md item 6).
+ */
+export function ourScriptPath(command: string): string | undefined {
+  if (!isOurs(command)) {
+    return undefined;
+  }
+  const quoted = QUOTED_SCRIPT.exec(command);
+  if (quoted !== null) {
+    return quoted[1]!.split(`'\\''`).join("'");
+  }
+  return BARE_SCRIPT.exec(command)?.[1];
+}
+
 /**
  * The command an earlier install wrapped, recovered from our own entry.
  *

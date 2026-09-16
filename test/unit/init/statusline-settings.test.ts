@@ -8,6 +8,7 @@ import {
   shellQuote,
   unwrap,
   type Settings,
+  ourScriptPath,
 } from "../../../src/core/init/statusline-settings.ts";
 import { STATUSLINE_REFRESH_SECONDS } from "../../../src/core/config/constants.ts";
 
@@ -210,5 +211,28 @@ describe("planStatusLine", () => {
     );
 
     expect(plan.outcome).toBe("installed");
+  });
+});
+
+// 19-value-to-a-user.md item 6: doctor checks the script our entry points at.
+describe("ourScriptPath", () => {
+  it("reads the script out of the command init writes", () => {
+    expect(ourScriptPath(ourCommand("/opt/n/lib/signposts/statusline/statusline.js"))).toBe(
+      "/opt/n/lib/signposts/statusline/statusline.js",
+    );
+  });
+
+  it("reads it out of a wrapping command, and through a quote in the path", () => {
+    const script = "/Users/o'neil/lib/signposts/statusline/statusline.js";
+    expect(ourScriptPath(ourCommand(script, "git branch --show-current"))).toBe(script);
+  });
+
+  it("reads a hand-edited, unquoted command", () => {
+    expect(ourScriptPath("node /opt/signposts/statusline/statusline.js")).toBe("/opt/signposts/statusline/statusline.js");
+  });
+
+  it("is undefined for a status line that is not ours", () => {
+    expect(ourScriptPath("git branch --show-current")).toBeUndefined();
+    expect(ourScriptPath("")).toBeUndefined();
   });
 });
