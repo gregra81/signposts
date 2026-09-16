@@ -13,6 +13,11 @@
 // therefore safe — it is keyed on the content hash, so a transcript that grows
 // is a different key and is looked at again. Anything else that throws may be
 // a disk, a lock or a bug, and is left eligible to be retried.
+//
+// One way the determinism argument is weaker than it reads: `safeRedact`
+// catches any throw, so a *bug* in a redactor also lands here, and the skip
+// outlives the release that fixes it. `sessions.skip_reason` records which
+// cause it was, so those rows can be found and cleared.
 
 export class UnusableTranscriptError extends Error {
   constructor(message: string) {

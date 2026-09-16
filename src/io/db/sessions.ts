@@ -49,19 +49,29 @@ export function markProcessed(db: Database.Database, record: SessionRecord): voi
   writeSession(db, record, STATUS_DONE);
 }
 
-/** Records a session skipped as unusable. Same row, same key, different status. */
-export function markSkipped(db: Database.Database, record: SessionRecord): void {
-  writeSession(db, record, STATUS_SKIPPED);
+/**
+ * Records a session skipped as unusable. Same row, same key, different status,
+ * and the reason in `skip_reason` — the only record of why a session will
+ * never be offered again, once the stdout line that said so has scrolled away.
+ */
+export function markSkipped(db: Database.Database, record: SessionRecord, reason: string): void {
+  writeSession(db, record, STATUS_SKIPPED, reason);
 }
 
-function writeSession(db: Database.Database, record: SessionRecord, status: string): void {
+function writeSession(
+  db: Database.Database,
+  record: SessionRecord,
+  status: string,
+  skipReason: string | null = null,
+): void {
   db.prepare(
     `INSERT INTO sessions
-       (session_id, content_hash, repo, repo_root, last_activity_at, token_estimate, status, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (session_id, content_hash, repo, repo_root, last_activity_at, token_estimate, status, skip_reason, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (session_id, content_hash) DO UPDATE SET
        status = excluded.status,
        token_estimate = excluded.token_estimate,
+       skip_reason = excluded.skip_reason,
        updated_at = excluded.updated_at`,
   ).run(
     record.sessionId,
@@ -71,6 +81,7 @@ function writeSession(db: Database.Database, record: SessionRecord, status: stri
     record.lastActivityAt,
     record.tokenEstimate,
     status,
+    skipReason,
     new Date().toISOString(),
   );
 }

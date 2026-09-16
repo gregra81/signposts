@@ -70,7 +70,7 @@ async function hashFile(filePath: string): Promise<string> {
 function redactOne(text: string, redactors: readonly Redactor[]): string {
   const result = safeRedact(text, redactors);
   if (!result.ok) {
-    throw new UnusableTranscriptError("redaction failed — transcript skipped rather than sent partially redacted");
+    throw new UnusableTranscriptError("redaction failed on this transcript — nothing was sent partially redacted");
   }
   return result.text;
 }

@@ -36,24 +36,31 @@ describe("the sessions table", () => {
 
   it("treats a finished session and a skipped one alike: neither is offered again", () => {
     markProcessed(db, record({ sessionId: "finished", tokenEstimate: 500 }));
-    markSkipped(db, record({ sessionId: "unusable", contentHash: "hash-2" }));
+    markSkipped(db, record({ sessionId: "unusable", contentHash: "hash-2" }), "empty");
 
     expect(processedKeys(db, "acme/api")).toEqual(new Set(["finished:hash-1", "unusable:hash-2"]));
   });
 
-  it("records which of the two it was", () => {
+  it("records which of the two it was, and why a skipped one was skipped", () => {
     markProcessed(db, record({ sessionId: "finished" }));
-    markSkipped(db, record({ sessionId: "unusable" }));
+    markSkipped(db, record({ sessionId: "unusable" }), "/t/unusable.jsonl: no usable transcript lines");
 
-    const rows = db.prepare("SELECT session_id, status FROM sessions ORDER BY session_id").all();
+    const rows = db.prepare("SELECT session_id, status, skip_reason FROM sessions ORDER BY session_id").all();
     expect(rows).toEqual([
-      { session_id: "finished", status: "done" },
-      { session_id: "unusable", status: "skipped" },
+      { session_id: "finished", status: "done", skip_reason: null },
+      { session_id: "unusable", status: "skipped", skip_reason: "/t/unusable.jsonl: no usable transcript lines" },
     ]);
   });
 
+  it("clears the reason if the same transcript is later recorded as finished", () => {
+    markSkipped(db, record(), "redaction failed on this transcript");
+    markProcessed(db, record());
+
+    expect(db.prepare("SELECT status, skip_reason FROM sessions").get()).toEqual({ status: "done", skip_reason: null });
+  });
+
   it("keeps each repo's sessions to that repo", () => {
-    markSkipped(db, record({ repo: "acme/other" }));
+    markSkipped(db, record({ repo: "acme/other" }), "empty");
     expect(processedKeys(db, "acme/api")).toEqual(new Set());
   });
 

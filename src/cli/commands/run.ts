@@ -164,10 +164,14 @@ export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
         transcriptPath: session.transcriptPath,
       });
     } catch (error) {
-      // Only on `run`: the transcript is read once, at the start of a thread,
-      // so `resume` never meets it. Anything else that throws is not known to
-      // be a property of the file, and `withRun` reports it as a failure and
-      // leaves the session eligible to be tried again.
+      // Only here. `extract` re-reads the transcript each time it runs, resumes
+      // included, so a file emptied or grown into a redactor failure during a
+      // halt reaches `resume` or `review` as this same error — and there it is
+      // left to `withRun` as an ordinary failure. That is deliberate: the
+      // thread holds answers already given for the old bytes, and recording
+      // the session as skipped would discard them on a file that may change
+      // again. Anything else that throws here is not known to be a property of
+      // the file either, so `withRun` reports it and the session stays eligible.
       if (!(error instanceof UnusableTranscriptError)) {
         throw error;
       }

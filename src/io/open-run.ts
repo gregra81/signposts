@@ -161,7 +161,7 @@ const openRunWith = async (
           repoRoot,
           lastActivityAt: session.lastActivityAt.toISOString(),
           tokenEstimate: null,
-        });
+        }, session.reason);
       },
 
       close: () => {
