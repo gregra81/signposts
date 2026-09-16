@@ -25,7 +25,7 @@ import { OPERATION_TAGS } from "../../core/contracts/graph.ts";
 import { UnusableTranscriptError } from "../../core/errors/unusable-transcript.ts";
 import { REVIEW_REQUEST_KIND, resumeRun, startRun, type RunResult } from "../../graph/index.ts";
 import type { RunOutput, SessionRef, SessionsOutput } from "../protocol.ts";
-import type { OpenRun, RunHandle, RunSession } from "../run-port.ts";
+import type { OpenRun, RunHandle, RunSession, SettledSession } from "../run-port.ts";
 import { fail, namedSession, settle, settleSkipped, withRun } from "../with-run.ts";
 import {
   contextLines,
@@ -94,12 +94,12 @@ function tracer(input: RunCommandInput): (lines: () => string | readonly string[
 }
 
 /** A session in the shape ../../core/cli/verbose.ts prints, dates already formatted. */
-function traceable(session: RunSession): VerboseSession {
+function traceable(session: SettledSession): VerboseSession {
   return {
     sessionId: session.sessionId,
     contentHash: session.contentHash,
     transcriptPath: session.transcriptPath,
-    lastActivityAt: session.lastActivityAt.toISOString(),
+    lastActivityAt: session.lastActivityAt?.toISOString() ?? "unknown",
   };
 }
 
@@ -260,7 +260,7 @@ function pick(input: RunCommandInput, handle: RunHandle): RunSession | undefined
  * from the file — `namedSession` in ../with-run.ts explains why both halves of
  * the thread id have to be handed back rather than re-derived.
  */
-function resuming(input: RunCommandInput, handle: RunHandle): RunSession | undefined {
+function resuming(input: RunCommandInput, handle: RunHandle): SettledSession | undefined {
   if (input.sessionId === undefined || input.contentHash === undefined) {
     return undefined;
   }
@@ -271,7 +271,7 @@ function resuming(input: RunCommandInput, handle: RunHandle): RunSession | undef
 async function report(
   input: RunCommandInput,
   handle: RunHandle,
-  session: RunSession,
+  session: SettledSession,
   result: RunResult,
 ): Promise<ExitCode> {
   await settle({

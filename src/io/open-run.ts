@@ -148,7 +148,7 @@ const openRunWith = async (
           contentHash: session.contentHash,
           repo,
           repoRoot,
-          lastActivityAt: session.lastActivityAt.toISOString(),
+          lastActivityAt: session.lastActivityAt?.toISOString() ?? null,
           tokenEstimate: session.tokenEstimate,
         });
       },
@@ -159,7 +159,7 @@ const openRunWith = async (
           contentHash: session.contentHash,
           repo,
           repoRoot,
-          lastActivityAt: session.lastActivityAt.toISOString(),
+          lastActivityAt: session.lastActivityAt?.toISOString() ?? null,
           tokenEstimate: null,
         }, session.reason);
       },

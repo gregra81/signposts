@@ -19,6 +19,7 @@ import {
   type OpenRun,
   type RunHandle,
   type RunSession,
+  type SettledSession,
 } from "./run-port.ts";
 
 export interface OpenRunInput {
@@ -82,7 +83,7 @@ export async function withRun(
 
 export interface SettleInput {
   handle: RunHandle;
-  session: RunSession;
+  session: SettledSession;
   result: RunResult;
   /** `config.paths.statuslineState` — where the session watermark lives. */
   statusPath: string;
@@ -207,15 +208,25 @@ async function recordJudged(input: Omit<SettleInput, "result">, found: number): 
     freshRun: input.isFirst,
     // What lets the hook stop counting this transcript now, rather than once
     // the watermark below can move — which a backlog of five judged two at a
-    // time never reaches (19-value-to-a-user.md item 2).
-    judged: { sessionId: session.sessionId, lastActivityAt: session.lastActivityAt },
+    // time never reaches (19-value-to-a-user.md item 2). Only with a known
+    // activity: the hook matches on it, and an unknown one matches nothing.
+    ...(session.lastActivityAt === null
+      ? {}
+      : { judged: { sessionId: session.sessionId, lastActivityAt: session.lastActivityAt } }),
   });
 
   // Only once nothing eligible is left, because the watermark is one date for
   // the whole repo: stamping it while an older unprocessed transcript is still
   // waiting silences the hook about that transcript for good. It clears the
   // progress with the same write — the run this was tracking is over.
-  if (remaining === 0) {
+  //
+  // And only with a known activity. Stamped with anything later than the
+  // halted bytes — the clock, or the grown file's mtime — it silences the
+  // transcript the developer carried on in, which is eligible again under its
+  // new hash. Left unmoved, the hook over-counts until the next session that
+  // does know its activity drains the backlog, which is the direction it is
+  // allowed to be wrong in. The progress then ages out on its own.
+  if (remaining === 0 && session.lastActivityAt !== null) {
     recordRunFinished(input.statusPath, session.lastActivityAt);
   }
 }
@@ -241,17 +252,19 @@ async function recordJudged(input: Omit<SettleInput, "result">, found: number): 
  *
  * `lastActivityAt` matters because answering a halt can be the invocation
  * that finishes the session, and `settle` writes it to
- * `sessions.last_activity_at`. Filling it with the current time recorded the
- * moment the developer answered the last halt, which for a review answered
- * three days later is three days out. Nothing reads the column yet, and that
- * is the reason to keep it honest rather than to leave it wrong.
+ * `sessions.last_activity_at`, the judged-sessions map and — when it drains the
+ * backlog — the watermark. When the listing does not have the session, the
+ * activity of the halted bytes is simply not known, and it is `null`. It used
+ * to be the clock, which recorded the moment the developer answered the last
+ * halt: three days out in the column, and as the watermark it silenced the
+ * very transcript the developer had carried on in.
  */
 export function namedSession(
   handle: RunHandle,
   sessionId: string,
   contentHash: string,
   now: Date,
-): RunSession {
+): SettledSession {
   const listed = handle
     .eligible(now)
     .find((session) => session.sessionId === sessionId && session.contentHash === contentHash);
@@ -259,6 +272,6 @@ export function namedSession(
     sessionId,
     contentHash,
     transcriptPath: listed?.transcriptPath ?? "",
-    lastActivityAt: listed?.lastActivityAt ?? now,
+    lastActivityAt: listed?.lastActivityAt ?? null,
   };
 }

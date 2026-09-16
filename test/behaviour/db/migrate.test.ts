@@ -79,7 +79,7 @@ describe("openDb", () => {
     expect(columnNames(db, "index_meta")).toEqual(["repo", "corpus_hash", "embedding_model", "updated_at"]);
 
     const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(9);
+    expect(user_version).toBe(10);
 
     db.close();
   });
@@ -118,7 +118,7 @@ describe("openDb", () => {
       expect.arrayContaining(["sessions", "signposts", "signpost_vec", "signpost_fts", "index_meta"]),
     );
     const { user_version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(9);
+    expect(user_version).toBe(10);
 
     const row = db.prepare("SELECT * FROM sessions WHERE session_id = ?").get("s1");
     expect(row).toEqual({
@@ -164,7 +164,7 @@ describe("openDb", () => {
     const second = openDb(dbPath);
 
     const { user_version } = second.prepare("PRAGMA user_version").get() as { user_version: number };
-    expect(user_version).toBe(9);
+    expect(user_version).toBe(10);
     expect(tableNames(second)).toEqual(
       expect.arrayContaining(["sessions", "signposts", "signpost_vec", "signpost_fts", "index_meta"]),
     );
@@ -178,8 +178,9 @@ describe("openDb", () => {
   it("migrating repo_state to nullable columns preserves an existing bootstrap_completed_at row", () => {
     // Pre-seed a db at "version 7": repo_state as it existed before the
     // consented_at migration (bootstrap_completed_at NOT NULL, no
-    // consented_at column at all), with one real row. `signposts` is seeded
-    // too, empty — a real v7 database has it, and migration 9 ALTERs it.
+    // consented_at column at all), with one real row. `signposts` and
+    // `sessions` are seeded too, empty — a real v7 database has both, migration
+    // 9 ALTERs the first and migration 10 rebuilds the second.
     const seed = new Database(dbPath);
     seed.exec(`
       CREATE TABLE repo_state (
@@ -188,6 +189,13 @@ describe("openDb", () => {
       )
     `);
     seed.exec(`CREATE TABLE signposts (id TEXT NOT NULL, repo TEXT NOT NULL, PRIMARY KEY (repo, id))`);
+    seed.exec(`
+      CREATE TABLE sessions (
+        session_id TEXT NOT NULL, content_hash TEXT NOT NULL, repo TEXT NOT NULL, repo_root TEXT NOT NULL,
+        last_activity_at TEXT NOT NULL, token_estimate INTEGER, status TEXT NOT NULL, skip_reason TEXT,
+        updated_at TEXT NOT NULL, PRIMARY KEY (session_id, content_hash)
+      )
+    `);
     seed
       .prepare(`INSERT INTO repo_state (repo, bootstrap_completed_at) VALUES (?, ?)`)
       .run("acme/platform", "2026-08-01T00:00:00Z");
@@ -202,6 +210,50 @@ describe("openDb", () => {
       repo: "acme/platform",
       bootstrap_completed_at: "2026-08-01T00:00:00Z",
       consented_at: null,
+    });
+
+    db.close();
+  });
+
+  it("making sessions.last_activity_at nullable keeps every recorded session", () => {
+    // Seeded at "version 9": every table is current except `sessions`, whose
+    // last_activity_at is still NOT NULL. Only the tables migration 10 touches
+    // matter to it, so only that one is created.
+    const seed = new Database(dbPath);
+    seed.exec(`
+      CREATE TABLE sessions (
+        session_id TEXT NOT NULL, content_hash TEXT NOT NULL, repo TEXT NOT NULL, repo_root TEXT NOT NULL,
+        last_activity_at TEXT NOT NULL, token_estimate INTEGER, status TEXT NOT NULL, skip_reason TEXT,
+        updated_at TEXT NOT NULL, PRIMARY KEY (session_id, content_hash)
+      )
+    `);
+    seed
+      .prepare(`INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("s1", "h1", "acme/api", "/repo", "2026-09-01T09:00:00.000Z", 500, "done", null, "2026-09-02T00:00:00.000Z");
+    seed.exec("PRAGMA user_version = 9");
+    seed.close();
+
+    const db = openDb(dbPath);
+
+    expect(db.prepare("SELECT * FROM sessions").all()).toEqual([
+      {
+        session_id: "s1",
+        content_hash: "h1",
+        repo: "acme/api",
+        repo_root: "/repo",
+        last_activity_at: "2026-09-01T09:00:00.000Z",
+        token_estimate: 500,
+        status: "done",
+        skip_reason: null,
+        updated_at: "2026-09-02T00:00:00.000Z",
+      },
+    ]);
+    // What the migration is for: a session whose activity is not known.
+    db.prepare(`INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      "s2", "h2", "acme/api", "/repo", null, null, "done", null, "2026-09-03T00:00:00.000Z",
+    );
+    expect(db.prepare("SELECT last_activity_at FROM sessions WHERE session_id = 's2'").get()).toEqual({
+      last_activity_at: null,
     });
 
     db.close();

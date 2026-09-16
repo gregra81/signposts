@@ -23,7 +23,8 @@ export interface SessionRecord {
   contentHash: string;
   repo: string;
   repoRoot: string;
-  lastActivityAt: string;
+  /** ISO timestamp, or null when the halted transcript has since moved on. */
+  lastActivityAt: string | null;
   tokenEstimate: number | null;
 }
 

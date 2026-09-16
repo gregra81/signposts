@@ -64,6 +64,11 @@ describe("the sessions table", () => {
     expect(processedKeys(db, "acme/api")).toEqual(new Set());
   });
 
+  it("records a session whose activity is not known as null, not as a guess", () => {
+    markProcessed(db, record({ lastActivityAt: null }));
+    expect(db.prepare("SELECT last_activity_at FROM sessions").get()).toEqual({ last_activity_at: null });
+  });
+
   it("does not count a row in any other status as judged", () => {
     // 12-wire-contracts.md lists pending, running and failed on this column too.
     // A failed run is not a judgement: it may have been a disk or a bug.

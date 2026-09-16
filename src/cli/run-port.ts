@@ -24,11 +24,22 @@ export interface RunSession {
   lastActivityAt: Date;
 }
 
+/**
+ * A session as a command settles it: the listed session, or one named back by a
+ * halt whose transcript has since moved on. For the second kind the last
+ * activity of the bytes the thread was built from is not known, and is `null`
+ * rather than a guess (../cli/with-run.ts, `namedSession`).
+ */
+export interface SettledSession extends Omit<RunSession, "lastActivityAt"> {
+  lastActivityAt: Date | null;
+}
+
 /** What a finished session is recorded as, so no later run picks it up again. */
 export interface FinishedSession {
   sessionId: string;
   contentHash: string;
-  lastActivityAt: Date;
+  /** `null` when unknown — see SettledSession. */
+  lastActivityAt: Date | null;
   tokenEstimate: number | null;
 }
 
@@ -40,7 +51,7 @@ export interface FinishedSession {
 export interface SkippedSession {
   sessionId: string;
   contentHash: string;
-  lastActivityAt: Date;
+  lastActivityAt: Date | null;
   reason: string;
 }
 
