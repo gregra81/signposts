@@ -6,8 +6,10 @@
 // glue plus the actual queries.
 //
 // Hard filters (repo, status='active') are applied inside the queries
-// themselves — never a similarity floor. If the fused, filtered result is
-// empty or short of k, that is returned as-is; nothing pads it out.
+// themselves. The write path takes no similarity floor; the read path takes
+// one (RankOptions.minSimilarity, and READ_MIN_SIMILARITY for why the two
+// differ). Either way, if the fused, filtered result is empty or short of k,
+// that is returned as-is; nothing pads it out.
 //
 // `is_pending` is the one filter that differs by caller, so it is an option
 // rather than part of the constant below: the write path must see what an
@@ -16,7 +18,9 @@
 // knowledge (./search-signposts.ts).
 
 import type Database from "better-sqlite3";
+import { MIN_SIMILARITY, RETRIEVAL_POOL } from "../../core/config/constants.ts";
 import { combineScore } from "../../core/retrieval/combine-score.ts";
+import { cosineFromL2Distance } from "../../core/retrieval/vector-similarity.ts";
 import { ftsQuery } from "../../core/retrieval/fts-query.ts";
 import { pathOverlapBoost } from "../../core/retrieval/path-overlap.ts";
 import { fuseRrf } from "../../core/retrieval/rrf.ts";
@@ -40,9 +44,24 @@ export interface RankOptions {
    * true, which is the write path's contract: `classify` is shown them.
    */
   includePending: boolean;
+  /**
+   * Cosine floor a row's claim must clear against the query, or `undefined` for
+   * no floor at all. The two paths want opposite things and the reason is in
+   * constants.ts next to MIN_SIMILARITY and READ_MIN_SIMILARITY: an empty
+   * neighbour list is information `classify` acts on, an empty search result is
+   * the honest answer to a question the corpus does not cover.
+   *
+   * It filters the vector candidates only. A row that reached the fusion from
+   * FTS alone matched actual tokens of the query — after stopwords were dropped
+   * (../../core/retrieval/fts-query.ts), that is a lexical hit on a content
+   * word, which is the rare-identifier case 05-retrieval.md keeps the lexical
+   * half for. Scoring it by cosine and dropping it would throw away exactly the
+   * match the hybrid exists to catch.
+   */
+  minSimilarity: number | undefined;
 }
 
-const WRITE_PATH_OPTIONS: RankOptions = { includePending: true };
+const WRITE_PATH_OPTIONS: RankOptions = { includePending: true, minSimilarity: MIN_SIMILARITY };
 
 export interface NeighbourCandidate {
   /** Already-normalised, already-embedded claim text — see normalize.ts / the embedder. */
@@ -76,6 +95,11 @@ export interface Neighbour {
 
 interface SignpostIdRow {
   signpost_id: string;
+}
+
+/** The vector half's rows, which carry the distance the read-path floor reads. */
+interface VectorRow extends SignpostIdRow {
+  distance: number;
 }
 
 /**
@@ -157,6 +181,11 @@ export function findNeighbours(
  * the two queries is a second place for the hard filter to drift.
  *
  * Returns at most `k` rows, highest combined score first.
+ *
+ * Each retriever is asked for RETRIEVAL_POOL candidates (or `k`, if that is
+ * larger) and the fusion is sliced to `k` at the very end, so `k` is a page size
+ * and not also the pool. For any `k` up to RETRIEVAL_POOL, the result is a
+ * prefix of one ranking, and the order does not move when the limit does.
  */
 export function rankSignposts(
   db: Database.Database,
@@ -169,15 +198,23 @@ export function rankSignposts(
     return [];
   }
 
+  const pool = Math.max(k, RETRIEVAL_POOL);
+
   const vectorRows = db
     .prepare(
-      `SELECT signpost_id
+      `SELECT signpost_id, distance
        FROM signpost_vec
        WHERE repo = ? AND claim_embedding MATCH ? AND k = ?
          AND ${activeInRepoFilter(options.includePending)}
        ORDER BY distance`,
     )
-    .all(repo, vectorToBlob(candidate.embedding), k, repo, ACTIVE_STATUS) as SignpostIdRow[];
+    .all(repo, vectorToBlob(candidate.embedding), pool, repo, ACTIVE_STATUS) as VectorRow[];
+
+  const { minSimilarity } = options;
+  const nearEnough =
+    minSimilarity === undefined
+      ? vectorRows
+      : vectorRows.filter((row) => cosineFromL2Distance(row.distance) >= minSimilarity);
 
   const query = ftsQuery(candidate.claim);
   const ftsRows =
@@ -192,10 +229,10 @@ export function rankSignposts(
              ORDER BY bm25(signpost_fts)
              LIMIT ?`,
           )
-          .all(repo, query, repo, ACTIVE_STATUS, k) as SignpostIdRow[]);
+          .all(repo, query, repo, ACTIVE_STATUS, pool) as SignpostIdRow[]);
 
   const fused = fuseRrf(
-    vectorRows.map((row) => row.signpost_id),
+    nearEnough.map((row) => row.signpost_id),
     ftsRows.map((row) => row.signpost_id),
   );
   if (fused.length === 0) {

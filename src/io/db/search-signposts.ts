@@ -28,7 +28,7 @@
 // once per tool call, forever.
 
 import type Database from "better-sqlite3";
-import { EMBEDDING_MODEL } from "../../core/config/constants.ts";
+import { EMBEDDING_MODEL, READ_MIN_SIMILARITY } from "../../core/config/constants.ts";
 import type { SignpostHit } from "../../core/mcp/search-tool.ts";
 import { computeCorpusHash } from "../../core/retrieval/corpus-hash.ts";
 import { shouldReindex } from "../../core/retrieval/reindex-decision.ts";
@@ -93,7 +93,13 @@ export function searchSignposts(
   candidate: NeighbourCandidate,
   limit: number,
 ): SignpostHit[] {
-  return rankSignposts(db, repo, candidate, limit, { includePending: false }).map(({ row, score }) => ({
+  return rankSignposts(db, repo, candidate, limit, {
+    includePending: false,
+    // The read path's floor, and the one place the two paths' opposite answers
+    // to "what does no neighbour mean" are chosen between. See
+    // READ_MIN_SIMILARITY in ../../core/config/constants.ts.
+    minSimilarity: READ_MIN_SIMILARITY,
+  }).map(({ row, score }) => ({
     id: row.id,
     claim: row.claim,
     category: row.category,

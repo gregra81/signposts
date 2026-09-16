@@ -111,12 +111,54 @@ export const NEIGHBOUR_K = 6;
 export const RRF_K = 60;
 
 /**
+ * What the lexical (FTS/BM25) list contributes to the fusion, relative to the
+ * vector list's 1 (19-value-to-a-user.md item 9).
+ *
+ * The two halves are not equally informative about the question this product
+ * asks. The vector list answers "does this mean the same thing"; the lexical
+ * list is there for the tokens an embedding is bad at — an env var name, a file
+ * path, an error string. At equal weight it instead decided ordinary
+ * conversational queries on shared words like "environment" and "changes", and
+ * that is the mechanism behind item 7.
+ *
+ * **Swept against test/eval/retrieval-recall.test.ts, 2026-09-16.** recall@5 is
+ * 1.000 at every weight; MRR is what moves:
+ *
+ *   1.0  0.939      0.3  0.944
+ *   0.6  0.944      0.2  0.951
+ *   0.4  0.944      0.1  0.972      0  0.972
+ *
+ * Read that honestly: on this eval the lexical half only ever costs accuracy,
+ * and the best-scoring setting is to switch it off. It is not switched off,
+ * and the reason is that the eval cannot see the case the half exists for.
+ * Its four rare-identifier queries (.nvmrc, allkeys-lru, SameSite=Lax,
+ * reset-dev-db.sh) are all answered by the vector list alone, because every one
+ * of those tokens is in the claim text the embedder saw. The case that needs
+ * BM25 — a token in a query that appears in no claim this corpus holds, or one
+ * the tokenizer shreds — is a case forty hand-written signposts do not contain.
+ * Deleting half of 05-retrieval.md's hybrid design on that evidence would be
+ * the same mistake in the other direction.
+ *
+ * So: 0.2, the lowest weight at which the lexical list still changes the
+ * outcome at all. Below it the fusion is the vector list with rounding. A
+ * corpus with real rare-token queries in it is what would settle this
+ * properly, and that is the eval's next piece of work rather than this
+ * constant's.
+ */
+export const FTS_RRF_WEIGHT = 0.2;
+
+/**
  * Weight applied to pathOverlapBoost's boolean signal before adding it to
- * the fused RRF score (RRF_K=60 → per-list scores ~0.008-0.016, ~0.033 max for
- * rank 1 in both lists). Sized to close a realistic few-rank gap (e.g. rank
- * 1 vs rank 2 in both lists is ~0.0005) but not a large one (rank 1 vs rank
- * 6 in both lists is ~0.0025) — one shared path can promote a near-peer,
- * not overturn a much stronger match.
+ * the fused RRF score. Sized to close a realistic few-rank gap but not a large
+ * one — one shared path can promote a near-peer, not overturn a much stronger
+ * match.
+ *
+ * The gaps, at RRF_K=60 with the lexical list at FTS_RRF_WEIGHT 0.2: rank 1 in
+ * both lists scores ~0.0197; rank 1 vs rank 2 in both is ~0.00032, which the
+ * boost closes; rank 1 vs rank 6 in both is ~0.0015, which it does not. These
+ * were ~0.0005 and ~0.0025 under equal weights. The weighting narrowed both
+ * margins without moving either across 0.001, so the value stands; re-derive
+ * them if FTS_RRF_WEIGHT moves.
  */
 export const PATH_OVERLAP_BOOST_WEIGHT = 0.001;
 
@@ -139,10 +181,63 @@ export const EMBEDDING_DIM = 384;
 export const ALLOW_REMOTE_MODELS = true;
 
 /**
- * Deliberately absent. No neighbours → `classify` sees an empty list →
- * `NOVEL`. Never pad `k` to manufacture a minimum-similarity floor.
+ * Deliberately absent **on the write path**. No neighbours → `classify` sees an
+ * empty list → `NOVEL`. Never pad `k` to manufacture a minimum-similarity floor.
+ *
+ * The read path is the opposite case and has its own floor below.
  */
 export const MIN_SIMILARITY = undefined;
+
+/**
+ * Cosine floor a signpost's claim has to clear against the query before the
+ * read path will return it (19-value-to-a-user.md item 8).
+ *
+ * MIN_SIMILARITY above is right about the write path and wrong about this one.
+ * There, no neighbour is a fact `classify` needs — it means `NOVEL`. Here, a
+ * row nothing matched is a wrong answer handed to a model with nothing marking
+ * it as one: the question "how do I make a sourdough starter rise faster" came
+ * back with five signposts about CDN purges and Kubernetes limits, and
+ * `no_match` fired only on a literally empty corpus.
+ *
+ * **Measured against test/eval/retrieval-recall.test.ts, 2026-09-16.** Over
+ * that corpus the closest any of the four unanswerable questions gets to a
+ * signpost is 0.225 (sourdough), and the furthest any real answer sits from
+ * its question is 0.311 (staging-db-read-only, for "is it safe to apply schema
+ * changes to the pre-production environment"). 0.27 is the midpoint, about
+ * 0.04 from each edge. Swept, the eval holds 4/4 no-match and 24/24 recall at
+ * 0.25 and 0.3 only; 0.2 lets sourdough back in, 0.35 loses the staging
+ * question.
+ *
+ * That margin is narrow and it is one corpus of forty hand-written claims.
+ * Treat this as the first measured value, not a settled one: a real repo's
+ * corpus is what will say whether the gap holds.
+ */
+export const READ_MIN_SIMILARITY = 0.27;
+
+/**
+ * How many candidates each retriever is asked for before fusion, whatever limit
+ * the caller wants — unless the caller wants more than this, in which case the
+ * pool is the limit (19-value-to-a-user.md item 9).
+ *
+ * `k` used to be both the pool and the page size: the vector KNN and the FTS
+ * LIMIT each got the caller's `k`, the two lists were fused, and the fusion was
+ * sliced back to `k`. RRF over two truncated lists depends on where they were
+ * truncated, so the order moved when the limit did. Over
+ * test/eval/retrieval-recall.test.ts that reshuffled ranks 2-5 on most of the
+ * write-path queries between k=5 and k=20 while leaving rank 1 alone — which is
+ * why MRR never saw it, and why it matters anyway: ranks 2-5 are what
+ * `classify` is shown.
+ *
+ * A fixed pool rather than a multiple of `k`, because a multiple is still a
+ * function of `k`. Measured: a pool of 8k left the same query ranking
+ * differently at limit 1 and limit 5. A constant pool makes every limit up to it
+ * a prefix of the same ranking, by construction rather than by luck.
+ *
+ * 50 covers NEIGHBOUR_K and the MCP default with a wide margin. Both retrievers
+ * are indexed, so the cost of asking for 50 is small next to the embedding
+ * call the query already paid for.
+ */
+export const RETRIEVAL_POOL = 50;
 
 /** Conditions that trigger a reindex. */
 export const REINDEX_TRIGGER = [

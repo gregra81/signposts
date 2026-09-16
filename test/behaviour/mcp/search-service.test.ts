@@ -55,6 +55,19 @@ const PRISMA = signpost({
   evidence: "A generate step failed after looking in the wrong directory.",
 });
 
+// The deliberate near-miss: same subject as STAGING, opposite claim. It is here
+// so the by-meaning test below can assert a position that can actually be
+// wrong. With STAGING and PRISMA alone, both came back for any query and a
+// `toContain` assertion held even if the ranking were reversed — which
+// 19-value-to-a-user.md item 7 found it to be, and item 14 is about this test
+// not having caught it.
+const WRITABLE_REPLICA = signpost({
+  id: "staging-warehouse-writable",
+  claim: "The staging warehouse replica is writable; the nightly ETL truncates and reloads it.",
+  evidence: "A fixture written into the replica disappeared overnight.",
+  scope: { repo: REPO, paths: ["src/db"] },
+});
+
 describe("the search_signposts read path", () => {
   let homeDir: string;
   let repoRoot: string;
@@ -121,18 +134,33 @@ describe("the search_signposts read path", () => {
   });
 
   it(
-    "finds a signpost by meaning once the index is built",
+    "ranks the signpost that answers the question above the one that contradicts it",
     async () => {
       writeSignpostFile(STAGING);
       writeSignpostFile(PRISMA);
+      writeSignpostFile(WRITABLE_REPLICA);
       await buildIndex();
 
       // Not one word of the claim: this is the differently-worded case
-      // 05-retrieval.md's first acceptance criterion is about.
+      // 05-retrieval.md's first acceptance criterion is about. Asserted as
+      // position, not membership — a model asking whether it may migrate
+      // staging being handed "the replica is writable" first is worse than
+      // being handed nothing.
       const output = await search("is it safe to apply schema changes to the pre-production environment");
+      const order = output.results.map((hit) => hit.id);
 
       expect(output.diagnostic).toBeUndefined();
-      expect(output.results.map((hit) => hit.id)).toContain(STAGING.id);
+      // Rank 1 is deliberately not asserted. all-MiniLM-L6-v2 puts
+      // prisma-schema-path first for this question, on the word "schema", and
+      // no weighting of two rank lists changes that — it is the embedder's
+      // ceiling, measured in test/eval/retrieval-recall.test.ts's header. What
+      // ranking does control, and what item 7 was about, is the entry that
+      // says the opposite of the answer.
+      expect(order).toContain(STAGING.id);
+      const nearMiss = order.indexOf(WRITABLE_REPLICA.id);
+      // Below the answer, or — as here, where the read path's similarity floor
+      // drops it — not returned at all.
+      expect(nearMiss === -1 || nearMiss > order.indexOf(STAGING.id)).toBe(true);
       const hit = output.results.find((result) => result.id === STAGING.id);
       expect(hit).toMatchObject({
         claim: STAGING.claim,
@@ -150,11 +178,19 @@ describe("the search_signposts read path", () => {
     async () => {
       writeSignpostFile(STAGING);
       writeSignpostFile(PRISMA);
+      writeSignpostFile(WRITABLE_REPLICA);
       await buildIndex();
 
-      const output = await search("database", { limit: 1 });
+      const unlimited = await search("can I write to the staging database");
+      // The limit is only being honoured if there was something to cut. The
+      // old version asserted `length <= 1`, which an empty result satisfies,
+      // so it passed whether the limit worked or the search returned nothing.
+      expect(unlimited.results.length).toBeGreaterThan(1);
 
-      expect(output.results.length).toBeLessThanOrEqual(1);
+      const output = await search("can I write to the staging database", { limit: 1 });
+
+      expect(output.results).toHaveLength(1);
+      expect(output.results[0]?.id).toBe(unlimited.results[0]?.id);
     },
     60_000,
   );

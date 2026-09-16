@@ -88,18 +88,33 @@ describe("findNeighbours", () => {
   );
 
   it(
-    "a near-duplicate claim retrieves the matching signpost as a neighbour",
+    "a near-duplicate claim retrieves the matching signpost as the top neighbour",
     async () => {
-      for (const s of platformSignposts) {
+      // 05-retrieval.md's first acceptance criterion, as position rather than
+      // membership (19-value-to-a-user.md item 14). The third signpost is the
+      // deliberate near-miss: same subject, opposite claim. With the two
+      // originals alone both came back for any query at k=6, so this assertion
+      // held even if the ranking were reversed — which is what item 7 found it
+      // to be.
+      const withNearMiss: ActiveSignpost[] = [
+        ...platformSignposts,
+        {
+          id: "staging-warehouse-writable",
+          content_hash: "hash-3",
+          claim: "The staging warehouse replica is writable; the nightly ETL truncates and reloads it.",
+          evidence: "A fixture written into the replica disappeared overnight.",
+        },
+      ];
+      for (const s of withNearMiss) {
         await insertSignpost(db, "acme/platform", s);
       }
-      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts: platformSignposts });
+      await rebuildIndex(db, { modelCacheDir: modelCacheRoot, retrieval, repo: "acme/platform", signposts: withNearMiss });
 
       const candidateClaim = "Staging DB is read-only, migrations must target dev.";
       const embedding = await embedCandidate(candidateClaim);
       const neighbours = findNeighbours(db, "acme/platform", { claim: candidateClaim, embedding }, 6);
 
-      expect(neighbours.map((n) => n.id)).toContain("staging-db-read-only");
+      expect(neighbours.map((n) => n.id)[0]).toBe("staging-db-read-only");
     },
     120_000,
   );
