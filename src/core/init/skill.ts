@@ -66,6 +66,10 @@ Every command prints one JSON object. A run advances one halt at a time.
      identified by a different hash is a different thread.
    - \`finished\` — \`proposed\` lists what went into the branch and PR. Move to
      the next session.
+   - \`skipped\` — the transcript can never be extracted (empty, only subagent
+     lines, or a redactor failed on it). \`reason\` says which. It is recorded and
+     will not be offered again. Mention it in one line and move to the next
+     session; it is not a failure.
 
 **Exit codes.** \`4\` and \`5\` are not failures: \`5\` means the run halted on a
 \`human_review\` and \`4\` means the proposals are committed to the branch and no

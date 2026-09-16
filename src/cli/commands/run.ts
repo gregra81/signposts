@@ -22,10 +22,11 @@ import { JSON_INDENT } from "../../core/config/constants.ts";
 import { parseReplies } from "../../core/cli/replies.ts";
 import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import { OPERATION_TAGS } from "../../core/contracts/graph.ts";
+import { UnusableTranscriptError } from "../../core/errors/unusable-transcript.ts";
 import { REVIEW_REQUEST_KIND, resumeRun, startRun, type RunResult } from "../../graph/index.ts";
 import type { RunOutput, SessionRef, SessionsOutput } from "../protocol.ts";
 import type { OpenRun, RunHandle, RunSession } from "../run-port.ts";
-import { fail, namedSession, settle, withRun } from "../with-run.ts";
+import { fail, namedSession, settle, settleSkipped, withRun } from "../with-run.ts";
 import {
   contextLines,
   eligibleLine,
@@ -153,15 +154,62 @@ export function runExtraction(input: RunCommandInput): Promise<ExitCode> {
       }
     }
 
-    const result = await startRun(handle.graph, handle.checkpointer, {
-      repo: handle.repo,
-      repoRoot: input.repoRoot,
-      sessionId: session.sessionId,
-      contentHash: session.contentHash,
-      transcriptPath: session.transcriptPath,
-    });
+    let result: RunResult;
+    try {
+      result = await startRun(handle.graph, handle.checkpointer, {
+        repo: handle.repo,
+        repoRoot: input.repoRoot,
+        sessionId: session.sessionId,
+        contentHash: session.contentHash,
+        transcriptPath: session.transcriptPath,
+      });
+    } catch (error) {
+      // Only on `run`: the transcript is read once, at the start of a thread,
+      // so `resume` never meets it. Anything else that throws is not known to
+      // be a property of the file, and `withRun` reports it as a failure and
+      // leaves the session eligible to be tried again.
+      if (!(error instanceof UnusableTranscriptError)) {
+        throw error;
+      }
+      return skipped(input, handle, session, error.message);
+    }
     return report(input, handle, session, result);
   });
+}
+
+/**
+ * Records and reports a transcript that can never be extracted
+ * (19-value-to-a-user.md item 1). Exit 0, because nothing went wrong that
+ * anyone can fix: the skill reads 1 as "signposts crashed", and used to say so
+ * about an empty file every day.
+ */
+async function skipped(
+  input: RunCommandInput,
+  handle: RunHandle,
+  session: RunSession,
+  reason: string,
+): Promise<ExitCode> {
+  await settleSkipped({
+    handle,
+    session,
+    reason,
+    statusPath: input.config.paths.statuslineState,
+    now: new Date(),
+    isFirst: input.isFirst === true,
+  });
+  tracer(input)(() => `skipped ${session.sessionId}: ${reason}`);
+
+  const output: RunOutput = {
+    sessionId: session.sessionId,
+    contentHash: session.contentHash,
+    status: "skipped",
+    pending: [],
+    proposed: [],
+    commit: null,
+    reason,
+  };
+  write(input.stdout, output);
+  return EXIT_CODES.ok;
 }
 
 /** Answers what a halted session asked for and continues it. */

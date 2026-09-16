@@ -15,10 +15,12 @@ import {
 } from "../../../src/core/config/constants.ts";
 import { derivePaths as deriveAppPaths } from "../../../src/core/config/paths.ts";
 import {
+  alreadyJudged,
   anyWork,
   countThreadsWaiting,
   derivePaths,
   findRepoRoot,
+  judgedSessions,
   lockIsHeld,
   looksEligible,
   noticeFor,
@@ -219,5 +221,44 @@ describe("findRepoRoot", () => {
   it("is null outside a git repo", () => {
     const base = realpathSync(mkdtempSync(path.join(tmpdir(), "signposts-hook-nogit-")));
     expect(findRepoRoot(base)).toBeNull();
+  });
+});
+
+// 19-value-to-a-user.md item 2: the sessions a run judged, read back by the hook.
+describe("judgedSessions", () => {
+  it("reads each entry as epoch ms", () => {
+    expect(judgedSessions({ judgedSessions: { a: "2026-09-01T09:00:00.000Z" } })).toEqual({
+      a: Date.parse("2026-09-01T09:00:00.000Z"),
+    });
+  });
+
+  it("drops an entry that does not parse, so that transcript is counted rather than hidden", () => {
+    const state = { judgedSessions: { bad: "yesterday", notString: 5, good: "2026-09-01T09:00:00.000Z" } };
+    expect(judgedSessions(state as never)).toEqual({ good: Date.parse("2026-09-01T09:00:00.000Z") });
+  });
+
+  it("is empty when the field is absent or not an object", () => {
+    expect(judgedSessions({})).toEqual({});
+    expect(judgedSessions({ judgedSessions: null } as never)).toEqual({});
+    expect(judgedSessions({ judgedSessions: "x" } as never)).toEqual({});
+  });
+});
+
+describe("alreadyJudged", () => {
+  const at = Date.parse("2026-09-01T09:00:00.000Z");
+
+  it("matches the mtime it was judged at, allowing for the fraction a stat carries", () => {
+    expect(alreadyJudged(at, at)).toBe(true);
+    expect(alreadyJudged(at, at + 0.9)).toBe(true);
+    expect(alreadyJudged(at, at - 0.9)).toBe(true);
+  });
+
+  it("does not match a transcript touched since", () => {
+    expect(alreadyJudged(at, at + 1)).toBe(false);
+    expect(alreadyJudged(at, at - 1)).toBe(false);
+  });
+
+  it("does not match a session nobody judged", () => {
+    expect(alreadyJudged(undefined, at)).toBe(false);
   });
 });

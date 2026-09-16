@@ -26,6 +26,7 @@
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
+import { UnusableTranscriptError } from "../../core/errors/unusable-transcript.ts";
 import { gutterTurns } from "../../core/gutter/gutter.ts";
 import { toGutterInputTurn } from "../../core/gutter/input.ts";
 import { estimateGutteredSessionTokens } from "../../core/gutter/tokens.ts";
@@ -69,7 +70,7 @@ async function hashFile(filePath: string): Promise<string> {
 function redactOne(text: string, redactors: readonly Redactor[]): string {
   const result = safeRedact(text, redactors);
   if (!result.ok) {
-    throw new Error("redaction failed — transcript skipped rather than sent partially redacted");
+    throw new UnusableTranscriptError("redaction failed — transcript skipped rather than sent partially redacted");
   }
   return result.text;
 }
@@ -143,7 +144,7 @@ export async function gutterSession(
   }
 
   if (sessionId === undefined || startedAt === undefined || lastActivityAt === undefined) {
-    throw new Error(`${transcriptPath}: no usable transcript lines`);
+    throw new UnusableTranscriptError(`${transcriptPath}: no usable transcript lines`);
   }
 
   const { turns, redactionCount } = redactTurns(

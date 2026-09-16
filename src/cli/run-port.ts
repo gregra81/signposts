@@ -33,6 +33,18 @@ export interface FinishedSession {
 }
 
 /**
+ * A session recorded as judged without being extracted, because its transcript
+ * never can be (../core/errors/unusable-transcript.ts). `reason` is for the
+ * caller; the record itself only has to stop the session being offered again.
+ */
+export interface SkippedSession {
+  sessionId: string;
+  contentHash: string;
+  lastActivityAt: Date;
+  reason: string;
+}
+
+/**
  * One thread parked on `human_review`, as `signpost review` finds it — with
  * everything needed to show it and to answer it, and nothing that has to have
  * survived in memory since the halt.
@@ -76,6 +88,12 @@ export interface RunHandle {
   commitOutcome(): CommitOutcome | null;
   /** Records a session as processed, and the repo as past its bootstrap run. */
   finish(session: FinishedSession): void;
+  /**
+   * Records a session as judged and not processed, so no later run offers it.
+   * Unlike `finish` it does not end the bootstrap run: nothing was extracted,
+   * so nothing has been through the gate a person was meant to check.
+   */
+  skip(session: SkippedSession): void;
   /**
    * Brings the mirror and the index up to the signposts on disk, and reports
    * any file that would not parse.

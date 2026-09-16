@@ -21,7 +21,12 @@ export interface SessionsOutput {
   sessions: SessionRef[];
 }
 
-export type RunStatus = "waiting" | "finished";
+/**
+ * `skipped` is a transcript that can never be extracted — empty, every line a
+ * sidechain, or one a redactor fails on. It is recorded as judged and will not
+ * be offered again, and it is not a failure: `reason` says which.
+ */
+export type RunStatus = "waiting" | "finished" | "skipped";
 
 export interface RunOutput {
   sessionId: string;
@@ -51,4 +56,6 @@ export interface RunOutput {
    * more.
    */
   commit: CommitOutcome | null;
+  /** Why the session was skipped. Present exactly when `status` is "skipped". */
+  reason?: string;
 }

@@ -155,8 +155,35 @@ export async function settle(input: SettleInput): Promise<void> {
     tokenEstimate: result.state.gutterStats.tokenEstimate,
   });
 
-  // `finish` above has already dropped this session out of `eligible`, so what
-  // is left here is the run's remaining work and this session counts as done.
+  await recordJudged(input, result.state.validated.length);
+}
+
+/**
+ * Records a session whose transcript can never be extracted, the way `settle`
+ * records one that finished (19-value-to-a-user.md item 1).
+ *
+ * The same bookkeeping, deliberately: it leaves `eligible`, it counts towards
+ * the run's progress, the hook stops counting it, and if it was the last one
+ * the watermark moves. A skipped session that did less than that is the leak
+ * this exists to close — one empty transcript that no run can finish, holding
+ * the notice at the whole backlog for good.
+ */
+export async function settleSkipped(input: Omit<SettleInput, "result"> & { reason: string }): Promise<void> {
+  input.handle.skip({
+    sessionId: input.session.sessionId,
+    contentHash: input.session.contentHash,
+    lastActivityAt: input.session.lastActivityAt,
+    reason: input.reason,
+  });
+  await recordJudged(input, 0);
+}
+
+/** What `settle` and `settleSkipped` both write once a session is judged. */
+async function recordJudged(input: Omit<SettleInput, "result">, found: number): Promise<void> {
+  const { handle, session } = input;
+  // The session has already been recorded, which dropped it out of `eligible`,
+  // so what is left here is the run's remaining work and this session counts
+  // as done.
   const remaining = handle.eligible(input.now).length;
   recordRunProgress(input.statusPath, {
     now: input.now,
@@ -172,12 +199,16 @@ export async function settle(input: SettleInput): Promise<void> {
     // Not `pendingProposals` either, though it is right here: it counts `add`
     // alone, deliberately (../core/graph/pending.ts), so a session whose work
     // was two supersedes and a retire would report nothing found.
-    found: result.state.validated.length,
+    found,
     // Retaken here too, and this is the direction that matters: answering the
     // last review is what takes the count back to zero, and nothing else in
     // the system would notice until a worker woke.
     threadsWaiting: (await handle.pendingReviews(input.now)).length,
     freshRun: input.isFirst,
+    // What lets the hook stop counting this transcript now, rather than once
+    // the watermark below can move — which a backlog of five judged two at a
+    // time never reaches (19-value-to-a-user.md item 2).
+    judged: { sessionId: session.sessionId, lastActivityAt: session.lastActivityAt },
   });
 
   // Only once nothing eligible is left, because the watermark is one date for

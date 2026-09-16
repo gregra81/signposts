@@ -10,6 +10,14 @@ import type Database from "better-sqlite3";
 /** Status recorded once a session's run finished. */
 const STATUS_DONE = "done";
 
+/**
+ * Status recorded for a transcript that can never be extracted — empty, all
+ * sidechain, or one a redactor fails on (../../core/errors/unusable-transcript.ts).
+ * 12-wire-contracts.md has listed it on this column since the schema was
+ * drafted; nothing wrote it, so those sessions were never recorded at all.
+ */
+const STATUS_SKIPPED = "skipped";
+
 export interface SessionRecord {
   sessionId: string;
   contentHash: string;
@@ -19,11 +27,14 @@ export interface SessionRecord {
   tokenEstimate: number | null;
 }
 
-/** `${sessionId}:${contentHash}` for every session in `repo` a run has finished. */
+/**
+ * `${sessionId}:${contentHash}` for every session in `repo` a run has judged:
+ * finished, or skipped as unusable. Both mean "do not offer this again".
+ */
 export function processedKeys(db: Database.Database, repo: string): Set<string> {
   const rows = db
-    .prepare(`SELECT session_id, content_hash FROM sessions WHERE repo = ? AND status = ?`)
-    .all(repo, STATUS_DONE) as { session_id: string; content_hash: string }[];
+    .prepare(`SELECT session_id, content_hash FROM sessions WHERE repo = ? AND status IN (?, ?)`)
+    .all(repo, STATUS_DONE, STATUS_SKIPPED) as { session_id: string; content_hash: string }[];
   return new Set(rows.map((row) => `${row.session_id}:${row.content_hash}`));
 }
 
@@ -35,6 +46,15 @@ export function processedKeys(db: Database.Database, repo: string): Set<string> 
  * make the next run skip a thread nobody ever answered.
  */
 export function markProcessed(db: Database.Database, record: SessionRecord): void {
+  writeSession(db, record, STATUS_DONE);
+}
+
+/** Records a session skipped as unusable. Same row, same key, different status. */
+export function markSkipped(db: Database.Database, record: SessionRecord): void {
+  writeSession(db, record, STATUS_SKIPPED);
+}
+
+function writeSession(db: Database.Database, record: SessionRecord, status: string): void {
   db.prepare(
     `INSERT INTO sessions
        (session_id, content_hash, repo, repo_root, last_activity_at, token_estimate, status, updated_at)
@@ -50,7 +70,7 @@ export function markProcessed(db: Database.Database, record: SessionRecord): voi
     record.repoRoot,
     record.lastActivityAt,
     record.tokenEstimate,
-    STATUS_DONE,
+    status,
     new Date().toISOString(),
   );
 }

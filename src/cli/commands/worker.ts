@@ -70,14 +70,15 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
     return EXIT_CODES.ok;
   }
 
-  // The watermark is the run commands' half of this file (src/cli/with-run.ts),
-  // and both of the writes below replace the file whole. Carry it across or a
-  // background reindex silences the hook's memory of what has been judged.
+  // The watermark and the judged sessions are the run commands' half of this
+  // file (src/cli/with-run.ts), and both of the writes below replace the file
+  // whole. Carry them across or a background reindex erases the hook's memory
+  // of what has been judged.
   const previous = readStatus(config.paths.statuslineState);
 
   writeStatus(
     config.paths.statuslineState,
-    runningStatus(input.now(), previous?.lastRunFinishedAt, previous?.runProgress),
+    runningStatus(input.now(), previous?.lastRunFinishedAt, previous?.runProgress, previous?.judgedSessions),
   );
 
   let indexedAt: Date | undefined;
@@ -124,6 +125,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
         error,
         lastRunFinishedAt: current?.lastRunFinishedAt,
         runProgress: current?.runProgress,
+        judgedSessions: current?.judgedSessions,
       }),
     );
     lock.release();

@@ -18,10 +18,12 @@
 // PURE: counts and a clock reading in, a snapshot out. The write itself is
 // src/io/worker/status-file.ts.
 
-import { RUN_PROGRESS_STALE_MINUTES } from "../config/constants.ts";
+import { MAX_AGE_DAYS, RUN_PROGRESS_STALE_MINUTES } from "../config/constants.ts";
 
 const MS_PER_MINUTE = 60_000;
 const RUN_PROGRESS_STALE_MS = RUN_PROGRESS_STALE_MINUTES * MS_PER_MINUTE;
+const MS_PER_DAY = 86_400_000;
+const MAX_AGE_MS = MAX_AGE_DAYS * MS_PER_DAY;
 
 /**
  * How far a run has got, for the statusLine (07-triggering-and-ux.md, "Live
@@ -117,6 +119,23 @@ export interface WorkerStatus {
    * watermark: the worker carries it forward untouched.
    */
   runProgress?: RunProgress;
+  /**
+   * Sessions judged since the watermark last moved: session id to the last
+   * activity it was judged at, which is the transcript's mtime
+   * (src/io/transcript/discover.ts). The hook skips a transcript whose mtime
+   * still matches (19-value-to-a-user.md item 2).
+   *
+   * The watermark alone could not say this. It is one date for the whole repo
+   * and may only move once nothing eligible is left, so a run that judged two
+   * sessions of five and stopped left the hook announcing five. The hook
+   * cannot open the `sessions` table inside its budget, so the run leaves it
+   * this instead. Matching on mtime rather than on id alone keeps the key the
+   * table's: a transcript that grows gets a new mtime and is counted again,
+   * as it gets a new content hash and is eligible again.
+   *
+   * Owned by `settle`, carried forward by the worker, like the two above.
+   */
+  judgedSessions?: Record<string, string>;
 }
 
 export interface SnapshotInput {
@@ -129,6 +148,8 @@ export interface SnapshotInput {
   lastRunFinishedAt?: string | undefined;
   /** Likewise: a run may be halted on a review while the worker reindexes around it. */
   runProgress?: RunProgress | undefined;
+  /** Likewise. */
+  judgedSessions?: Record<string, string> | undefined;
 }
 
 /**
@@ -151,14 +172,35 @@ export function runningStatus(
   now: Date,
   lastRunFinishedAt?: string,
   runProgress?: RunProgress,
+  judgedSessions?: Record<string, string>,
 ): WorkerStatus {
   return {
     phase: WORKER_PHASES.running,
     updatedAt: now.toISOString(),
     eligibleSessions: 0,
     threadsWaiting: 0,
-    ...(lastRunFinishedAt === undefined ? {} : { lastRunFinishedAt }),
-    ...(runProgress === undefined ? {} : { runProgress }),
+    ...runCommandFields({ lastRunFinishedAt, runProgress, judgedSessions }),
+  };
+}
+
+/**
+ * The fields the run commands own, lifted off a previous snapshot so the
+ * worker's wholesale writes carry them forward. One place, because the list
+ * grew a third member, and a field carried by one of the worker's two writes
+ * and not the other is a hook that forgets what was judged whenever a worker
+ * happens to wake.
+ */
+function runCommandFields(
+  carried: {
+    lastRunFinishedAt?: string | undefined;
+    runProgress?: RunProgress | undefined;
+    judgedSessions?: Record<string, string> | undefined;
+  },
+): Pick<WorkerStatus, "lastRunFinishedAt" | "runProgress" | "judgedSessions"> {
+  return {
+    ...(carried.lastRunFinishedAt === undefined ? {} : { lastRunFinishedAt: carried.lastRunFinishedAt }),
+    ...(carried.runProgress === undefined ? {} : { runProgress: carried.runProgress }),
+    ...(carried.judgedSessions === undefined ? {} : { judgedSessions: carried.judgedSessions }),
   };
 }
 
@@ -181,10 +223,7 @@ export function finishedStatus(input: SnapshotInput): WorkerStatus {
     threadsWaiting: count(input.threadsWaiting),
     ...(input.indexedAt === undefined ? {} : { lastIndexedAt: input.indexedAt.toISOString() }),
     ...(input.error === undefined ? {} : { lastError: input.error }),
-    ...(input.lastRunFinishedAt === undefined
-      ? {}
-      : { lastRunFinishedAt: input.lastRunFinishedAt }),
-    ...(input.runProgress === undefined ? {} : { runProgress: input.runProgress }),
+    ...runCommandFields(input),
   };
 }
 
@@ -213,8 +252,29 @@ export function runFinishedStatus(
   // The watermark moves only when nothing eligible is left, which is also the
   // moment the run stops being in flight — so the progress goes with it rather
   // than sitting at "3/3" until it ages out.
-  const { runProgress: _finished, ...withoutProgress } = base;
-  return { ...withoutProgress, lastRunFinishedAt: finishedThrough.toISOString() };
+  const { runProgress: _finished, judgedSessions, ...withoutProgress } = base;
+  // What the watermark now covers, the map no longer has to.
+  const stillNeeded = judgedAfter(judgedSessions, finishedThrough.getTime());
+  return {
+    ...withoutProgress,
+    lastRunFinishedAt: finishedThrough.toISOString(),
+    ...(stillNeeded === undefined ? {} : { judgedSessions: stillNeeded }),
+  };
+}
+
+/**
+ * The entries in `judged` whose activity is after `cutoffMs`, or undefined when
+ * none are. Everything at or before the watermark is already silenced by it,
+ * and everything older than MAX_AGE_DAYS is too old for the hook to count, so
+ * neither needs remembering — which is what keeps this map the size of one
+ * run's backlog rather than the size of the repo's history.
+ */
+function judgedAfter(
+  judged: Record<string, string> | undefined,
+  cutoffMs: number,
+): Record<string, string> | undefined {
+  const kept = Object.entries(judged ?? {}).filter(([, at]) => Date.parse(at) > cutoffMs);
+  return kept.length === 0 ? undefined : Object.fromEntries(kept);
 }
 
 /**
@@ -242,6 +302,11 @@ export function runProgressStatus(
     threadsWaiting: number;
     /** `--first`: this session starts a run, so it inherits no progress. */
     freshRun: boolean;
+    /**
+     * The session this settle judged — finished or skipped — for the hook to
+     * stop counting. Absent while the session is halted: nothing is judged yet.
+     */
+    judged?: { sessionId: string; lastActivityAt: Date };
   },
 ): WorkerStatus {
   const base: WorkerStatus = previous ?? {
@@ -253,8 +318,18 @@ export function runProgressStatus(
   const carried =
     !input.freshRun && progressIsLive(base.runProgress, input.now) ? base.runProgress : undefined;
   const sessionsDone = (carried?.sessionsDone ?? 0) + (input.sessionFinished ? 1 : 0);
+  const judgedSessions = judgedAfter(
+    input.judged === undefined
+      ? base.judgedSessions
+      : { ...base.judgedSessions, [input.judged.sessionId]: input.judged.lastActivityAt.toISOString() },
+    // Whichever forgets more: the watermark, or the hook's age window. An
+    // unparseable watermark is 0, which forgets nothing on its account.
+    Math.max(new Date(base.lastRunFinishedAt ?? 0).getTime() || 0, input.now.getTime() - MAX_AGE_MS),
+  );
+  const { judgedSessions: _previous, ...rest } = base;
   return {
-    ...base,
+    ...rest,
+    ...(judgedSessions === undefined ? {} : { judgedSessions }),
     // Re-stamped, because this write is a snapshot: the two counts below are
     // taken now, and leaving `updatedAt` at whatever the worker last wrote
     // would date fresh numbers by a census that happened minutes ago.
