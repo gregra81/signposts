@@ -31,6 +31,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 INSTALLER="$ROOT/docs/install.sh"
+# shellcheck disable=SC2016 # the installer's source text, matched literally, never expanded
 URL_LINE='base="https://github.com/$REPO/releases/download/$tag"'
 
 work="$(mktemp -d)"
@@ -127,23 +128,28 @@ in_sandbox 'command -v signpost' >/dev/null && fail "precondition: signpost is o
 
 status=0
 run_installer || status=$?
-[ "$status" = 0 ] && pass "installs and exits 0" || { fail "installer exited $status"; cat "$case_dir/out" >&2; }
+if [ "$status" = 0 ]; then pass "installs and exits 0"; else fail "installer exited $status"; cat "$case_dir/out" >&2; fi
 
 for bin in signpost signpost-session-start; do
   resolved="$(in_sandbox "command -v $bin" || true)"
-  [ "$resolved" = "$case_dir/prefix/bin/$bin" ] && pass "$bin is on PATH" || fail "$bin is not on PATH (got '$resolved')"
+  if [ "$resolved" = "$case_dir/prefix/bin/$bin" ]; then pass "$bin is on PATH"; else fail "$bin is not on PATH (got '$resolved')"; fi
 done
 
 # The hook bundle has no dependencies, so it is the one binary that can run
 # without node_modules. Outside a git repo it must exit 0 and print nothing.
 mkdir -p "$case_dir/not-a-repo"
-hook_out="$(cd "$case_dir/not-a-repo" && in_sandbox 'signpost-session-start' 2>&1)" && [ -z "$hook_out" ] &&
-  pass "the shipped hook runs" || fail "the shipped hook failed: $hook_out"
+if hook_out="$(cd "$case_dir/not-a-repo" && in_sandbox 'signpost-session-start' 2>&1)" && [ -z "$hook_out" ]; then
+  pass "the shipped hook runs"
+else
+  fail "the shipped hook failed: $hook_out"
+fi
 
-grep -qF "/plugin marketplace add gregra81/signposts" "$case_dir/out" &&
-  grep -qF "/plugin install signposts@signposts" "$case_dir/out" &&
-  pass "prints both /plugin commands when claude is missing" ||
+if grep -qF "/plugin marketplace add gregra81/signposts" "$case_dir/out" &&
+  grep -qF "/plugin install signposts@signposts" "$case_dir/out"; then
+  pass "prints both /plugin commands when claude is missing"
+else
   fail "the missing-claude fallback did not print both /plugin commands"
+fi
 
 # --- a corrupted SHA256SUMS ----------------------------------------------------
 
@@ -152,9 +158,9 @@ printf '%064d  %s\n' 0 "$tarball" >"$case_dir/release/SHA256SUMS"
 
 status=0
 run_installer || status=$?
-[ "$status" != 0 ] && pass "a bad checksum exits non-zero" || fail "a bad checksum exited 0"
-grep -qF "checksum mismatch" "$case_dir/out" && pass "and says why" || { fail "no checksum message"; cat "$case_dir/out" >&2; }
-[ ! -e "$case_dir/npm.log" ] && pass "and npm never ran" || fail "npm ran after a checksum mismatch: $(cat "$case_dir/npm.log")"
+if [ "$status" != 0 ]; then pass "a bad checksum exits non-zero"; else fail "a bad checksum exited 0"; fi
+if grep -qF "checksum mismatch" "$case_dir/out"; then pass "and says why"; else fail "no checksum message"; cat "$case_dir/out" >&2; fi
+if [ ! -e "$case_dir/npm.log" ]; then pass "and npm never ran"; else fail "npm ran after a checksum mismatch: $(cat "$case_dir/npm.log")"; fi
 
 # ------------------------------------------------------------------------------
 
