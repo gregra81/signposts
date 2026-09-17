@@ -28,10 +28,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm run lint
-      # The installer is the first thing a user runs and the one file here that
-      # no test exercises: it is shell, it is piped into bash, and a typo in it
-      # fails on their machine rather than in this repo.
-      - run: shellcheck docs/install.sh
+      # The installer is the first thing a user runs: it is shell, it is piped
+      # into bash, and a typo in it fails on their machine rather than in this
+      # repo. The install test in the test job runs it; this lints both.
+      - run: shellcheck docs/install.sh test/install/install.test.sh
 
   test:
     runs-on: ubuntu-latest
@@ -44,3 +44,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test
+      # Outside `pnpm test` because it packs, and packing writes dist/ into the
+      # checkout that the suite's spawned processes are running from.
+      - run: pnpm run test:install

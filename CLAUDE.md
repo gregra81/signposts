@@ -89,6 +89,10 @@ layout as a public interface.
 Four tiers under `test/`: `unit`, `behaviour`, `invariant`, `property`. `pnpm test` runs
 everything; `pnpm test:unit` is the narrower set Stryker drives.
 
+`docs/install.sh` has its own test outside vitest, `pnpm test:install`, because it packs the
+repo, and packing writes `dist/` into the checkout that other tests spawn `bin/signpost.js` from.
+CI runs it after the suite; the release workflow runs it on the tarball and `SHA256SUMS` it publishes.
+
 The suite must pass with the network denied:
 
 ```bash

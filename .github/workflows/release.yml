@@ -59,6 +59,12 @@ jobs:
             tar -tzf dist-release/*.tgz | grep -qx "$path" || { echo "missing from the tarball: $path" >&2; exit 1; }
           done
 
+      # docs/install.sh against this tarball and this SHA256SUMS, served as a
+      # file:// release, offline, with no claude on PATH
+      # (19-value-to-a-user.md, Phase 6).
+      - name: the installer installs it
+        run: bash test/install/install.test.sh dist-release
+
       - name: create the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
