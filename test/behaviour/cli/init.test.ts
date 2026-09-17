@@ -248,4 +248,52 @@ describe("signpost init", () => {
     const content = readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
     expect(content).toBe(CLAUDE_MD_POINTER);
   });
+
+  // 05-retrieval.md: "Prefetch happens at `signpost init`". Before it did,
+  // the first thing to need the model was a background worker or a search
+  // inside a Claude turn (19-value-to-a-user.md item 12).
+  describe("fetching the embedding model", () => {
+    function recordingPrefetch() {
+      const calls: { consented: boolean }[] = [];
+      const prefetchModel = async (_config: ResolvedConfig, say: (line: string) => void): Promise<void> => {
+        const db = openDb(config.paths.dbPath);
+        try {
+          calls.push({ consented: hasConsented(db, repo) });
+        } finally {
+          db.close();
+        }
+        say("model fetched");
+      };
+      return { calls, prefetchModel };
+    }
+
+    it("fetches it once consent is recorded, and says so", async () => {
+      const { calls, prefetchModel } = recordingPrefetch();
+      const stdio = createFakeStdio("y");
+
+      const exitCode = await runCli(["init"], { config, stdio, prefetchModel });
+
+      expect(exitCode).toBe(0);
+      expect(calls).toEqual([{ consented: true }]);
+      expect(stdio.writtenOutput()).toContain("signposts: model fetched\n");
+    });
+
+    it("fetches nothing when consent is declined", async () => {
+      const { calls, prefetchModel } = recordingPrefetch();
+
+      await runCli(["init"], { config, stdio: createFakeStdio("n"), prefetchModel });
+
+      expect(calls).toEqual([]);
+    });
+
+    it("fetches it again on an already-initialised repo, which is the path an upgrade takes", async () => {
+      await runCli(["init"], { config, stdio: createFakeStdio("y") });
+      const { calls, prefetchModel } = recordingPrefetch();
+
+      const exitCode = await runCli(["init"], { config, stdio: createFakeStdio(), prefetchModel });
+
+      expect(exitCode).toBe(0);
+      expect(calls).toEqual([{ consented: true }]);
+    });
+  });
 });

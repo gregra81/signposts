@@ -71,6 +71,18 @@ export interface NeighbourCandidate {
   paths?: readonly string[];
 }
 
+/**
+ * What `rankSignposts` searches for. The read path's embedding can be null:
+ * when the embedder will not load, or the index was built with another model,
+ * the FTS half still answers on its own (19-value-to-a-user.md item 12). The
+ * write path always embeds, which is why NeighbourCandidate does not allow it.
+ */
+export interface RankQuery {
+  claim: string;
+  embedding: readonly number[] | null;
+  paths?: readonly string[];
+}
+
 export interface Neighbour {
   id: string;
   claim: string;
@@ -190,7 +202,7 @@ export function findNeighbours(
 export function rankSignposts(
   db: Database.Database,
   repo: string,
-  candidate: NeighbourCandidate,
+  candidate: RankQuery,
   k: number,
   options: RankOptions = WRITE_PATH_OPTIONS,
 ): RankedRow[] {
@@ -200,15 +212,18 @@ export function rankSignposts(
 
   const pool = Math.max(k, RETRIEVAL_POOL);
 
-  const vectorRows = db
-    .prepare(
-      `SELECT signpost_id, distance
-       FROM signpost_vec
-       WHERE repo = ? AND claim_embedding MATCH ? AND k = ?
-         AND ${activeInRepoFilter(options.includePending)}
-       ORDER BY distance`,
-    )
-    .all(repo, vectorToBlob(candidate.embedding), pool, repo, ACTIVE_STATUS) as VectorRow[];
+  const vectorRows =
+    candidate.embedding === null
+      ? []
+      : (db
+          .prepare(
+            `SELECT signpost_id, distance
+             FROM signpost_vec
+             WHERE repo = ? AND claim_embedding MATCH ? AND k = ?
+               AND ${activeInRepoFilter(options.includePending)}
+             ORDER BY distance`,
+          )
+          .all(repo, vectorToBlob(candidate.embedding), pool, repo, ACTIVE_STATUS) as VectorRow[]);
 
   const { minSimilarity } = options;
   const nearEnough =

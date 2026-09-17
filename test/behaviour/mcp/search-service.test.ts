@@ -196,7 +196,7 @@ describe("the search_signposts read path", () => {
   );
 
   it(
-    "says the index is stale rather than answering from a corpus the repo has moved past",
+    "answers from a stale index, and says it is behind",
     async () => {
       writeSignpostFile(STAGING);
       await buildIndex();
@@ -215,7 +215,10 @@ describe("the search_signposts read path", () => {
 
       const output = await search("can I run migrations against staging");
 
-      expect(output.results).toEqual([]);
+      // Edited for 19-value-to-a-user.md item 12, agreed beforehand. This used
+      // to assert an empty result: every signpost the index was built from was
+      // still in it, and a `git pull` blanked search until the worker ran.
+      expect(output.results.map((hit) => hit.id)).toContain(STAGING.id);
       expect(output.diagnostic).toBe(diagnosticFor(SEARCH_UNAVAILABLE.stale_index));
     },
     60_000,
@@ -268,8 +271,10 @@ describe("the search_signposts read path", () => {
 
     const output = await search("can I run migrations against staging");
 
+    // Edited for 19-value-to-a-user.md item 12, agreed beforehand: this state
+    // shared no_index, whose text tells the reader it is a fresh clone.
     expect(output.results).toEqual([]);
-    expect(output.diagnostic).toBe(diagnosticFor(SEARCH_UNAVAILABLE.no_index));
+    expect(output.diagnostic).toBe(diagnosticFor(SEARCH_UNAVAILABLE.not_indexed));
   });
 
   it(
@@ -331,6 +336,55 @@ describe("the search_signposts read path", () => {
 
       expect(output.results.map((hit) => hit.id)).toContain(STAGING.id);
       expect(output.results.map((hit) => hit.id)).not.toContain(PRISMA.id);
+    },
+    60_000,
+  );
+
+  // The embedder, pointed somewhere with no model in it and no route to fetch
+  // one — what a machine that never downloaded the model looks like offline.
+  function withoutModel(): void {
+    const empty = mkdtempSync(path.join(tmpdir(), "signposts-mcp-nomodel-"));
+    config = {
+      ...config,
+      paths: { ...config.paths, modelCacheDir: empty },
+      retrieval: { ...config.retrieval, allow_remote_models: false, local_model_path: empty },
+    };
+  }
+
+  it(
+    "matches by keyword when the embedder will not load, and says so",
+    async () => {
+      writeSignpostFile(STAGING);
+      writeSignpostFile(PRISMA);
+      await buildIndex();
+      withoutModel();
+
+      const output = await search("where does the Prisma schema live");
+
+      expect(output.results.map((hit) => hit.id)).toEqual([PRISMA.id]);
+      expect(output.diagnostic).toBe(diagnosticFor(SEARCH_UNAVAILABLE.no_embedder));
+      expect(warnings.join("\n")).toContain("could not embed the query");
+    },
+    60_000,
+  );
+
+  it(
+    "matches by keyword against an index built with another model, without loading the embedder",
+    async () => {
+      writeSignpostFile(STAGING);
+      writeSignpostFile(PRISMA);
+      await buildIndex();
+      const db = openDb(config.paths.dbPath);
+      db.prepare("UPDATE index_meta SET embedding_model = ? WHERE repo = ?").run("another/model@0000000", REPO);
+      db.close();
+      // If the embedder were loaded, this would add a no_embedder caveat.
+      withoutModel();
+
+      const output = await search("where does the Prisma schema live");
+
+      expect(output.results.map((hit) => hit.id)).toEqual([PRISMA.id]);
+      expect(output.diagnostic).toBe(diagnosticFor(SEARCH_UNAVAILABLE.model_changed));
+      expect(warnings).toEqual([]);
     },
     60_000,
   );

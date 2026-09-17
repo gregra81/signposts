@@ -27,13 +27,32 @@ import { openDb } from "../../io/db/migrate.ts";
 import { markConsented } from "../../io/db/repo-state.ts";
 import { resolveRepo } from "../../io/git/remote-origin.ts";
 
+/**
+ * Puts the embedding model on this machine, saying what it did through `say`.
+ * Never throws — see src/io/embed/prefetch.ts, the production one.
+ */
+export type PrefetchModel = (config: ResolvedConfig, say: (line: string) => void) => Promise<void>;
+
 export interface RunInitInput {
   config: ResolvedConfig;
   repoRoot: string;
   stdio: Stdio;
+  /**
+   * Absent in tests that are not about it: the real one downloads a model.
+   * The composition root always passes it.
+   */
+  prefetchModel?: PrefetchModel;
 }
 
-export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promise<ExitCode> {
+export async function runInit({ config, repoRoot, stdio, prefetchModel }: RunInitInput): Promise<ExitCode> {
+  // After consent on both paths below, never before: a decline leaves no trace,
+  // and 23 MB in a cache directory is a trace. The already-initialised path
+  // runs it too, because that is the path an upgrade takes, and an upgrade is
+  // what changes the pinned model.
+  const fetchModel = async (): Promise<void> => {
+    await prefetchModel?.(config, (line) => stdio.output.write(`signposts: ${line}\n`));
+  };
+
   // `repo` (the repo_state key) comes from the `origin` git remote — this is
   // the one command besides `index` that needs it, so it's resolved here
   // rather than eagerly at the composition root (see src/io/production-app.ts):
@@ -75,6 +94,7 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
     // Same reason as the skill: the settings entry names the path this build
     // installed to, and an upgrade moves it.
     reportStatusLine(stdio, installStatusLine(repoRoot, claudeConfigRoot(config)));
+    await fetchModel();
     return 0;
   }
 
@@ -106,6 +126,7 @@ export async function runInit({ config, repoRoot, stdio }: RunInitInput): Promis
     }
     stdio.output.write(`signposts: initialised. Wrote ${skillPath} — ask Claude to run signposts.\n`);
     reportStatusLine(stdio, installStatusLine(repoRoot, claudeConfigRoot(config)));
+    await fetchModel();
   } else {
     stdio.output.write("signposts: consent declined — nothing persisted.\n");
   }

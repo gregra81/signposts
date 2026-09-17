@@ -27,7 +27,7 @@ import type { ExitCode } from "./core/cli/exit-codes.ts";
 import { parseCommand, spendsTokens } from "./core/cli/dispatch.ts";
 import { EXIT_CODES } from "./core/cli/exit-codes.ts";
 import { hasConsent } from "./cli/consent.ts";
-import { runInit } from "./cli/commands/init.ts";
+import { runInit, type PrefetchModel } from "./cli/commands/init.ts";
 import { runIndex } from "./cli/commands/index.ts";
 import { runDoctor } from "./cli/commands/doctor.ts";
 import { runExtraction, runResume, runSessionsList } from "./cli/commands/run.ts";
@@ -58,6 +58,11 @@ export interface CreateAppInput {
   openRun: OpenRun;
   /** Defaults to the real process streams — see module comment. */
   stdio?: Stdio;
+  /**
+   * Fetches the embedding model at `init`. Optional so a test of anything else
+   * does not download a model; production passes src/io/embed/prefetch.ts.
+   */
+  prefetchModel?: PrefetchModel;
   /**
    * What `--version` prints. Read from package.json by the composition root,
    * which is the one place that knows where the package is.
@@ -107,7 +112,7 @@ function defaultStdio(): Stdio {
   };
 }
 
-export function createApp({ config, openRun, stdio, version }: CreateAppInput): App {
+export function createApp({ config, openRun, stdio, version, prefetchModel }: CreateAppInput): App {
   const io = stdio ?? defaultStdio();
   const repoRoot = config.paths.repoRoot;
 
@@ -151,7 +156,12 @@ export function createApp({ config, openRun, stdio, version }: CreateAppInput): 
 
       switch (command.name) {
         case "init":
-          return runInit({ config, repoRoot, stdio: io });
+          return runInit({
+            config,
+            repoRoot,
+            stdio: io,
+            ...(prefetchModel === undefined ? {} : { prefetchModel }),
+          });
         case "index":
           return runIndex({ config, repoRoot, stderr: io.error });
         case "doctor":

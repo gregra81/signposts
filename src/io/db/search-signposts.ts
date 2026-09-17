@@ -33,7 +33,7 @@ import type { SignpostHit } from "../../core/mcp/search-tool.ts";
 import { computeCorpusHash } from "../../core/retrieval/corpus-hash.ts";
 import { shouldReindex } from "../../core/retrieval/reindex-decision.ts";
 import { ACTIVE_STATUS } from "../../core/signpost/schema.ts";
-import { rankSignposts, type NeighbourCandidate } from "./neighbours.ts";
+import { rankSignposts, type RankQuery } from "./neighbours.ts";
 
 interface CorpusRow {
   id: string;
@@ -55,8 +55,14 @@ interface IndexMetaRow {
  * `shouldReindex` — which answers true for it, since a missing index is one of
  * its three triggers — told that repo its index was "out of date with the
  * recorded signposts" when it had recorded none.
+ *
+ * `model_changed` is split out of `stale` because the two can be searched
+ * differently. A corpus that moved on still has vectors in the query's space
+ * for every signpost it was built from; vectors from another model do not, and
+ * comparing across the two spaces is the thing 05-retrieval.md's rebuild
+ * trigger exists to prevent. So only the FTS half is searched there.
  */
-export type IndexState = "missing" | "stale" | "current";
+export type IndexState = "missing" | "model_changed" | "stale" | "current";
 
 export function indexState(db: Database.Database, repo: string): IndexState {
   const meta = db.prepare("SELECT corpus_hash, embedding_model FROM index_meta WHERE repo = ?").get(repo) as
@@ -64,6 +70,9 @@ export function indexState(db: Database.Database, repo: string): IndexState {
     | undefined;
   if (meta === undefined) {
     return "missing";
+  }
+  if (meta.embedding_model !== EMBEDDING_MODEL) {
+    return "model_changed";
   }
 
   const corpus = db
@@ -90,7 +99,7 @@ export function indexState(db: Database.Database, repo: string): IndexState {
 export function searchSignposts(
   db: Database.Database,
   repo: string,
-  candidate: NeighbourCandidate,
+  candidate: RankQuery,
   limit: number,
 ): SignpostHit[] {
   return rankSignposts(db, repo, candidate, limit, {

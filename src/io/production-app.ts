@@ -29,6 +29,7 @@ import { resolveConfig } from "../core/config/resolve.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
 import { findRepoRoot } from "./git/repo-root.ts";
 import { openRun } from "./open-run.ts";
+import { prefetchModel } from "./embed/prefetch.ts";
 
 /** Set by `.claude-plugin/plugin.json` to `${CLAUDE_PROJECT_DIR}` — see below. */
 const REPO_ROOT_ENV_VAR = "SIGNPOSTS_REPO_ROOT";
@@ -129,7 +130,7 @@ export function buildProductionApp(): App {
     };
   }
 
-  return createApp({ config, openRun, ...versionField() });
+  return createApp({ config, openRun, prefetchModel, ...versionField() });
 }
 
 function versionField(): { version?: string } {

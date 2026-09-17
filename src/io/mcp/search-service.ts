@@ -1,6 +1,12 @@
 // The read path behind the `search_signposts` MCP tool: resolve the repo,
 // open the index read-only, check it is current, embed the query, search.
 //
+// **What can be searched, is.** A stale index, an index built with another
+// model and an embedder that will not load each still leave something to
+// search, so each searches it and says what it could not do
+// (19-value-to-a-user.md item 12). Only the states with nothing to search —
+// no repo, no database, no index, an unreadable one — come back empty.
+//
 // **Nothing here throws.** Every step that can fail returns one of
 // src/core/mcp/search-tool.ts's reasons instead, because the caller of this is
 // a tool call inside a Claude turn and the states it can be in — no origin
@@ -23,6 +29,7 @@ import {
   searchOutput,
   unavailableOutput,
   type SearchToolOutput,
+  type SearchUnavailable,
 } from "../../core/mcp/search-tool.ts";
 import { normalize } from "../../core/retrieval/normalize.ts";
 import { openReadOnlyDb } from "../db/read-only.ts";
@@ -99,15 +106,23 @@ export function createSearchService({ config, repoRoot, warn }: CreateSearchServ
           // repo that has only consented is in the first state, not stale.
           const state = indexState(db, repo);
           if (state === "missing") {
-            return unavailableOutput(SEARCH_UNAVAILABLE.no_index);
-          }
-          if (state === "stale") {
-            return unavailableOutput(SEARCH_UNAVAILABLE.stale_index);
+            return unavailableOutput(SEARCH_UNAVAILABLE.not_indexed);
           }
 
-          const embedding = await embedQuery(input.query);
-          if (embedding === null) {
-            return unavailableOutput(SEARCH_UNAVAILABLE.no_embedder);
+          const caveats: SearchUnavailable[] = [];
+          let embedding: readonly number[] | null = null;
+          if (state === "model_changed") {
+            // Not even loaded: the query's vector would be in a space the
+            // index's vectors are not.
+            caveats.push(SEARCH_UNAVAILABLE.model_changed);
+          } else {
+            if (state === "stale") {
+              caveats.push(SEARCH_UNAVAILABLE.stale_index);
+            }
+            embedding = await embedQuery(input.query);
+            if (embedding === null) {
+              caveats.push(SEARCH_UNAVAILABLE.no_embedder);
+            }
           }
 
           const candidate = {
@@ -115,7 +130,7 @@ export function createSearchService({ config, repoRoot, warn }: CreateSearchServ
             embedding,
             ...(input.paths === undefined ? {} : { paths: input.paths }),
           };
-          return searchOutput(searchSignposts(db, repo, candidate, input.limit));
+          return searchOutput(searchSignposts(db, repo, candidate, input.limit), caveats);
         } finally {
           db.close();
         }
