@@ -10,17 +10,22 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   IDLE_HOURS,
+  INDEX_CONTEXT_MAX_BYTES,
   LOCK_STALE_MINUTES,
   MAX_AGE_DAYS,
   REVIEW_EXPIRY_WARN_DAYS,
 } from "../../../src/core/config/constants.ts";
 import { derivePaths as deriveAppPaths } from "../../../src/core/config/paths.ts";
+import { generateIndexDoc } from "../../../src/core/signpost/index-doc.ts";
+import type { Signpost } from "../../../src/core/signpost/schema.ts";
 import {
   alreadyJudged,
   anyWork,
   countThreadsWaiting,
   derivePaths,
   findRepoRoot,
+  hookOutput,
+  indexContext,
   judgedSessions,
   lockIsHeld,
   looksEligible,
@@ -291,5 +296,71 @@ describe("a review close to its expiry, in the session-start notice", () => {
     expect(
       reviewExpiresInDays({ reviewExpiresAt: new Date(NOW + REVIEW_EXPIRY_WARN_DAYS * DAY + 1).toISOString() }, NOW),
     ).toBeUndefined();
+  });
+});
+
+// 19-value-to-a-user.md, Phase 5.
+describe("the corpus, carried into the session", () => {
+  const signpost: Signpost = {
+    id: "migrations-run-by-hand",
+    claim: "Migrations run by hand on staging | never from CI.",
+    category: "environment",
+    scope: { repo: "acme/platform" },
+    evidence: "Evidence.",
+    confidence: 0.9,
+    status: "active",
+    provenance: { session_ids: ["s1"], authors: ["a@b.com"], first_seen: "2026-01-01", last_reinforced: "2026-01-02" },
+  };
+
+  function indexFile(content: string): string {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), "signposts-index-")), "index.md");
+    writeFileSync(file, content);
+    return file;
+  }
+
+  // The hook reads what src/core/signpost/index-doc.ts writes, and may not import it.
+  it("carries the index the renderer writes, whole", () => {
+    const doc = generateIndexDoc([signpost]);
+    const context = indexContext(indexFile(doc));
+    expect(context).toContain(doc);
+    expect(context).toContain("`.signposts/<category>/<id>.md`");
+  });
+
+  it("carries nothing when the renderer found no active claim", () => {
+    expect(indexContext(indexFile(generateIndexDoc([{ ...signpost, status: "retired" }])))).toBeNull();
+  });
+
+  it("carries nothing before the first merged PR writes an index", () => {
+    expect(indexContext(path.join(tmpdir(), "no-such-dir", "index.md"))).toBeNull();
+  });
+
+  it("carries a pointer instead once the index passes INDEX_CONTEXT_MAX_BYTES", () => {
+    const doc = generateIndexDoc([signpost]);
+    const atCap = doc + "x".repeat(INDEX_CONTEXT_MAX_BYTES - Buffer.byteLength(doc));
+    expect(indexContext(indexFile(atCap))).toContain(atCap);
+
+    const pointer = indexContext(indexFile(atCap + "x"));
+    expect(pointer).toContain("Read `.signposts/index.md`");
+    expect(pointer).not.toContain(signpost.id);
+  });
+
+  it("derives the same index path as src/core/config/paths.ts", () => {
+    expect(derivePaths("/repo", "/home/dev").indexFile).toBe(deriveAppPaths("/repo", "/home/dev").indexFile);
+  });
+
+  it("puts the corpus in context without a notice, and says nothing with neither", () => {
+    expect(hookOutput(null, null)).toBeNull();
+    expect(hookOutput(null, "the index")).toEqual({
+      hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "the index" },
+    });
+  });
+
+  it("puts the corpus ahead of the run offer when both are due", () => {
+    const output = hookOutput({ sessions: 1, threads: 0, staleIndex: false }, "the index") as {
+      systemMessage: string;
+      hookSpecificOutput: { additionalContext: string };
+    };
+    expect(output.systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
+    expect(output.hookSpecificOutput.additionalContext).toMatch(/^the index\n\nsignposts has 1 session/);
   });
 });
