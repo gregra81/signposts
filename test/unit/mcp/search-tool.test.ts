@@ -80,6 +80,48 @@ describe("searchOutput", () => {
 
     expect(output.results).not.toBe(hits);
   });
+
+  // 19-value-to-a-user.md item 12: a degraded search answers with what it
+  // found, and says what it could not do.
+  it("keeps the hits of a degraded search, with the caveat and the fallback beside them", () => {
+    const output = searchOutput([hit], [SEARCH_UNAVAILABLE.no_embedder]);
+
+    expect(output.results).toEqual([hit]);
+    expect(output.diagnostic).toBe(diagnosticFor(SEARCH_UNAVAILABLE.no_embedder));
+  });
+
+  it("says both what went wrong and that nothing matched, when a degraded search finds nothing", () => {
+    const output = searchOutput([], [SEARCH_UNAVAILABLE.stale_index]);
+
+    expect(output.results).toEqual([]);
+    expect(output.diagnostic).toContain("behind the recorded signposts");
+    expect(output.diagnostic).toContain(diagnosticFor(SEARCH_UNAVAILABLE.no_match));
+  });
+
+  it("names the fallback once, however many caveats there are", () => {
+    const diagnostic =
+      searchOutput([hit], [SEARCH_UNAVAILABLE.stale_index, SEARCH_UNAVAILABLE.no_embedder]).diagnostic ?? "";
+
+    expect(diagnostic.split(`${SIGNPOSTS_DIRNAME}/${INDEX_FILENAME}`)).toHaveLength(2);
+    expect(diagnostic).toContain("keyword only");
+    expect(diagnostic).toContain("behind the recorded signposts");
+  });
+});
+
+describe("the reasons item 12 split apart", () => {
+  it("keeps a space between a reason's sentence and the fallback after it", () => {
+    expect(diagnosticFor(SEARCH_UNAVAILABLE.no_repo)).toContain(`has none. Read ${SIGNPOSTS_DIRNAME}/${INDEX_FILENAME}`);
+  });
+
+  it("tells a repo that consented and never indexed something other than the fresh-clone message", () => {
+    expect(diagnosticFor(SEARCH_UNAVAILABLE.not_indexed)).not.toContain("fresh clone");
+    expect(diagnosticFor(SEARCH_UNAVAILABLE.not_indexed)).toContain("signpost index");
+  });
+
+  it("names the rebuild when the index was built with another model", () => {
+    expect(diagnosticFor(SEARCH_UNAVAILABLE.model_changed)).toContain("signpost index");
+    expect(diagnosticFor(SEARCH_UNAVAILABLE.model_changed)).toContain("keyword only");
+  });
 });
 
 describe("renderOutput", () => {
@@ -101,6 +143,15 @@ describe("renderOutput", () => {
     expect(text).toContain(hit.evidence);
     expect(text).toContain(hit.category);
     expect(text).toContain(String(hit.confidence));
+  });
+
+  it("puts a caveat after the hits it qualifies", () => {
+    const output = searchOutput([hit], [SEARCH_UNAVAILABLE.no_embedder]);
+    const blocks = renderOutput(output).split("\n\n");
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toContain(hit.claim);
+    expect(blocks[1]).toBe(output.diagnostic);
   });
 
   it("separates two hits", () => {

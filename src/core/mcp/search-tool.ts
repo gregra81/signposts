@@ -6,11 +6,18 @@
 // **The tool never fails.** A missing index is the ordinary state of a fresh
 // clone — the reader installed the plugin, has run no extraction and holds no
 // credential — and an MCP tool that throws there puts an error inside a Claude
-// turn for a condition that is nobody's mistake. So every unhappy path is an
-// empty result plus a diagnostic saying which one it is and what still works:
-// `.signposts/` is markdown on disk and the CLAUDE.md pointer sends Claude to
-// read it, which is why 15-spec.md story 62 keeps that pointer after this
-// server ships.
+// turn for a condition that is nobody's mistake. So a path with nothing to
+// search is an empty result plus a diagnostic saying which one it is and what
+// still works: `.signposts/` is markdown on disk and the CLAUDE.md pointer
+// sends Claude to read it, which is why 15-spec.md story 62 keeps that pointer
+// after this server ships.
+//
+// **A path with something to search answers, and says what it could not do.**
+// A stale index, an embedder that will not load and an index built with
+// another model all used to return nothing (19-value-to-a-user.md item 12). A
+// stale index still holds every signpost it was built from, and the FTS half
+// needs no model, so each of those now searches what it can and carries the
+// reason as a caveat beside the hits.
 //
 // The diagnostic is written for the model reading it, not for a log: it says
 // what to do instead, because the alternative is Claude concluding the repo
@@ -48,22 +55,32 @@ export const SEARCH_TOOL_DESCRIPTION =
   `like one someone has already made here. Returns the closest signposts by meaning, not by keyword.`;
 
 /**
- * Why a search came back empty. Every value is a state the reader is allowed
- * to be in, not a fault — see the module header.
+ * Why a search came back empty or incomplete. Every value is a state the reader
+ * is allowed to be in, not a fault — see the module header. The first group
+ * leaves nothing to search; the second is a caveat on results that still come
+ * back (`searchOutput`'s `caveats`).
  */
 export const SEARCH_UNAVAILABLE = {
   /** No `origin` remote to key the corpus on: signposts are stored per repo. */
   no_repo: "no_repo",
   /** No database file. The cold clone, before the first index build. */
   no_index: "no_index",
-  /** A database, but its vector/FTS index does not match the recorded corpus. */
-  stale_index: "stale_index",
+  /**
+   * A database and no index. `init` creates the one and never builds the
+   * other, so every repo that has consented passes through here — which is
+   * not a fresh clone, and must not be told it is.
+   */
+  not_indexed: "not_indexed",
   /** A database that cannot be read at the schema this build expects. */
   unreadable: "unreadable",
-  /** The index is fine and the embedder is not — no model cache, offline. */
-  no_embedder: "no_embedder",
   /** Everything worked and nothing was close enough to the query. */
   no_match: "no_match",
+  /** Caveat: the index is behind the recorded corpus, and was searched anyway. */
+  stale_index: "stale_index",
+  /** Caveat: the index was built with another embedding model, so only its FTS half was searched. */
+  model_changed: "model_changed",
+  /** Caveat: the embedder would not load — no model cache, offline — so only the FTS half was searched. */
+  no_embedder: "no_embedder",
 } as const;
 
 export type SearchUnavailable = (typeof SEARCH_UNAVAILABLE)[keyof typeof SEARCH_UNAVAILABLE];
@@ -116,9 +133,10 @@ export type SignpostHit = z.infer<typeof signpostHitSchema>;
 export const searchOutputSchema = z.object({
   results: z.array(signpostHitSchema),
   /**
-   * Present whenever `results` is empty, absent otherwise. An empty result
-   * with no explanation reads as "this repo has recorded nothing", which is
-   * the wrong conclusion in five of the six cases above.
+   * Present whenever `results` is empty, and beside results that came from a
+   * degraded search. An empty result with no explanation reads as "this repo
+   * has recorded nothing", and a keyword-only one reads as the best the corpus
+   * has — both wrong conclusions.
    */
   diagnostic: z.string().optional(),
 });
@@ -130,23 +148,32 @@ const FALLBACK = `Read ${SIGNPOSTS_DIRNAME}/${INDEX_FILENAME} and grep ${SIGNPOS
 
 const REBUILD = "`signpost index` rebuilds it, and the session-start hook rebuilds it on its own in the background.";
 
-const DIAGNOSTICS: Readonly<Record<SearchUnavailable, string>> = {
+/** Each reason's own sentence. FALLBACK is added once, after all of them. */
+const REASONS: Readonly<Record<SearchUnavailable, string>> = {
   [SEARCH_UNAVAILABLE.no_repo]:
-    `No search index: signposts are keyed by the repository's 'origin' remote and this checkout has none. ${FALLBACK}`,
+    "No search index: signposts are keyed by the repository's 'origin' remote and this checkout has none.",
   [SEARCH_UNAVAILABLE.no_index]:
-    `No search index has been built in this checkout yet — expected on a fresh clone, and not an error. ${REBUILD} ${FALLBACK}`,
-  [SEARCH_UNAVAILABLE.stale_index]:
-    `The search index is out of date with the recorded signposts, so searching it would answer from a corpus this repo has moved past. ${REBUILD} ${FALLBACK}`,
+    `No search index has been built in this checkout yet — expected on a fresh clone, and not an error. ${REBUILD}`,
+  [SEARCH_UNAVAILABLE.not_indexed]:
+    `This repo has a signposts database but no search index yet: \`signpost init\` creates the one and not the other. ${REBUILD}`,
   [SEARCH_UNAVAILABLE.unreadable]:
-    `The search index could not be read at the schema this build expects. ${REBUILD} ${FALLBACK}`,
-  [SEARCH_UNAVAILABLE.no_embedder]:
-    `The embedding model is not available locally, so the query could not be searched by meaning. \`signpost doctor\` reports the model cache. ${FALLBACK}`,
+    `The search index could not be read at the schema this build expects. ${REBUILD}`,
   [SEARCH_UNAVAILABLE.no_match]:
-    `The index was searched and no recorded signpost is close to this query. ${FALLBACK}`,
+    "The index was searched and no recorded signpost is close to this query.",
+  [SEARCH_UNAVAILABLE.stale_index]:
+    `The search index is behind the recorded signposts, so these results can miss one recorded or changed since it was built. ${REBUILD}`,
+  [SEARCH_UNAVAILABLE.model_changed]:
+    `The search index was built with a different embedding model, so this query was matched by keyword only, not by meaning. ${REBUILD}`,
+  [SEARCH_UNAVAILABLE.no_embedder]:
+    "The embedding model is not available locally, so this query was matched by keyword only, not by meaning. `signpost doctor` reports the model cache.",
 };
 
+function diagnosticOf(reasons: readonly SearchUnavailable[]): string {
+  return [...reasons.map((reason) => REASONS[reason]), FALLBACK].join(" ");
+}
+
 export function diagnosticFor(reason: SearchUnavailable): string {
-  return DIAGNOSTICS[reason];
+  return diagnosticOf([reason]);
 }
 
 /** An empty result carrying the reason — the only shape an unhappy path takes. */
@@ -155,12 +182,18 @@ export function unavailableOutput(reason: SearchUnavailable): SearchToolOutput {
 }
 
 /**
- * Hits as they came back, or the `no_match` diagnostic when there are none:
- * an empty list is a result about the corpus and deserves the same
- * explanation the other empty results get.
+ * Hits as they came back, with a diagnostic when the search was degraded or
+ * found nothing: an empty list is a result about the corpus and deserves the
+ * same explanation the other empty results get, and `caveats` say what the
+ * search could not do on the way to the hits it did find.
  */
-export function searchOutput(hits: readonly SignpostHit[]): SearchToolOutput {
-  return hits.length === 0 ? unavailableOutput(SEARCH_UNAVAILABLE.no_match) : { results: [...hits] };
+export function searchOutput(
+  hits: readonly SignpostHit[],
+  caveats: readonly SearchUnavailable[] = [],
+): SearchToolOutput {
+  const reasons = hits.length === 0 ? [...caveats, SEARCH_UNAVAILABLE.no_match] : caveats;
+  const results = [...hits];
+  return reasons.length === 0 ? { results } : { results, diagnostic: diagnosticOf(reasons) };
 }
 
 /**
@@ -175,7 +208,8 @@ export function renderOutput(output: SearchToolOutput): string {
   if (output.results.length === 0) {
     return output.diagnostic ?? diagnosticFor(SEARCH_UNAVAILABLE.no_match);
   }
-  return output.results.map(renderHit).join("\n\n");
+  const hits = output.results.map(renderHit);
+  return [...hits, ...(output.diagnostic === undefined ? [] : [output.diagnostic])].join("\n\n");
 }
 
 function renderHit(hit: SignpostHit): string {

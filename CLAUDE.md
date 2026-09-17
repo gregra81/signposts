@@ -301,11 +301,17 @@ ends of the pipe. It spends no tokens, so consent does not gate it — the whole
 path is a new hire who has run nothing and holds no credential
 (05-retrieval.md, "The MCP server on a cold clone").
 
-**It never throws.** Every state it can be in — no origin remote, no database, an index behind the
-mirror, no model cache, nothing matching — is an empty result plus a diagnostic naming the cause
-and the fallback (`src/core/mcp/search-tool.ts`). An error there lands inside a Claude turn for
-the ordinary condition of a fresh checkout, and the corpus is readable without this server anyway:
-that is why the CLAUDE.md pointer stays after the server ships (15-spec.md story 62).
+**It never throws.** A state with nothing to search — no origin remote, no database, no index, an
+unreadable one — is an empty result plus a diagnostic naming the cause and the fallback
+(`src/core/mcp/search-tool.ts`). An error there lands inside a Claude turn for the ordinary
+condition of a fresh checkout, and the corpus is readable without this server anyway: that is why
+the CLAUDE.md pointer stays after the server ships (15-spec.md story 62).
+
+**It searches what it can.** An index behind the mirror is still searched, and so is its FTS half
+alone when the embedder will not load or the index was built with another model. Each comes back
+with its hits and a caveat in `diagnostic`. All three used to return nothing, so a `git pull`
+blanked search until the worker ran (19-value-to-a-user.md item 12). `init` fetches the model
+after consent (`src/io/embed/prefetch.ts`), so the download no longer lands inside a Claude turn.
 
 Three things it does not do:
 
