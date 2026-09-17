@@ -27,6 +27,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { IDLE_HOURS, LOCK_STALE_MINUTES } from "../../../src/core/config/constants.ts";
 import type { WorkerStatus } from "../../../src/core/worker/status.ts";
 import { serialiseSignpost } from "../../../src/core/signpost/codec.ts";
+import { generateIndexDoc } from "../../../src/core/signpost/index-doc.ts";
 import { testLocalModelPath } from "../../support/model-cache.ts";
 import { hashRepoRoot } from "../../../src/core/config/paths.ts";
 import { projectDirName } from "../../../src/core/transcript/project-dir.ts";
@@ -373,5 +374,67 @@ describe("the budget", () => {
     // npm.
     expect(specifiers.length).toBeGreaterThanOrEqual(4);
     expect(specifiers.filter((specifier) => !specifier.startsWith("node:"))).toEqual([]);
+  });
+});
+
+// 19-value-to-a-user.md, Phase 5: the corpus reaches the model on every
+// session start, not only on the ones that wake a worker.
+describe("the corpus, carried into the session", () => {
+  const CLAIM = "Migrations run by hand on staging, never from CI.";
+
+  /** An index.md with one claim, still older than the database. */
+  function withClaim(f: Fixture): Fixture {
+    const index = path.join(f.repoRoot, ".signposts", "index.md");
+    writeFileSync(
+      index,
+      generateIndexDoc([
+        {
+          id: "migrations-by-hand",
+          claim: CLAIM,
+          category: "environment",
+          scope: { repo: "acme/platform" },
+          evidence: "Evidence.",
+          confidence: 0.9,
+          status: "active",
+          provenance: { session_ids: ["s1"], authors: ["a@b.com"], first_seen: "2026-01-01", last_reinforced: "2026-01-02" },
+        },
+      ]),
+    );
+    const anHourAgo = new Date(Date.now() - HOUR_MS);
+    utimesSync(index, anHourAgo, anHourAgo);
+    return f;
+  }
+
+  it("carries the index with nothing to wake, and shows the developer nothing", async () => {
+    const f = withClaim(withCurrentIndex(fixture()));
+    const result = runHook(f);
+
+    expect(result.status).toBe(0);
+    const output = JSON.parse(result.stdout) as Record<string, { additionalContext: string }>;
+    expect(output["systemMessage"]).toBeUndefined();
+    expect(output["hookSpecificOutput"]?.additionalContext).toContain(CLAIM);
+    expect(existsSync(path.join(f.stateDir, "run.lock"))).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, WORKER_DELAY_MS * 2));
+    expect(existsSync(f.workerLog)).toBe(false);
+  });
+
+  it("carries the index while another worker holds the lock", () => {
+    const f = withClaim(withTranscript(withCurrentIndex(fixture()), "yesterday", IDLE_HOURS + 1));
+    mkdirSync(f.stateDir, { recursive: true });
+    writeFileSync(path.join(f.stateDir, "run.lock"), JSON.stringify({ pid: 1 }));
+
+    const output = JSON.parse(runHook(f).stdout) as Record<string, { additionalContext: string }>;
+    expect(output["systemMessage"]).toBeUndefined();
+    expect(output["hookSpecificOutput"]?.additionalContext).toContain(CLAIM);
+  });
+
+  it("carries both the index and the run offer when a session is ready", async () => {
+    const f = withClaim(withTranscript(withCurrentIndex(fixture()), "yesterday", IDLE_HOURS + 1));
+    const output = JSON.parse(runHook(f).stdout) as Record<string, string & { additionalContext: string }>;
+
+    expect(output["systemMessage"]).toBe("🪧 signposts: 1 session ready — run `signpost run`");
+    expect(output["hookSpecificOutput"]?.additionalContext).toContain(CLAIM);
+    expect(output["hookSpecificOutput"]?.additionalContext).toContain("1 session of this repo's history");
+    expect(await workerLines(f, 1)).toHaveLength(1);
   });
 });

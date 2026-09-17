@@ -4,7 +4,8 @@
 //     1. count eligible transcripts + resumable threads + stale/missing index
 //     2. spawn the worker DETACHED
 //     3. emit the notice, only if there is something to say
-//     4. exit                                     // target HOOK_BUDGET_MS
+//     4. carry `.signposts/index.md` into Claude's context, when it holds a claim
+//     5. exit                                    // target HOOK_BUDGET_MS
 //
 // `SessionStart` hooks run synchronously and have no `async`/`asyncRewake`
 // field, so every millisecond spent here is a millisecond the developer waits
@@ -65,6 +66,8 @@ import { fileURLToPath } from "node:url";
 const IDLE_HOURS = 24;
 const MAX_AGE_DAYS = 90;
 const REVIEW_EXPIRY_WARN_DAYS = 7;
+/** Past this, Claude gets a pointer to index.md rather than its content. */
+const INDEX_CONTEXT_MAX_BYTES = 8_000;
 /** Older lock -> assume dead worker, take over. */
 const LOCK_STALE_MINUTES = 60;
 
@@ -74,6 +77,7 @@ const TRANSCRIPT_DIRNAME = "projects";
 const DB_FILENAME = "signposts.db";
 const STATUSLINE_FILENAME = "status.json";
 const LOCKFILE_FILENAME = "run.lock";
+const INDEX_FILENAME = "index.md";
 
 const MS_PER_MINUTE = 60_000;
 const MS_PER_HOUR = 3_600_000;
@@ -146,6 +150,7 @@ export interface HookPaths {
   statuslineState: string;
   lockfile: string;
   knowledgeDir: string;
+  indexFile: string;
   transcriptRoot: string;
 }
 
@@ -163,6 +168,7 @@ export function derivePaths(repoRoot: string, homeDir: string, claudeConfigDir?:
     statuslineState: path.join(stateDir, STATUSLINE_FILENAME),
     lockfile: path.join(stateDir, LOCKFILE_FILENAME),
     knowledgeDir: path.join(repoRoot, SIGNPOSTS_DIRNAME),
+    indexFile: path.join(repoRoot, SIGNPOSTS_DIRNAME, INDEX_FILENAME),
     transcriptRoot: path.join(configRoot, TRANSCRIPT_DIRNAME),
   };
 }
@@ -637,17 +643,71 @@ export function contextFor(reasons: WakeReasons): string | null {
   );
 }
 
-/** `systemMessage` for the developer, `additionalContext` for Claude — see `contextFor`. */
-export function hookOutput(reasons: WakeReasons): Record<string, unknown> {
-  const context = contextFor(reasons);
-  const output: Record<string, unknown> = { systemMessage: noticeFor(reasons) };
-  if (context !== null) {
+// ---------------------------------------------------------------------------
+// The corpus, carried into every session (19-value-to-a-user.md, Phase 5).
+//
+// Measured before it was built: in twelve headless sessions over this repo
+// with a merged signpost that bore on the task, Claude called
+// `search_signposts` in none. It read `.signposts/` in five of the six that
+// had the CLAUDE.md pointer and none of the six without, and applied the claim
+// in three. The pointer works when it is read, so this skips the read.
+// ---------------------------------------------------------------------------
+
+/** A claim row of `src/core/signpost/index-doc.ts`'s table. The header row is `| id`. */
+const CLAIM_ROW_PREFIX = "| `";
+
+const INDEX_PREAMBLE =
+  "Team knowledge recorded in this repo's `.signposts/`: reviewed, merged claims that cannot be read " +
+  "off the code. Apply one when the work touches it; the full signpost and its evidence are in " +
+  "`.signposts/<category>/<id>.md`.\n\n";
+
+const INDEX_POINTER =
+  "This repo records team knowledge in `.signposts/`, and its index is too large to include here. " +
+  "Read `.signposts/index.md` before work that may touch a recorded claim.";
+
+/**
+ * What Claude is told about the corpus: `index.md` whole, a pointer once it
+ * passes INDEX_CONTEXT_MAX_BYTES, or null when there is no claim to carry.
+ *
+ * No claim row means no index yet (it arrives with the first merged PR) or
+ * the renderer's "No active signposts.", and neither is worth context.
+ * `stat` first, so an oversized index is never read at all.
+ */
+export function indexContext(indexFile: string): string | null {
+  let bytes: number;
+  try {
+    bytes = statSync(indexFile).size;
+  } catch {
+    return null;
+  }
+  if (bytes > INDEX_CONTEXT_MAX_BYTES) {
+    return INDEX_POINTER;
+  }
+  const text = readFileSync(indexFile, "utf8");
+  return text.split("\n").some((line) => line.startsWith(CLAIM_ROW_PREFIX)) ? INDEX_PREAMBLE + text : null;
+}
+
+/**
+ * `systemMessage` for the developer, `additionalContext` for Claude — see
+ * `contextFor` and `indexContext`. Null when neither has anything to say.
+ *
+ * The corpus alone adds no `systemMessage`: it is context, not news, and a
+ * notice on every session start is the noise 07 gates against.
+ */
+export function hookOutput(reasons: WakeReasons | null, index: string | null = null): Record<string, unknown> | null {
+  const offer = reasons === null ? null : contextFor(reasons);
+  const context = [index, offer].filter((part) => part !== null).join("\n\n");
+  const output: Record<string, unknown> = {};
+  if (reasons !== null) {
+    output["systemMessage"] = noticeFor(reasons);
+  }
+  if (context !== "") {
     output["hookSpecificOutput"] = {
       hookEventName: "SessionStart",
       additionalContext: context,
     };
   }
-  return output;
+  return Object.keys(output).length === 0 ? null : output;
 }
 
 export function noticeFor(reasons: WakeReasons): string {
@@ -718,9 +778,19 @@ function main(): void {
     return;
   }
 
+  // The corpus goes in whether or not a worker is woken: it is what the
+  // session needs, and the wake is the tool's own business.
+  const output = hookOutput(wake(paths, repoRoot), indexContext(paths.indexFile));
+  if (output !== null) {
+    process.stdout.write(JSON.stringify(output) + "\n");
+  }
+}
+
+/** Spawns the worker when there is work for it, and says why; null when it did not. */
+function wake(paths: HookPaths, repoRoot: string): WakeReasons | null {
   const nowMs = Date.now();
   if (lockIsHeld(paths.lockfile, nowMs)) {
-    return; // A worker is already draining. Two would race on the same rows.
+    return null; // A worker is already draining. Two would race on the same rows.
   }
 
   const state = readWorkerState(paths.statuslineState);
@@ -734,18 +804,18 @@ function main(): void {
     reasons.reviewExpiresInDays = expiresIn;
   }
   if (!anyWork(reasons)) {
-    return;
+    return null;
   }
 
   const worker = resolveWorker(process.env, packageRoot());
   if (worker === null) {
-    return; // Nothing to spawn, so nothing to announce.
+    return null; // Nothing to spawn, so nothing to announce.
   }
 
   // The lock is taken only once there is work and a worker to do it, so the
   // common no-op path never writes to disk at all.
   if (!acquireLock(paths, process.pid, nowMs)) {
-    return; // Another session start won the race.
+    return null; // Another session start won the race.
   }
 
   let workerPid: number | null;
@@ -753,13 +823,12 @@ function main(): void {
     workerPid = spawnWorker(worker, repoRoot);
   } catch {
     releaseLock(paths.lockfile);
-    return;
+    return null;
   }
   if (workerPid !== null) {
     stampLockHolder(paths, workerPid, nowMs);
   }
-
-  process.stdout.write(JSON.stringify(hookOutput(reasons)) + "\n");
+  return reasons;
 }
 
 /**

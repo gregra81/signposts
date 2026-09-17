@@ -433,6 +433,17 @@ export const INDEX_FILENAME = "index.md";
 /** Hard target. `SessionStart` is synchronous — exceeding this delays the user. */
 export const HOOK_BUDGET_MS = 50;
 
+/**
+ * Largest `index.md` the `SessionStart` hook puts into Claude's context whole;
+ * past it the hook carries a pointer instead (19-value-to-a-user.md, Phase 5).
+ * Claude Code saves an `additionalContext` over 10,000 characters to a file and
+ * hands the model a preview, so the cap sits under that with room for the
+ * run offer that shares the field. Bytes, not characters, because `stat` gives
+ * bytes without a read and a byte count never undercounts characters.
+ * Transcribed in hooks/session-start.ts.
+ */
+export const INDEX_CONTEXT_MAX_BYTES = 8_000;
+
 /** Older lock → assume dead worker, take over. */
 export const LOCK_STALE_MINUTES = 60;
 
