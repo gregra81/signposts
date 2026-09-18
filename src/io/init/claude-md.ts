@@ -4,11 +4,10 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-
-const CLAUDE_MD_FILENAME = "CLAUDE.md";
+import { CONVENTIONS_FILENAME } from "../../core/config/constants.ts";
 
 function claudeMdPath(repoRoot: string): string {
-  return path.join(repoRoot, CLAUDE_MD_FILENAME);
+  return path.join(repoRoot, CONVENTIONS_FILENAME);
 }
 
 /** Undefined if CLAUDE.md does not exist yet. */

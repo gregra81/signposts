@@ -12,6 +12,7 @@
 // whitespace, so a replayed fixture keys on exactly the bytes it was recorded
 // with (src/io/model/fixture-provider.ts keys on the user turn).
 
+import { CONVENTIONS_FILENAME } from "../config/constants.ts";
 import type { Candidate, NeighbourSignpost } from "../contracts/graph.ts";
 import type { Signpost } from "../signpost/schema.ts";
 
@@ -77,8 +78,20 @@ export function formatValidationErrors(errors: readonly string[]): string {
   return errors.map((error) => `- ${error}`).join("\n");
 }
 
-export function criticUserTurn(repo: string, candidates: readonly Candidate[]): string {
-  return `Repository: ${repo}\n\nCandidates:\n${renderJson(candidates)}`;
+/**
+ * What the critic judges. `conventions` is the repo's own conventions file,
+ * already capped by the port that read it, and absent for a repo that has
+ * none — see ConventionsPort and CRITIC_CONVENTIONS_MAX_CHARS.
+ */
+export function criticUserTurn(
+  repo: string,
+  candidates: readonly Candidate[],
+  conventions?: string,
+): string {
+  const turn = `Repository: ${repo}\n\nCandidates:\n${renderJson(candidates)}`;
+  return conventions === undefined || conventions === ""
+    ? turn
+    : `${turn}\n\nAlready written down in this repository (${CONVENTIONS_FILENAME}, truncated):\n${conventions}`;
 }
 
 export function classifyUserTurn(candidate: Candidate, neighbours: readonly NeighbourSignpost[]): string {

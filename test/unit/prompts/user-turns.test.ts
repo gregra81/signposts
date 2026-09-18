@@ -135,6 +135,21 @@ describe("criticUserTurn", () => {
   it("renders an empty batch as an empty array", () => {
     expect(criticUserTurn("acme/api", [])).toContain("Candidates:\n[]");
   });
+
+  // What the repo already writes down is not new, and the critic could not
+  // apply that rule while it saw candidates alone (19-value-to-a-user.md, the
+  // critic-precision follow-up).
+  it("carries the repo's conventions after the candidates", () => {
+    const turn = criticUserTurn("acme/api", [CANDIDATE], "# acme/api\n\nBusiness logic lives in core/.");
+
+    expect(turn.indexOf("Business logic lives in core/.")).toBeGreaterThan(turn.indexOf("Candidates:"));
+    expect(turn).toContain("Already written down in this repository (CLAUDE.md, truncated):");
+  });
+
+  it("says nothing about conventions for a repo that has none", () => {
+    expect(criticUserTurn("acme/api", [CANDIDATE], undefined)).toBe(criticUserTurn("acme/api", [CANDIDATE]));
+    expect(criticUserTurn("acme/api", [CANDIDATE], "")).not.toContain("Already written down");
+  });
 });
 
 describe("classifyUserTurn", () => {

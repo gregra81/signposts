@@ -14,13 +14,40 @@ const KEPT = candidate({ tempId: "t1", claim: "Staging is read only outside the 
 const REJECTED_A = candidate({ tempId: "t2", claim: "The API is fast" });
 const REJECTED_B = candidate({ tempId: "t3", claim: "Tests are good" });
 
-function criticNodeWith(verdicts: unknown[]) {
+function criticNodeWith(verdicts: unknown[], conventions?: string) {
   const ports = makeHarness({
     script: { critic: [{ verdicts }] },
     session: gutteredSession(),
+    ...(conventions === undefined ? {} : { conventions }),
   });
-  return makeCriticNode(ports);
+  return { node: makeCriticNode(ports), ports };
 }
+
+function criticNode(verdicts: unknown[]) {
+  return criticNodeWith(verdicts).node;
+}
+
+// 19-value-to-a-user.md's critic-precision follow-up: a claim the repo already
+// writes down is not new, and the critic could not see the repo at all.
+describe("what the repo already writes down", () => {
+  const verdicts = [{ tempId: "t1", keep: true, reason: "Durable." }];
+
+  it("goes to the critic with the candidates", async () => {
+    const { node, ports } = criticNodeWith(verdicts, "Business logic lives in core/.");
+
+    await node(graphState({ candidates: [KEPT], extractAttempts: 1 }));
+
+    expect(ports.model.callsTo("critic")[0]?.user).toContain("Business logic lives in core/.");
+  });
+
+  it("is absent for a repo with no conventions file", async () => {
+    const { node, ports } = criticNodeWith(verdicts);
+
+    await node(graphState({ candidates: [KEPT], extractAttempts: 1 }));
+
+    expect(ports.model.callsTo("critic")[0]?.user).not.toContain("Already written down");
+  });
+});
 
 describe("when the critic rejected enough to retry", () => {
   // Two of three rejected is 0.66, which is not *over* CRITIC_REJECT_RATIO —
@@ -32,7 +59,7 @@ describe("when the critic rejected enough to retry", () => {
   ];
 
   it("writes a critique naming every rejected claim", async () => {
-    const update = await criticNodeWith(verdicts)(
+    const update = await criticNode(verdicts)(
       graphState({ candidates: [KEPT, REJECTED_A, REJECTED_B], extractAttempts: 1 }),
     );
 
@@ -42,7 +69,7 @@ describe("when the critic rejected enough to retry", () => {
   });
 
   it("leaves the candidates untouched — the retry replaces them wholesale", async () => {
-    const update = await criticNodeWith(verdicts)(
+    const update = await criticNode(verdicts)(
       graphState({ candidates: [KEPT, REJECTED_A, REJECTED_B], extractAttempts: 1 }),
     );
 
@@ -57,7 +84,7 @@ describe("when the critic rejected enough to retry", () => {
     ];
     // Two of three rejected does not clear the ratio, so force the retry with
     // a batch where the kept verdict is the minority.
-    const update = await criticNodeWith([
+    const update = await criticNode([
       ...mixed,
       { tempId: "t4", keep: false, reason: "Speculative." },
     ])(
@@ -81,7 +108,7 @@ describe("when the critic answered only some of the batch", () => {
   const CANDIDATES = [KEPT, REJECTED_A, REJECTED_B, candidate({ tempId: "t4", claim: "Maybe" })];
 
   it("names the unanswered candidates in the critique", async () => {
-    const update = await criticNodeWith([{ tempId: "t1", keep: true, reason: "Sound." }])(
+    const update = await criticNode([{ tempId: "t1", keep: true, reason: "Sound." }])(
       graphState({ candidates: CANDIDATES, extractAttempts: 1 }),
     );
 
@@ -94,7 +121,7 @@ describe("when the critic answered only some of the batch", () => {
 
 describe("when the batch was good enough to continue", () => {
   it("clears the critique and keeps the survivors", async () => {
-    const update = await criticNodeWith([
+    const update = await criticNode([
       { tempId: "t1", keep: true, reason: "Sound." },
       { tempId: "t2", keep: false, reason: "Not a decision." },
     ])(graphState({ candidates: [KEPT, REJECTED_A], extractAttempts: 1 }));

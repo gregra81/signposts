@@ -7,24 +7,36 @@
 # The session is written so the human explicitly declines to decide and says
 # so, because that is the honest shape of this case: an unresolved
 # contradiction is not a failure to extract, it is a reason to ask a person.
+# Re-recorded 2026-09-18, and the expectations below follow that recording. The
+# cause is the product changing: the `critic` gained two reject rules and is now
+# shown the repo's CLAUDE.md beside the candidates (19-value-to-a-user.md,
+# "Follow-up: critic precision"), so fewer candidates survive.
+#
+# **This scenario no longer covers what it was written for.** Step 1 now produces
+# nothing, so step 2 runs against an empty mirror, no contradiction arises and
+# `resolve_conflict` is never reached. Across three recordings step 1 produced
+# add+add, then add, then nothing, so it is also the least stable case in the
+# set. Restoring the coverage needs the transcript re-authored so the privacy
+# claim survives a critic that can see CLAUDE.md, and a re-record after that.
 repo: gregra81/signposts
 
 steps:
   - transcript: 01-establish.jsonl
     intent: "local embeddings chosen, with the privacy reason as the load-bearing part"
-    expect_operations: [add, add]
-    expect_mirror_size: 2
-    expect_claims:
-      - "Embeddings run locally rather than through a hosted API, because sending transcripts to a third party would disclose private conversations."
+    # Nothing survives: CLAUDE.md already says embeddings run locally, and the
+    # critic now reads it. The claim this step was written to produce is in the
+    # note at the top of this file rather than here, because asserting a claim
+    # no step produces asserts nothing.
+    expect_operations: []
+    expect_mirror_size: 0
 
   - transcript: 02-unsettled.jsonl
     intent: "speed argues the other way; the human refuses to settle it"
-    # This is the scenario that reaches resolve_conflict. The contradiction is
-    # resolved as `undecidable`, which maps to `add` held under the
-    # `unresolved_contradiction` gate reason — an unsettled conflict is not a
-    # failure to extract, it is a reason to ask a person. The second `add` and
-    # the `reinforce` are the other claims the session carries.
-    expect_operations: [add, refine, reinforce]
-    expect_mirror_size: 3
+    # This step used to reach resolve_conflict, against the claim step 1
+    # recorded. With step 1 now producing nothing the mirror is empty here, so
+    # both claims are new: two `add`s held under `bootstrap_run`, and no
+    # contradiction to resolve. See the note at the top of this file.
+    expect_operations: [add, add]
+    expect_mirror_size: 2
     expect_claims:
       - "Whether to keep local embeddings for privacy or move to a hosted API for speed is deliberately left undecided."

@@ -193,6 +193,10 @@ describe("scenario replay", () => {
       const ports: GraphPorts = {
         model: new FixtureModelProvider(fixtures),
         gutter: { gutter: (p) => gutterSession(p, scope) },
+        // A pinned copy, never the repo's live CLAUDE.md: the critic's user
+        // turn is part of every fixture key, so reading the real file would
+        // make an edit to it miss every recorded critic reply.
+        conventions: { read: async () => readFileSync(path.join(HERE, "conventions.md"), "utf8") },
         ...mirrorPorts(mirror),
         pendingIndex: { indexPending: async () => {}, clear: async () => {} },
         commit: { apply: async () => {} },

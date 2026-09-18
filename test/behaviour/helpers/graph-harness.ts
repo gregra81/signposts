@@ -223,6 +223,8 @@ export interface HarnessOptions {
   existing?: Signpost[];
   bootstrap?: boolean;
   now?: Date;
+  /** The repo's CLAUDE.md, for the critic. Omitted = a repo that has none. */
+  conventions?: string;
 }
 
 export interface Harness extends GraphPorts {
@@ -249,6 +251,9 @@ export function makeHarness(options: HarnessOptions): Harness {
     pendingIndex,
     index: new FakeIndexPort(options.existing ?? [], options.bootstrap ?? false, pendingIndex),
     commit: new FakeCommitPort(),
+    ...(options.conventions === undefined
+      ? {}
+      : { conventions: { read: async (): Promise<string | null> => options.conventions ?? null } }),
     author: AUTHOR,
     now: () => now,
   };
