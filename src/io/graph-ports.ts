@@ -24,6 +24,7 @@ import { clearPending, indexPending } from "./db/pending-index.ts";
 import { hasCompletedBootstrap } from "./db/repo-state.ts";
 import { signpostById, signpostIds, signpostsByIds } from "./db/signposts.ts";
 import { gutterSession } from "./gutter/session.ts";
+import { readConventions } from "./repo/conventions.ts";
 import type { CommitPort } from "../graph/ports.ts";
 
 export interface GraphPortsInput {
@@ -47,6 +48,15 @@ export function buildGraphPorts(input: GraphPortsInput): GraphPorts {
 
     gutter: {
       gutter: (transcriptPath: string) => gutterSession(transcriptPath, { repo, repoRoot }),
+    },
+
+    conventions: {
+      // Read per call rather than once per run: a run outlives several model
+      // calls and the file is small. Capped here, so nothing downstream has to
+      // know how long it may be.
+      async read(): Promise<string | null> {
+        return readConventions(repoRoot);
+      },
     },
 
     neighbours: {

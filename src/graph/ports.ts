@@ -23,6 +23,18 @@ export interface GutterPort {
   gutter(transcriptPath: string): Promise<GutteredSession>;
 }
 
+/**
+ * The repo's own conventions file (CLAUDE.md), for the `critic` to judge
+ * candidates against — a claim the repo already writes down is not new
+ * (19-value-to-a-user.md item on critic precision). Capped by the
+ * implementation, so the graph hands whatever it gets straight to the prompt.
+ *
+ * `null` for a repo with no such file, which is most of them.
+ */
+export interface ConventionsPort {
+  read(): Promise<string | null>;
+}
+
 /** Hybrid search over the signpost mirror (05-retrieval.md). */
 export interface NeighbourPort {
   /**
@@ -133,6 +145,12 @@ export interface GraphPorts {
   pendingIndex: PendingIndexPort;
   index: SignpostIndexPort;
   commit: CommitPort;
+  /**
+   * Optional, and absent rather than null-returning in the two harnesses that
+   * predate it: a fake that does not model conventions is judging candidates
+   * exactly as a repo with no CLAUDE.md would be.
+   */
+  conventions?: ConventionsPort;
   /** REAL `git config user.email` — written into provenance, never a pseudonym. */
   author: string;
   /** Injected so provenance dates are deterministic under test. */

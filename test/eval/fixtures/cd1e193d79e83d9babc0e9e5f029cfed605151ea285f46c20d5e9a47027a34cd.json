@@ -2,61 +2,16 @@
   "node": "extract",
   "model": "claude-sonnet-5",
   "system": "You extract durable team knowledge from a transcript of a developer working with an AI coding assistant.\n\nYou are looking for exactly one thing: knowledge that exists ONLY because a human said it.\n\nThe test, applied to every candidate:\n\n  Could a competent new engineer, reading this codebase carefully, still not know this?\n\nIf they could work it out from the code, it is not knowledge — it is description. Discard it.\n\nCAPTURE:\n- corrections — the human told the assistant it was wrong about something\n- stated preferences — \"we always do X here\", \"never use Y\"\n- revealed gotchas — something broke, and the cause was not discoverable from the code\n- decisions with reasons — \"we chose X over Y because Z\". A decision claim MUST name what was\n  rejected and why. The code already records what was chosen; the rejected alternative is the only\n  part a reader cannot recover from the tree. If you cannot name one, it is not a decision.\n- environmental facts — access, infrastructure, systems, things that are true of the world\n\nREJECT:\n- languages, frameworks, directory structure, naming conventions\n- what a function or file does\n- anything already stated in README, CLAUDE.md, or config\n- general programming knowledge with no team-specific content\n- narration of what happened in the session\n- personal or career content about the human — their employment, health, mood, or opinions about\n  people. \"I'm an engineering manager who got laid off from Acme\" is not team knowledge, however\n  impossible it would be to infer from the code.\n\nThat second-to-last one is the most common mistake. \"We refactored the auth module\" is a session summary.\n\"Auth tokens must be refreshed before the 5-minute mark or the gateway drops them\" is knowledge.\nA signpost is a durable claim about the world, not a report of what you did.\n\nHEDGING:\n\nMark hedged=true when the human signalled they were unsure — \"I think\", \"probably\", \"IIRC\",\n\"not sure but\", \"I'd guess\", \"might be\". Their uncertainty is information; do not launder it\ninto a confident claim. A hedged item is still worth emitting — it will be routed to a person\nrather than published automatically.\n\nEach claim must be ONE sentence, under 200 characters, expressing exactly ONE proposition.\nIf you need \"and also\" to fit it in, you have two claims — emit both or neither.\n\nGround every claim in something the human actually said or did. Do not infer what they probably\nbelieve. Do not generalise a single incident into a policy unless they stated it as one.\n\nSet confidence honestly:\n  0.9+  the human stated it explicitly and unambiguously\n  0.7-0.9  clearly implied by a correction, but not stated in those words\n  <0.7  you are inferring; say so with a low number rather than not emitting it\n\nConfidence is about how sure you are the HUMAN MEANT THIS — not about whether it is true.\nYou cannot verify truth from a transcript and should not try. A person reviews these.\n\nExtracting nothing is a correct and common outcome. Most sessions contain no durable knowledge.\nReturning an empty list is better than returning something plausible.",
-  "user": "Repository: gregra81/signposts\n\nTranscript:\nhuman: Settle the embedding model for the retrieval index. I want the decision and the reason recorded, not left implicit in the code.\nassistant:  [tools: Write]\nassistant:  [tools: Write]\nassistant:  [tools: Glob]\nassistant:  [tools: Glob]\nassistant:  [tools: Write]\nassistant:  [tools: Bash]\nassistant:  [tools: Read]\nassistant:  [tools: Write]\nassistant:  [tools: Grep]\nassistant:  [tools: Read]\nassistant:  [tools: Read]\nassistant: The candidates are a local transformers.js model or a hosted embedding API.\nhuman: We run embeddings locally with transformers.js rather than calling a hosted API. The reason is that transcripts are the input, transcripts contain things people said in private, and shipping them to a third party for vectorisation is a disclosure we have not asked anyone to consent to. Local is slower and I am accepting that cost deliberately.\nassistant:  [tools: Read]\nassistant:  [tools: Bash]\nassistant:  [tools: Write]\nassistant:  [tools: Write]\nassistant:  [tools: Read]\nassistant:  [tools: Bash]\nassistant:  [tools: Write]\nassistant:  [tools: Grep]\nassistant:  [tools: Glob]\nassistant: Recorded and wired to the local model.\nhuman: Good. The privacy argument is the load-bearing part — if someone revisits this, that is the thing they have to answer, not the speed.",
+  "user": "Repository: gregra81/signposts\n\nTranscript:\nhuman: The build is red on main. Find out what broke and fix it, it is probably something small.\nassistant:  [tools: Bash]\nassistant:  [tools: Read]\nassistant:  [tools: Read]\nassistant:  [tools: Grep]\nassistant:  [tools: Glob]\nassistant: The failure is a type error in src/io/db/repo-state.ts: a nullable field passed where a non-null one is expected. Introduced in the last commit.\nhuman: Just fix it the obvious way and get main green again.\nassistant:  [tools: Glob]\nassistant:  [tools: Glob]\nassistant:  [tools: Write]\nassistant:  [tools: Grep]\nassistant:  [tools: Glob]\nassistant:  [tools: Glob]\nassistant:  [tools: Grep]\nassistant: Added the null guard the surrounding code already uses elsewhere. Typecheck passes, suite passes, lint clean.\nhuman: Push it straight to main, this does not need a PR.\nassistant:  [tools: Grep]\nassistant:  [tools: Edit]\nassistant:  [tools: Edit]\nassistant:  [tools: Bash]\nassistant:  [tools: Edit]\nassistant:  [tools: Bash]\nassistant:  [tools: Edit]\nassistant:  [tools: Edit]\nassistant:  [tools: Bash]\nassistant:  [tools: Grep]\nassistant:  [tools: Edit]\nassistant:  [tools: Bash]\nassistant:  [tools: Edit]\nassistant: Pushed. CI is green.\nhuman: Thanks. Anything else red anywhere?\nassistant:  [tools: Edit]\nassistant:  [tools: Glob]\nassistant:  [tools: Bash]\nassistant:  [tools: Grep]\nassistant:  [tools: Grep]\nassistant:  [tools: Write]\nassistant:  [tools: Read]\nassistant:  [tools: Bash]\nassistant: No, all workflows are passing.\n\nA previous attempt was reviewed and most candidates were rejected:\n\n- Small fixes to main can be pushed directly without going through a PR.\n  rejected: The evidence is a single instruction about one change, and the claim stretches it into a general rule. It also tells the assistant how to act in the workflow rather than stating a durable fact about the system.\n\nTry again. Be stricter. If nothing survives the test, return an empty list.",
   "value": {
-    "candidates": [
-      {
-        "tempId": "c1",
-        "claim": "Embeddings for the retrieval index run locally via transformers.js rather than a hosted embedding API.",
-        "category": "decision",
-        "scope": {
-          "repo": "gregra81/signposts"
-        },
-        "evidence": "We run embeddings locally with transformers.js rather than calling a hosted API.",
-        "confidence": 0.95,
-        "hedged": false
-      },
-      {
-        "tempId": "c2",
-        "claim": "Hosted embedding APIs were rejected because transcripts contain private things people said, and sending them to a third party is a disclosure users haven't consented to.",
-        "category": "decision",
-        "scope": {
-          "repo": "gregra81/signposts"
-        },
-        "evidence": "transcripts contain things people said in private, and shipping them to a third party for vectorisation is a disclosure we have not asked anyone to consent to.",
-        "confidence": 0.95,
-        "hedged": false
-      },
-      {
-        "tempId": "c3",
-        "claim": "The team deliberately accepts slower local embedding performance as a tradeoff for privacy.",
-        "category": "decision",
-        "scope": {
-          "repo": "gregra81/signposts"
-        },
-        "evidence": "Local is slower and I am accepting that cost deliberately.",
-        "confidence": 0.9,
-        "hedged": false
-      },
-      {
-        "tempId": "c4",
-        "claim": "The privacy rationale, not speed, is the load-bearing justification that must be addressed if this embedding decision is revisited.",
-        "category": "decision",
-        "scope": {
-          "repo": "gregra81/signposts"
-        },
-        "evidence": "The privacy argument is the load-bearing part — if someone revisits this, that is the thing they have to answer, not the speed.",
-        "confidence": 0.9,
-        "hedged": false
-      }
-    ]
+    "candidates": []
   },
   "usage": {
     "inputTokens": 2,
-    "outputTokens": 607,
+    "outputTokens": 54,
     "cacheReadTokens": 1706,
-    "cacheCreationTokens": 1341,
+    "cacheCreationTokens": 1640,
     "model": "claude-sonnet-5",
-    "costUsd": 0.0117792
+    "costUsd": 0.0074452
   }
 }

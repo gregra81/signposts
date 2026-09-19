@@ -7,35 +7,32 @@
     "candidates": [
       {
         "tempId": "c1",
-        "claim": "Full local reindex takes about eleven minutes, and the local embedding model accounts for nearly all of that time.",
-        "category": "environment",
+        "claim": "The local-only embedding model was originally chosen over a hosted API because transcripts contain private conversation and sending them to a third party would be unconsented disclosure.",
+        "category": "decision",
         "scope": {
-          "repo": "gregra81/signposts",
-          "paths": []
+          "repo": "gregra81/signposts"
         },
-        "evidence": "Indexing has become the slowest thing we do — eleven minutes for a full reindex on my machine, and the local embedding model is nearly all of it.",
+        "evidence": "The original reason was that transcripts contain private conversation and sending them to a third party is an unconsented disclosure.",
         "confidence": 0.9,
         "hedged": false
       },
       {
         "tempId": "c2",
-        "claim": "Local-only embedding was chosen over a hosted embedding API because sending transcripts to a third party would be an unconsented privacy disclosure.",
-        "category": "decision",
+        "claim": "Full reindexing currently takes about eleven minutes locally, mostly due to the local embedding model, causing users to avoid reindexing.",
+        "category": "gotcha",
         "scope": {
-          "repo": "gregra81/signposts",
-          "paths": []
+          "repo": "gregra81/signposts"
         },
-        "evidence": "The original reason was that transcripts contain private conversation and sending them to a third party is an unconsented disclosure.' ... 'Right, and that reason has not gone away.'",
-        "confidence": 0.85,
+        "evidence": "eleven minutes for a full reindex on my machine, and the local embedding model is nearly all of it... eleven minutes is starting to mean people avoid reindexing",
+        "confidence": 0.9,
         "hedged": false
       },
       {
         "tempId": "c3",
-        "claim": "The choice between local-only embeddings (for privacy) and a hosted embedding API (for speed) is deliberately left unresolved rather than decided.",
+        "claim": "The decision between local-only embeddings (for privacy) and a hosted embedding API (for speed) is deliberately left unresolved and must not be silently decided by the assistant.",
         "category": "decision",
         "scope": {
-          "repo": "gregra81/signposts",
-          "paths": []
+          "repo": "gregra81/signposts"
         },
         "evidence": "Yes, unresolved on purpose. Do not quietly pick one — I want it visible that this is undecided rather than settled.",
         "confidence": 0.95,
@@ -43,24 +40,23 @@
       },
       {
         "tempId": "c4",
-        "claim": "Whether a provider's zero-retention embedding promise is trustworthy enough to justify hosted embeddings is considered a contractual/trust question, not something to be settled in code review.",
+        "claim": "Whether zero-retention embedding provider promises are trustworthy enough to rely on is considered a contract/trust question, not something to settle in a coding session.",
         "category": "decision",
         "scope": {
-          "repo": "gregra81/signposts",
-          "paths": []
+          "repo": "gregra81/signposts"
         },
         "evidence": "Whether a zero-retention promise is worth relying on is a question about contracts and trust, not about code, and I am not going to settle it in this session.",
-        "confidence": 0.75,
+        "confidence": 0.85,
         "hedged": true
       }
     ]
   },
   "usage": {
-    "inputTokens": 788,
-    "outputTokens": 1486,
-    "cacheReadTokens": 1578,
-    "cacheCreationTokens": 0,
+    "inputTokens": 2,
+    "outputTokens": 701,
+    "cacheReadTokens": 1706,
+    "cacheCreationTokens": 1602,
     "model": "claude-sonnet-5",
-    "costUsd": 0.0167516
+    "costUsd": 0.0137632
   }
 }

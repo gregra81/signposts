@@ -27,10 +27,15 @@ import type { GraphPorts } from "../ports.ts";
 
 export function makeCriticNode(ports: GraphPorts) {
   return async function criticNode(state: ExtractionState): Promise<ExtractionUpdate> {
+    // What the repo already writes down, so "inferable from the documentation"
+    // is a rule the critic can actually apply (19-value-to-a-user.md, the
+    // critic-precision follow-up). A repo with no conventions file reads the
+    // same as one this run cannot see: the candidates alone.
+    const conventions = (await ports.conventions?.read()) ?? undefined;
     const { verdicts } = await callStructured({
       model: ports.model,
       node: "critic",
-      user: criticUserTurn(state.repo, state.candidates),
+      user: criticUserTurn(state.repo, state.candidates, conventions),
     });
 
     const route = criticRoute({

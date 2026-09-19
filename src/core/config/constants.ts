@@ -426,9 +426,26 @@ export const LOCKFILE_FILENAME = "run.lock";
 
 export const INDEX_FILENAME = "index.md";
 
+/** The repo's own conventions file, read for `init`'s pointer and for `critic`. */
+export const CONVENTIONS_FILENAME = "CLAUDE.md";
+
 // ---------------------------------------------------------------------------
 // Triggering
 // ---------------------------------------------------------------------------
+
+/**
+ * Most of the repo's own conventions file the `critic` is shown beside the
+ * candidates (14-prompts.md, "critic"). Its first reject rule is "inferable
+ * from the code, config, or documentation", which it could not apply while it
+ * saw candidates and nothing else: measured over the golden set, the false
+ * positives left after the prompt rules were mostly claims CLAUDE.md already
+ * makes (19-value-to-a-user.md, "Follow-up: critic precision").
+ *
+ * Characters, and a cap rather than the whole file, because this rides on
+ * every critic call: signposts' own CLAUDE.md is 23k characters, and the
+ * measurement that justified this was run at 8k.
+ */
+export const CRITIC_CONVENTIONS_MAX_CHARS = 8_000;
 
 /** Hard target. `SessionStart` is synchronous — exceeding this delays the user. */
 export const HOOK_BUDGET_MS = 50;

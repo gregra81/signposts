@@ -21,9 +21,21 @@ const DIGESTS: Record<NodeName, { sha256: string; bytes: number }> = {
     sha256: "f9db9c0ea14cc34a2f7945d5672332e30d3bc542f697ac7f57c0e0768a8e5e4e",
     bytes: 3108,
   },
+  // Updated when the critic gained two reject rules — session history that
+  // constrains nothing, and instructions for how an AI assistant should behave
+  // — and started being shown the repo's own CLAUDE.md beside the candidates
+  // (14-prompts.md, "critic"; 19-value-to-a-user.md, "Follow-up: critic
+  // precision"). Measured over the golden set before the re-record and scored
+  // again after it: sessions that should produce nothing went from 2 of 10
+  // rejecting everything to 6 of 10, and the candidates they kept from 17 of 24
+  // to 5 of 24, while 8 of 12 expected claims survived instead of 10.
+  //
+  // The golden set and the scenarios were both re-recorded against this text,
+  // and what the model now says was read rather than assumed: scenario 007 is
+  // unstable across recordings and its expectations are unresolved.
   critic: {
-    sha256: "0f1accd724348b7d9c09f43757025fd959786a112e1f82a951678102eff6dfe1",
-    bytes: 1635,
+    sha256: "ce494fa004aa345959c1db3800a946fc720537d4b7975224801242ed36dbacf3",
+    bytes: 2273,
   },
   // Updated when OBSOLETE became the fifth classification kind, which is what
   // finally gives `retire` a trigger (03-memory-model.md "Lifecycle"). The

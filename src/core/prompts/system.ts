@@ -86,6 +86,13 @@ Reject if:
 - it bundles multiple propositions into one claim
 - it is categorised \`decision\` but names no rejected alternative — that is a restatement of the
   code, not a decision. Reject it, or keep it under the category it actually belongs to.
+- it records a change made in the session — something added, removed, renamed or cut — and puts
+  no constraint on future work. A decision is worth keeping when it tells a new engineer what not
+  to do again, and why ("keep the webhook handler idempotent: the provider redelivers on timeout").
+  "X was removed because it was unused" is history, and history belongs in the commit message.
+- it is an instruction for how an AI assistant should behave: scope discipline, how to write a
+  report, which skill to run, when to ask. That is the developer's personal memory, not
+  knowledge about the system, even when it was stated firmly.
 - it is personal or career content about the human rather than knowledge about the system
 
 You are testing whether this is NEW, not whether it is TRUE. You cannot check truth from here,
