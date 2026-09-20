@@ -1,0 +1,24 @@
+{
+  "node": "resolve",
+  "model": "claude-opus-5",
+  "system": "Two claims about the same repository contradict each other. Determine which is true.\n\nYou are working in the repository these claims are about. Read it before you answer — check whether\nthe configuration actually changed, and when. Do not adjudicate from the two claims alone when the\nfiles and the history are there to settle it.\n\nPossible outcomes:\n\nnew_wins        The new claim is correct; the existing one is stale. Something changed.\nexisting_wins   The existing claim still holds; the new one is mistaken or describes a special case.\nboth_scoped     Both are true under narrower scopes. Return the corrected scope for each.\n                This is common — different environments, access paths, or time periods.\nundecidable     The evidence does not settle it.\n\nundecidable is a legitimate answer, not a failure. A human will decide. Choosing it costs a review;\nguessing wrong silently corrupts the knowledge base. Prefer undecidable when genuinely uncertain.\n\nCite what you checked. If you read a file or a commit, say which and what it showed.\n\nDo not modify anything. Answering this is a read; whatever else you can do here, this is not the\nplace to do it.",
+  "user": "Repository: gregra81/signposts\n\nNew claim:\n{\"tempId\":\"c3\",\"claim\":\"The decision between local-only embeddings (for privacy) and a hosted embedding API (for speed) is deliberately left unresolved and must not be silently decided by the assistant.\",\"category\":\"decision\",\"scope\":{\"repo\":\"gregra81/signposts\"},\"evidence\":\"Yes, unresolved on purpose. Do not quietly pick one — I want it visible that this is undecided rather than settled.\",\"confidence\":0.75,\"hedged\":false}\n\nExisting claim:\n{\"id\":\"hosted-embedding-apis-were-rejected-because\",\"claim\":\"Hosted embedding APIs were rejected because transcripts contain private things people said, and sending them to a third party is a disclosure users haven't consented to.\",\"category\":\"decision\",\"scope\":{\"repo\":\"gregra81/signposts\"},\"evidence\":\"transcripts contain things people said in private, and shipping them to a third party for vectorisation is a disclosure we have not asked anyone to consent to\",\"confidence\":0.85,\"provenance\":{\"session_ids\":[\"cccc3333-6666-4666-9666-666666666666\"],\"authors\":[\"eval@signposts.local\"],\"first_seen\":\"2026-08-31T00:00:00.000Z\",\"last_reinforced\":\"2026-08-31T00:00:00.000Z\"},\"status\":\"active\"}",
+  "value": {
+    "tempId": "c3",
+    "outcome": "undecidable",
+    "reasoning": "I attempted to inspect the repository (directory listing, `git log`, and a grep for \"embed\" across tracked files) but no execution or file-reading tool was available in this session — every call failed with \"No such tool available: bash\". I therefore have zero repository evidence and cannot check whether any ADR/design doc records the embedding decision as settled or open, nor when it last changed.\n\nAdjudicating from the claim text alone is not safe here: the two claims are plausibly both-scoped (an earlier decision to reject hosted APIs on privacy grounds could have been reopened, making the new claim a later-period truth) or new_wins (the decision was re-opened), or existing_wins (the new claim may reflect a speaker's aspiration rather than the recorded decision). The new claim's evidence is first-person and assertive (\"unresolved on purpose\"), which conflicts directly with the existing claim's concrete rationale, and only the repo's ADRs/commit dates can separate \"reopened\" from \"never settled\". Without that, any pick would be a guess.",
+    "evidenceChecked": [
+      "Attempted `ls` and `git log --oneline -20` in /Users/greg/Projects/signposts-eval — tool unavailable (no bash tool)",
+      "Attempted `grep -ril embed .` excluding .git to locate ADRs/design notes — tool unavailable",
+      "No file contents, commits, or timestamps could be read; adjudication rests solely on the two claim texts, which is insufficient"
+    ]
+  },
+  "usage": {
+    "inputTokens": 4,
+    "outputTokens": 837,
+    "cacheReadTokens": 3128,
+    "cacheCreationTokens": 1188,
+    "model": "claude-opus-5",
+    "costUsd": 0.034389
+  }
+}
