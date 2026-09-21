@@ -66,6 +66,9 @@ Every command prints one JSON object. A run advances one halt at a time.
      identified by a different hash is a different thread.
    - \`finished\` — \`proposed\` lists what went into the branch and PR. Move to
      the next session.
+   - \`reExtracted\`, on any status, means the critic rejected most of a batch and
+     sent it back to \`extract\` that many times. The proposals are a second pass,
+     which is why there may be fewer of them. Tell the user in one line.
    - \`skipped\` — the transcript can never be extracted (empty, only subagent
      lines, or a redactor failed on it). \`reason\` says which. It is recorded and
      will not be offered again. Mention it in one line and move to the next

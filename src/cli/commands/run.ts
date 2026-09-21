@@ -296,7 +296,7 @@ async function report(
             interruptId: pending.id,
           })),
         )
-      : finishedLines(proposed, handle.eligible(new Date()).length),
+      : finishedLines(proposed, handle.eligible(new Date()).length, result.state.criticRetries),
   );
 
   const output: RunOutput = {
@@ -306,6 +306,10 @@ async function report(
     pending: result.pending,
     proposed,
     commit: handle.commitOutcome(),
+    // Reported on a halt as well as a finish: the retry has already happened
+    // by then, and the session answering the next question is the one that
+    // has to tell the developer about it.
+    ...(result.state.criticRetries > 0 ? { reExtracted: result.state.criticRetries } : {}),
   };
   write(input.stdout, output);
   return exitCode(handle, result);

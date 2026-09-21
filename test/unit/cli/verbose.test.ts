@@ -95,6 +95,18 @@ describe("finishedLines", () => {
     expect(lines.join("\n")).toContain("staging is read only");
   });
 
+  // 19-value-to-a-user.md: a batch the critic sent back is re-extracted, and
+  // nothing used to say so — the developer saw fewer proposals and no reason.
+  it("says how many times the batch went back to extract", () => {
+    const lines = finishedLines([], 0, 1).join("\n");
+    expect(lines).toContain("critic sent the batch back");
+    expect(lines).toContain("1");
+  });
+
+  it("stays silent about re-extraction when there was none", () => {
+    expect(finishedLines([], 0, 0).join("\n")).not.toContain("critic sent the batch back");
+  });
+
   it("says the run is done only when nothing else is eligible", () => {
     expect(finishedLines([], 0).at(-1)).toContain("done");
     expect(finishedLines([], 1).at(-1)).toContain("1 session(s) still eligible");
