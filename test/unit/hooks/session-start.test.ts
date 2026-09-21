@@ -355,6 +355,19 @@ describe("the corpus, carried into the session", () => {
     });
   });
 
+  // The property the wording was measured on: the boundary is the first tool
+  // call and the end of the turn, not "before their next task", which was
+  // followed in 4 of 18 headless runs (19-value-to-a-user.md, "Follow-up:
+  // when the offer arrives").
+  it("makes the offer's boundary the first tool call and the end of the turn", () => {
+    const output = hookOutput({ sessions: 2, threads: 0, staleIndex: false }) as {
+      hookSpecificOutput: { additionalContext: string };
+    };
+
+    expect(output.hookSpecificOutput.additionalContext).toContain("before your first tool call");
+    expect(output.hookSpecificOutput.additionalContext).toContain("end your turn");
+  });
+
   it("puts the corpus ahead of the run offer when both are due", () => {
     const output = hookOutput({ sessions: 1, threads: 0, staleIndex: false }, "the index") as {
       systemMessage: string;

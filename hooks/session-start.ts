@@ -615,6 +615,14 @@ function agrees(count: number, verb: string): string {
  * did not sit down to do (07-triggering-and-ux.md: "starting it is theirs to
  * decide"), so the instruction is to ask, and to drop it on a no.
  *
+ * The instruction names the tool call and the end of the turn on purpose.
+ * "Offer this before their next task and wait" was followed in 4 of 18
+ * headless runs; the offer usually arrived under finished work, which is the
+ * easiest place to skip. Naming the first tool call as the boundary, and
+ * saying to end the turn, took it to 18 of 18 on both sonnet and opus
+ * (19-value-to-a-user.md, "Follow-up: when the offer arrives";
+ * `node scripts/measure-offer.mjs` re-runs it).
+ *
  * Only the two developer-facing conditions produce it. A stale index is the
  * worker's job and needs nobody's permission, and an offer to do work that is
  * already happening is noise in a context window the developer is paying for.
@@ -637,9 +645,10 @@ export function contextFor(reasons: WakeReasons): string | null {
 
   return (
     `signposts has ${waiting.join(", and ")}. ` +
-    "Offer this to the developer before their next task and wait for an answer — a run spends this " +
-    "session's tokens, so it is theirs to start. On a yes, drive it with the signposts skill. On a no, " +
-    "drop it and do not raise it again this session."
+    "Ask the developer about this before anything else in this session: before your first tool call " +
+    "and before starting what they asked for. Put it in one sentence, then end your turn and wait for " +
+    "their answer — a run spends this session's tokens, so it is theirs to start. On a yes, drive it " +
+    "with the signposts skill. On a no, drop it and do not raise it again this session."
   );
 }
 
