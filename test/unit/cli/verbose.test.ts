@@ -104,7 +104,12 @@ describe("finishedLines", () => {
   });
 
   it("stays silent about re-extraction when there was none", () => {
-    expect(finishedLines([], 0, 0).join("\n")).not.toContain("critic sent the batch back");
+    // Exact length, not just the absence of the wording: the empty branch has
+    // to add no line at all, and a check on the wording alone lets any other
+    // line through.
+    const lines = finishedLines([], 0, 0);
+    expect(lines).toHaveLength(2);
+    expect(lines.join("\n")).not.toContain("critic sent the batch back");
   });
 
   it("says the run is done only when nothing else is eligible", () => {
