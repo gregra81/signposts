@@ -1,7 +1,9 @@
-// Node 3 writes a critique exactly when the reflection loop should run again,
-// and that critique names the rejected claims only.
+// Node 3 writes a critique exactly when the reflection loop should run again.
+// The critique names the rejected claims, and lists the kept ones separately
+// so the retry returns them rather than losing them.
 
 import { describe, expect, it } from "vitest";
+import { CRITIQUE_KEPT_PREAMBLE } from "../../../../src/core/prompts/user-turns.js";
 import { makeCriticNode } from "../../../../src/graph/nodes/critic.js";
 import {
   candidate,
@@ -76,7 +78,11 @@ describe("when the critic rejected enough to retry", () => {
     expect(update.candidates).toBeUndefined();
   });
 
-  it("names only the rejected claims, never the kept one", async () => {
+  // Scenario 007 lost its one kept claim this way: the retry prompt named only
+  // the rejections and said "be stricter", and the model returned nothing
+  // (19-value-to-a-user.md, "Follow-up: scenario 007"). Changed with agreement; the old
+  // version asserted the kept claim was absent.
+  it("lists the kept claim apart from the rejections, without its reason", async () => {
     const mixed = [
       { tempId: "t1", keep: true, reason: "Sound." },
       { tempId: "t2", keep: false, reason: "Not a decision." },
@@ -94,9 +100,12 @@ describe("when the critic rejected enough to retry", () => {
       }),
     );
 
+    const [rejected, kept] = String(update.critique).split(CRITIQUE_KEPT_PREAMBLE);
+    expect(rejected).not.toContain(KEPT.claim);
+    expect(rejected).toContain("Speculative.");
+    expect(kept).toContain(KEPT.claim);
+    expect(kept).not.toContain(REJECTED_A.claim);
     expect(update.critique).not.toContain("Sound.");
-    expect(update.critique).not.toContain(KEPT.claim);
-    expect(update.critique).toContain("Speculative.");
   });
 });
 
@@ -115,7 +124,8 @@ describe("when the critic answered only some of the batch", () => {
     expect(update.critique).toContain(REJECTED_A.claim);
     expect(update.critique).toContain(REJECTED_B.claim);
     expect(update.critique).toContain("no verdict returned");
-    expect(update.critique).not.toContain(KEPT.claim);
+    // Changed with agreement, as above: the kept claim is carried, not dropped.
+    expect(String(update.critique).split(CRITIQUE_KEPT_PREAMBLE)[1]).toContain(KEPT.claim);
   });
 });
 

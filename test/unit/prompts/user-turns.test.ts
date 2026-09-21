@@ -7,6 +7,7 @@ import {
   EXTRACT_RETRY_PREAMBLE,
   extractUserTurn,
   formatCritique,
+  CRITIQUE_KEPT_PREAMBLE,
   formatValidationErrors,
   resolveUserTurn,
 } from "../../../src/core/prompts/user-turns.js";
@@ -197,5 +198,26 @@ describe("formatCritique", () => {
 
   it("renders nothing for no rejections", () => {
     expect(formatCritique([])).toBe("");
+  });
+
+  it("lists the kept claims after the rejections, under their own preamble", () => {
+    expect(
+      formatCritique(
+        [{ claim: "We refactored auth", reason: "session summary, not knowledge" }],
+        ["Staging is read only outside the ETL window", "The ETL window is 02:00 to 04:00"],
+      ),
+    ).toBe(
+      "- We refactored auth\n  rejected: session summary, not knowledge\n\n" +
+        `${CRITIQUE_KEPT_PREAMBLE}\n\n` +
+        "- Staging is read only outside the ETL window\n- The ETL window is 02:00 to 04:00",
+    );
+  });
+
+  // A retry with nothing kept renders byte-for-byte as before, so fixtures
+  // recorded on that path still replay.
+  it("adds no kept block when nothing was kept", () => {
+    expect(formatCritique([{ claim: "Be careful", reason: "too vague" }], [])).toBe(
+      "- Be careful\n  rejected: too vague",
+    );
   });
 });

@@ -47,7 +47,8 @@ export function makeCriticNode(ports: GraphPorts) {
     if (route === "retry-extract") {
       // Candidates are left untouched: they are about to be replaced wholesale
       // by the retry, and narrowing them here would only shrink what a second
-      // rejection has to work with.
+      // rejection has to work with. The ones the critic kept travel in the
+      // critique instead.
       return {
         critique: rejectionCritique(state.candidates, verdicts),
         criticRetries: state.criticRetries + 1,
@@ -60,7 +61,8 @@ export function makeCriticNode(ports: GraphPorts) {
 
 /**
  * The critique the retry carries: one line per candidate the critic did not
- * keep, defined the same way `rejectRatio` defines rejection.
+ * keep, defined the same way `rejectRatio` defines rejection, then the claims
+ * it did keep, so the retry returns them instead of losing them with the batch.
  *
  * Walking the candidates rather than the verdicts is what keeps the two in
  * step. A truncated reply — one keep verdict for five candidates — is over the
@@ -74,11 +76,14 @@ function rejectionCritique(
   verdicts: readonly CriticVerdict[],
 ): string {
   const verdictByTempId = new Map(verdicts.map((verdict) => [verdict.tempId, verdict]));
+  const isKept = (candidate: ExtractionState["candidates"][number]) =>
+    verdictByTempId.get(candidate.tempId)?.keep === true;
   const rejected = candidates
-    .filter((candidate) => verdictByTempId.get(candidate.tempId)?.keep !== true)
+    .filter((candidate) => !isKept(candidate))
     .map((candidate) => ({
       claim: candidate.claim,
       reason: verdictByTempId.get(candidate.tempId)?.reason ?? "no verdict returned",
     }));
-  return formatCritique(rejected);
+  const kept = candidates.filter(isKept).map((candidate) => candidate.claim);
+  return formatCritique(rejected, kept);
 }

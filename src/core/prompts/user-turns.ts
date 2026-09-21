@@ -27,6 +27,15 @@ function renderJson(value: unknown): string {
 export const EXTRACT_RETRY_PREAMBLE =
   "A previous attempt was reviewed and most candidates were rejected:";
 
+/**
+ * Heads the claims the critic kept, inside the critique. The retry instruction
+ * says "be stricter" and names only what failed, so without this a retry
+ * returned nothing and the one claim the critic had kept was lost with the
+ * batch (19-value-to-a-user.md, "Follow-up: scenario 007").
+ */
+export const CRITIQUE_KEPT_PREAMBLE =
+  "These were kept. Return each of them again, unchanged, and apply the stricter test only to the rest:";
+
 export const EXTRACT_RETRY_INSTRUCTION =
   "Try again. Be stricter. If nothing survives the test, return an empty list.";
 
@@ -108,14 +117,21 @@ export function resolveUserTurn(
 
 /**
  * The critique fed back to `extract`: one line per rejected candidate, naming
- * the claim and the critic's reason.
+ * the claim and the critic's reason, then the kept claims under their own
+ * preamble.
  *
- * Only rejections are included. Sending the kept ones back would spend tokens
- * telling the extractor about work it got right, and 14-prompts.md's retry
- * block frames the whole turn as what was rejected.
+ * The kept ones are there because the retry replaces the batch wholesale. An
+ * earlier version sent rejections only, to save tokens, and a retry told to be
+ * stricter dropped the kept claim with the rest. With nothing kept the output
+ * is byte-identical to that version, so fixtures on that path still replay.
  */
 export function formatCritique(
   rejected: ReadonlyArray<{ claim: string; reason: string }>,
+  kept: readonly string[] = [],
 ): string {
-  return rejected.map(({ claim, reason }) => `- ${claim}\n  rejected: ${reason}`).join("\n");
+  const rejections = rejected.map(({ claim, reason }) => `- ${claim}\n  rejected: ${reason}`).join("\n");
+  if (kept.length === 0) {
+    return rejections;
+  }
+  return `${rejections}\n\n${CRITIQUE_KEPT_PREAMBLE}\n\n${kept.map((claim) => `- ${claim}`).join("\n")}`;
 }

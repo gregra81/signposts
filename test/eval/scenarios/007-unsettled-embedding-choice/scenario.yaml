@@ -7,36 +7,36 @@
 # The session is written so the human explicitly declines to decide and says
 # so, because that is the honest shape of this case: an unresolved
 # contradiction is not a failure to extract, it is a reason to ask a person.
-# Re-recorded 2026-09-18, and the expectations below follow that recording. The
-# cause is the product changing: the `critic` gained two reject rules and is now
-# shown the repo's CLAUDE.md beside the candidates (19-value-to-a-user.md,
-# "Follow-up: critic precision"), so fewer candidates survive.
 #
-# **This scenario no longer covers what it was written for.** Step 1 now produces
-# nothing, so step 2 runs against an empty mirror, no contradiction arises and
-# `resolve_conflict` is never reached. Across three recordings step 1 produced
-# add+add, then add, then nothing, so it is also the least stable case in the
-# set. Restoring the coverage needs the transcript re-authored so the privacy
-# claim survives a critic that can see CLAUDE.md, and a re-record after that.
+# Re-recorded 2026-09-19, and the expectations below follow that recording.
+# Between 2026-09-18 and this recording the scenario covered nothing: step 1
+# produced nothing, so step 2 saw an empty mirror and `resolve_conflict` was
+# never reached. The cause was not the critic rejecting the privacy claim — it
+# kept that one and rejected the other three, which is over CRITIC_REJECT_RATIO,
+# so the batch went back to `extract` with a critique that named only the
+# rejections and told it to be stricter. The retry returned an empty list and
+# the kept claim went with it. The critique now carries the kept claims too
+# (19-value-to-a-user.md, "Follow-up: scenario 007").
 repo: gregra81/signposts
 
 steps:
   - transcript: 01-establish.jsonl
     intent: "local embeddings chosen, with the privacy reason as the load-bearing part"
-    # Nothing survives: CLAUDE.md already says embeddings run locally, and the
-    # critic now reads it. The claim this step was written to produce is in the
-    # note at the top of this file rather than here, because asserting a claim
-    # no step produces asserts nothing.
-    expect_operations: []
-    expect_mirror_size: 0
+    # One claim, not the three earlier recordings produced: the critic still
+    # rejects the bare "embeddings run locally", which CLAUDE.md already says,
+    # and keeps the reason, which it does not.
+    expect_operations: [add]
+    expect_mirror_size: 1
+    expect_claims:
+      - "Embeddings run locally rather than through a hosted API, because transcripts hold what people said in private and sending them to a third party is a disclosure nobody consented to."
 
   - transcript: 02-unsettled.jsonl
     intent: "speed argues the other way; the human refuses to settle it"
-    # This step used to reach resolve_conflict, against the claim step 1
-    # recorded. With step 1 now producing nothing the mirror is empty here, so
-    # both claims are new: two `add`s held under `bootstrap_run`, and no
-    # contradiction to resolve. See the note at the top of this file.
-    expect_operations: [add, add]
+    # The step this scenario exists for. The new claim contradicts step 1's, the
+    # resolver returns `undecidable`, and the `add` is held under the
+    # `unresolved_contradiction` gate reason. The `reinforce` is step 1's claim
+    # meeting the same decision a second time.
+    expect_operations: [add, reinforce]
     expect_mirror_size: 2
     expect_claims:
       - "Whether to keep local embeddings for privacy or move to a hosted API for speed is deliberately left undecided."
