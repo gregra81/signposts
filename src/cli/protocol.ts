@@ -56,6 +56,16 @@ export interface RunOutput {
    * more.
    */
   commit: CommitOutcome | null;
+  /**
+   * How many times the critic rejected enough of a batch to send it back to
+   * `extract`. Absent when it never did, which is the ordinary case.
+   *
+   * A retry replaces the batch, so what a session proposes afterwards is a
+   * second pass over the same transcript, and a run that re-extracted is one
+   * whose shorter list of proposals has a reason. Nothing reported that
+   * (19-value-to-a-user.md, the item left open beside the retry fix).
+   */
+  reExtracted?: number;
   /** Why the session was skipped. Present exactly when `status` is "skipped". */
   reason?: string;
 }

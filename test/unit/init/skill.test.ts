@@ -33,6 +33,10 @@ describe("the installed skill", () => {
     },
   );
 
+  it("tells the session to pass on a re-extraction", () => {
+    expect(SKILL_DOC).toContain("reExtracted");
+  });
+
   it("tells both halts apart by the kinds the graph actually sends", () => {
     expect(SKILL_DOC).toContain(MODEL_REQUEST_KIND);
     expect(SKILL_DOC).toContain(REVIEW_REQUEST_KIND);

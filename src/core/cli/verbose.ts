@@ -69,10 +69,20 @@ export function haltedLines(session: VerboseSession, pending: readonly VerbosePe
 }
 
 /** What a session that ran to the end proposed, and what is left of the run. */
-export function finishedLines(proposed: readonly string[], remaining: number): string[] {
+export function finishedLines(
+  proposed: readonly string[],
+  remaining: number,
+  reExtracted = 0,
+): string[] {
   return [
     `finished: ${proposed.length} operation(s) proposed`,
     ...proposed.map((line) => `  ${line}`),
+    // Why the list may be shorter than the session deserved. The critic can
+    // reject most of a batch, which sends it back to `extract` for another
+    // pass, and until this line nothing said so (19-value-to-a-user.md).
+    ...(reExtracted > 0
+      ? [`the critic sent the batch back ${reExtracted} time(s); these are the second pass`]
+      : []),
     remaining === 0
       ? "nothing else eligible — the run is done"
       : `${remaining} session(s) still eligible; run again to take the next one`,

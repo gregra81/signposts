@@ -242,6 +242,77 @@ describe("the run loop", () => {
     expect(output.pending[0]?.request.node).toBe("critic");
   }, 30_000);
 
+  // 19-value-to-a-user.md, the open item beside the retry fix: a batch the
+  // critic rejects wholesale goes back to `extract`, and nothing said so. The
+  // skill reads this field and tells the developer.
+  it("reports that the critic sent the batch back", async () => {
+    const started = createFakeStdio();
+    await runCli(["run", "--first"], { config, stdio: started });
+    const first = firstJson(started.writtenOutput()) as { pending: { id: string }[] };
+
+    const candidate = (tempId: string, claim: string) => ({
+      tempId,
+      claim,
+      category: "environment",
+      scope: { repo: "acme/api" },
+      evidence: "A migration against staging was refused.",
+      confidence: 0.9,
+      hedged: false,
+    });
+    writeFileSync(
+      repliesPath,
+      JSON.stringify({
+        replies: {
+          [first.pending[0]!.id]: {
+            candidates: [
+              candidate("t1", "Staging is read only outside the ETL window"),
+              candidate("t2", "The API is fast"),
+              candidate("t3", "Tests are good"),
+            ],
+          },
+        },
+      }),
+      "utf8",
+    );
+    const answered = createFakeStdio();
+    await runCli(["resume", "--session", SESSION_ID, "--replies", repliesPath], {
+      config,
+      stdio: answered,
+    });
+    const critic = firstJson(answered.writtenOutput()) as { pending: { id: string }[] };
+
+    // Every candidate rejected is over CRITIC_REJECT_RATIO, so the batch goes
+    // back rather than continuing with nothing.
+    writeFileSync(
+      repliesPath,
+      JSON.stringify({
+        replies: {
+          [critic.pending[0]!.id]: {
+            verdicts: [
+              { tempId: "t1", keep: false, reason: "Too vague." },
+              { tempId: "t2", keep: false, reason: "Not a decision." },
+              { tempId: "t3", keep: false, reason: "Restates the code." },
+            ],
+          },
+        },
+      }),
+      "utf8",
+    );
+    const stdio = createFakeStdio();
+    const exitCode = await runCli(
+      ["resume", "--session", SESSION_ID, "--replies", repliesPath],
+      { config, stdio },
+    );
+
+    expect(exitCode).toBe(0);
+    const output = firstJson(stdio.writtenOutput()) as {
+      reExtracted?: number;
+      pending: { request: { node: string } }[];
+    };
+    expect(output.pending[0]?.request.node).toBe("extract");
+    expect(output.reExtracted).toBe(1);
+  }, 30_000);
+
   it("refuses an answer of the wrong shape rather than carrying it into the graph", async () => {
     const started = createFakeStdio();
     await runCli(["run", "--first"], { config, stdio: started });
