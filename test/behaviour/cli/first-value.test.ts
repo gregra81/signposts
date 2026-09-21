@@ -47,7 +47,7 @@ const ORIGIN_URL = "git@github.com:acme/api.git";
 /** What `init` prints when it asks (src/io/init/consent-prompt.ts). */
 const CONSENT_QUESTION = "Continue? [y/N]";
 /** What the hook tells the model to do with a ready session (hooks/session-start.ts, `contextFor`). */
-const OFFER_AND_WAIT = "Offer this to the developer before their next task and wait for an answer";
+const OFFER_AND_WAIT = "before your first tool call";
 
 /** Corrections worth extracting, long enough to clear MIN_GUTTERED_TOKENS. */
 function transcript(): string {
