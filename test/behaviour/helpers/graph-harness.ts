@@ -356,6 +356,7 @@ export function graphState(overrides: Partial<ExtractionState> = {}): Extraction
     classifications: {},
     resolutions: {},
     validated: [],
+    carriedValid: [],
     operations: [],
     gated: { auto: [], needsHuman: [] },
     validationErrors: [],

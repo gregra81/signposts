@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  carryValidated,
   isParseableGlob,
   validateOperations,
 } from "../../../src/core/graph/validate-operations.js";
@@ -250,5 +251,45 @@ describe("validateOperations", () => {
 
   it("returns an empty result for an empty batch", () => {
     expect(validateOperations({ built: [], existingIds: EXISTING })).toEqual({ valid: [], errors: [] });
+  });
+});
+
+// 04-extraction-graph.md: the self-correction loop drops "the offending
+// operations" and continues. A retry regenerates the whole batch, so what
+// already validated has to be carried across it by hand — golden 009 lost a
+// claim the critic had kept this way (19-value-to-a-user.md, "Follow-up:
+// where the missing claims go").
+describe("carryValidated", () => {
+  const carried = group({ tempId: "t2", operations: [{ op: "add", signpost: signpost({ id: "etl-window" }) }] });
+
+  it("keeps what validated earlier alongside the new batch", () => {
+    const merged = carryValidated([carried], [group()]);
+
+    expect(merged.map((candidate) => candidate.tempId)).toEqual(["t2", "t1"]);
+  });
+
+  it("drops a carried candidate the new batch proposes again", () => {
+    const again = group({ tempId: "t9", operations: [{ op: "add", signpost: signpost({ id: "etl-window" }) }] });
+
+    // The new one wins: it comes from a fresh pass, and two operations on one
+    // signpost would fail the batch-wide target check anyway.
+    expect(carryValidated([carried], [again])).toEqual([again]);
+  });
+
+  it("collides an add with an operation on the same signpost, not only with another add", () => {
+    const refine: Operation = {
+      op: "refine",
+      id: "etl-window",
+      sessionId: "s1",
+      author: "dev@acme.example",
+      claim: "The ETL job runs at 04:00 UTC",
+    };
+    const merged = carryValidated([carried], [group({ tempId: "t9", operations: [refine] })]);
+
+    expect(merged.map((candidate) => candidate.tempId)).toEqual(["t9"]);
+  });
+
+  it("is the new batch when nothing was carried", () => {
+    expect(carryValidated([], [group()])).toEqual([group()]);
   });
 });

@@ -176,3 +176,51 @@ function isBalanced(text: string, open: string, close: string): boolean {
   return depth === 0;
 }
 
+
+/**
+ * What a self-correction retry keeps: the candidates that already validated,
+ * minus any the new batch has proposed again.
+ *
+ * 04-extraction-graph.md says the loop drops "the offending operations" and
+ * continues. The budget-spent branch does exactly that; the retry branch did
+ * not, because `extract` replaces the batch wholesale and everything built
+ * from the previous pass went with it. Golden 009 lost a claim the critic had
+ * kept that way (19-value-to-a-user.md, "Follow-up: where the missing claims
+ * go"), and unlike the critic's retry these operations were already built and
+ * linted — there is nothing to ask a model for.
+ *
+ * **Two wordings of one claim both survive, and that is accepted.** A retry
+ * often rewords a claim it re-proposes, which gives it a different slug, so
+ * the collision check below does not see it — and nothing here can, since this
+ * module is pure and the only thing that could tell them apart is an embedder.
+ * Both reach the review and a person drops one. Greg's call, 2026-09-22; the
+ * alternatives were a retry prompt naming what not to repeat, or asking the
+ * model for the kept claims back the way the critic's retry does.
+ *
+ * A collision keeps the new candidate rather than the carried one: it comes
+ * from a fresh pass, the rest of that batch is consistent with it, and two
+ * operations on one signpost would fail the batch-wide target check anyway.
+ * `operationKey`'s rule, transcribed — `add` keys on the id it would create,
+ * everything else on the id it targets — so that this module keeps its "no
+ * LLM, no IO, no imports from the graph" shape.
+ */
+export function carryValidated(
+  carried: readonly CandidateOperations[],
+  built: readonly CandidateOperations[],
+): CandidateOperations[] {
+  const proposed = new Set(built.flatMap((candidate) => candidate.operations.map(signpostOf)));
+  const kept = carried.filter(
+    (candidate) => !candidate.operations.some((operation) => proposed.has(signpostOf(operation))),
+  );
+  return [...kept, ...built];
+}
+
+/**
+ * The signpost an operation is about, existing or about to exist. Distinct
+ * from `targetOf` above, which answers "which existing signpost does this
+ * touch" and is undefined for an `add` — here an `add` is exactly the case
+ * that has to collide.
+ */
+function signpostOf(operation: Operation): string {
+  return operation.op === OPERATION_TAGS.add ? operation.signpost.id : operation.id;
+}

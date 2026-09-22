@@ -160,6 +160,54 @@ describe("the self-correction loop (validate -> extract)", () => {
     expect(ports.commit.operations).toEqual([]);
   });
 
+  // 19-value-to-a-user.md, "Follow-up: where the missing claims go": golden
+  // 009 lost a claim the critic had kept, because the retry replaces the
+  // batch and the operations built from the first pass went with it. 04 says
+  // to drop "the offending operations", not the rest.
+  it("keeps what already validated when the batch goes back", async () => {
+    const good = candidate({ tempId: "t2", claim: "The ETL job runs at 03:00 UTC" });
+    const { ports, checkpointer, graph } = run({
+      extract: [
+        { candidates: [tooLong, good] },
+        { candidates: [candidate({ tempId: "t1", claim: "Deploys are frozen on Fridays" })] },
+      ],
+      critic: [
+        { verdicts: [{ tempId: "t1", keep: true, reason: "r" }, { tempId: "t2", keep: true, reason: "r" }] },
+        { verdicts: [{ tempId: "t1", keep: true, reason: "r" }] },
+      ],
+      classify: [
+        { tempId: "t1", kind: "NOVEL", rationale: "r" },
+        { tempId: "t2", kind: "NOVEL", rationale: "r" },
+        { tempId: "t1", kind: "NOVEL", rationale: "r" },
+      ],
+    });
+
+    await startRun(graph, checkpointer, RUN_INPUT);
+
+    const claims = ports.commit.operations.map((operation) =>
+      operation.op === "add" ? operation.signpost.claim : undefined,
+    );
+    expect(claims).toContain("The ETL job runs at 03:00 UTC");
+    expect(claims).toContain("Deploys are frozen on Fridays");
+  });
+
+  // The rule is "carry across a retry", not "carry across every validate".
+  // `recheck_neighbours` re-classifies a candidate and comes back here, and a
+  // carried copy of its earlier decision would be applied beside the one that
+  // replaced it. Covered end to end in overlapping-sessions.test.ts; this
+  // pins the state the node writes.
+  it("carries nothing forward when the batch is not going back", async () => {
+    const { checkpointer, graph } = run({
+      extract: [{ candidates: [candidate()] }],
+      critic: [keepAll],
+      classify: [{ tempId: "t1", kind: "NOVEL", rationale: "r" }],
+    });
+
+    const result = await startRun(graph, checkpointer, RUN_INPUT);
+
+    expect(result.state.carriedValid).toEqual([]);
+  });
+
   it("reports what failed rather than swallowing it", async () => {
     const { checkpointer, graph } = run({
       extract: [{ candidates: [tooLong] }],
