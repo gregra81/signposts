@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { REVIEW_EXPIRY_WARN_DAYS, RUN_PROGRESS_STALE_MINUTES } from "../../../src/core/config/constants.ts";
+import { IDLE_HOURS, REVIEW_EXPIRY_WARN_DAYS, RUN_PROGRESS_STALE_MINUTES } from "../../../src/core/config/constants.ts";
 import { hashRepoRoot } from "../../../src/core/config/paths.ts";
 import type { WorkerStatus } from "../../../src/core/worker/status.ts";
 
@@ -240,6 +240,32 @@ describe("progress during a run", () => {
     });
 
     expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 session not yet captured");
+  });
+
+  // The census is retaken at every session start and by `settle`. Past the
+  // idle gate, the set it describes has certainly changed — anything too
+  // fresh to be eligible then has aged in since — so the number is not one to
+  // put on a bar.
+  it("stops counting a backlog nothing has recounted since the idle gate", () => {
+    const f = withStatus(fixture(), {
+      phase: "idle",
+      updatedAt: new Date(Date.now() - (IDLE_HOURS + 1) * 3_600_000).toISOString(),
+      eligibleSessions: 4,
+      threadsWaiting: 0,
+    });
+
+    expect(render(f).stdout).toBe("");
+  });
+
+  it("still counts one recounted within the gate", () => {
+    const f = withStatus(fixture(), {
+      phase: "idle",
+      updatedAt: new Date(Date.now() - (IDLE_HOURS - 1) * 3_600_000).toISOString(),
+      eligibleSessions: 4,
+      threadsWaiting: 0,
+    });
+
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: 4 sessions not yet captured");
   });
 
   // Last in the order: it asks for nothing, and every other row is either

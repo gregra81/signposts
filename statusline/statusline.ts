@@ -45,6 +45,15 @@ const MS_PER_DAY = 86_400_000;
 const REVIEW_EXPIRY_WARN_DAYS = 7;
 const RUN_PROGRESS_STALE_MS = RUN_PROGRESS_STALE_MINUTES * MS_PER_MINUTE;
 
+/**
+ * 13-constants.md, the eligibility gate, transcribed. It bounds the backlog
+ * row: the census behind that count is retaken at every session start and by
+ * `settle`, and past this window the set it describes has certainly moved —
+ * anything too fresh to be eligible when it was written has aged in since.
+ */
+const IDLE_HOURS = 24;
+const CENSUS_STALE_MS = IDLE_HOURS * 60 * MS_PER_MINUTE;
+
 const SIGNPOSTS_DIRNAME = ".signposts";
 const STATUSLINE_FILENAME = "status.json";
 const REPO_HASH_LENGTH = 12;
@@ -188,12 +197,12 @@ function agrees(count: number, verb: string): string {
  * finish it. A bar reading "2/3 sessions" for the rest of the week is worse
  * than an empty one: it is the same claim, and it is false.
  */
-function isFresh(stampedAt: unknown, nowMs: number): boolean {
+function isFresh(stampedAt: unknown, nowMs: number, windowMs = RUN_PROGRESS_STALE_MS): boolean {
   if (typeof stampedAt !== "string") {
     return false;
   }
   const stamped = Date.parse(stampedAt);
-  return !Number.isNaN(stamped) && nowMs - stamped < RUN_PROGRESS_STALE_MS;
+  return !Number.isNaN(stamped) && nowMs - stamped < windowMs;
 }
 
 function liveProgress(status: WorkerStatus, nowMs: number): RunProgress | undefined {
@@ -285,7 +294,7 @@ export function statusLine(status: WorkerStatus, nowMs: number): string {
   // find the sessions worth a run?"). A count that claimed more than this
   // would be the daily-wrong number 07 warns gets a tool uninstalled.
   const eligible = whole(status.eligibleSessions);
-  if (eligible > 0) {
+  if (eligible > 0 && isFresh(status.updatedAt, nowMs, CENSUS_STALE_MS)) {
     return `${PREFIX}${plural(eligible, "session")} not yet captured`;
   }
 
