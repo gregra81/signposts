@@ -83,6 +83,13 @@ export const GraphAnnotation = Annotation.Root({
   resolutions: mergeableRecord<Resolution>(),
 
   validated: replaced<CandidateOperations[]>(() => []),
+  /**
+   * What validated on an earlier pass of the self-correction loop, carried so
+   * a retry replaces only what failed. Deliberately *not* reset by `extract`,
+   * unlike the keyed channels: the whole point is that it outlives the batch
+   * it came from (src/core/graph/validate-operations.ts, `carryValidated`).
+   */
+  carriedValid: replaced<CandidateOperations[]>(() => []),
   operations: replaced<Operation[]>(() => []),
   gated: replaced<GatedOperations>(() => ({ auto: [], needsHuman: [] })),
   validationErrors: replaced<string[]>(() => []),

@@ -17,7 +17,7 @@
 // arriving branch.
 
 import { buildOperations } from "../../core/graph/operations.ts";
-import { validateOperations } from "../../core/graph/validate-operations.ts";
+import { carryValidated, validateOperations } from "../../core/graph/validate-operations.ts";
 import { validateRoute } from "../../core/graph/routing.ts";
 import type { ExtractionState, ExtractionUpdate } from "../state.ts";
 import type { GraphPorts } from "../ports.ts";
@@ -36,14 +36,31 @@ export function makeValidateNode(ports: GraphPorts) {
       existingIds,
     });
 
-    const { valid, errors } = validateOperations({ built, existingIds });
+    // Everything that validated on an earlier pass comes back in here, so a
+    // retry replaces what failed rather than the whole batch. Linting the
+    // merged list rather than the new half keeps the batch-wide checks —
+    // "no operation targets a signpost twice" — true of what actually goes on.
+    const merged = carryValidated(state.carriedValid, built);
+    const { valid, errors } = validateOperations({ built: merged, existingIds });
     const attempts = state.validateAttempts + 1;
 
     // `valid` is written on every branch, retry included. A retry replaces the
     // candidates wholesale, so the write is harmless there, and writing it
     // unconditionally means the "drop and continue" branch needs no special
     // case: it is just this write with the errors left in place for the log.
-    return { validated: valid, validationErrors: errors, validateAttempts: attempts };
+    // Carried only when this pass is actually sending the batch back. The
+    // other two branches continue with `valid` as it stands, and one of them
+    // runs again: `recheck_neighbours` re-classifies a candidate and returns
+    // here, where a carried copy of its previous decision would be applied
+    // beside the new one — an `add` alongside the `reinforce` that replaced
+    // it (test/behaviour/graph/overlapping-sessions.test.ts).
+    const route = validateRoute({ validationErrors: errors, validateAttempts: attempts });
+    return {
+      validated: valid,
+      validationErrors: errors,
+      validateAttempts: attempts,
+      carriedValid: route === "retry-extract" ? valid : [],
+    };
   };
 }
 
