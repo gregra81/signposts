@@ -139,6 +139,13 @@ export interface WorkerStatus {
   /** When the worker last wrote this snapshot — what ages `phase` out. */
   updatedAt?: string;
   threadsWaiting?: number;
+  /**
+   * The backlog: transcripts past the eligibility gate that no run has taken.
+   * Written by the worker's census and re-stamped by `settle`. Absent from
+   * this interface until the bar had a row for it — it transcribes what it
+   * reads and nothing else.
+   */
+  eligibleSessions?: number;
   /** When the soonest parked review is dropped (19-value-to-a-user.md item 3). */
   reviewExpiresAt?: string;
   lastError?: string;
@@ -214,7 +221,16 @@ function expiryClause(status: WorkerStatus, nowMs: number): string {
  * The order is by immediacy, and only one of these renders: a bar is one row
  * shared with whatever else the developer put there, so this earns at most a
  * clause of it. A parked review outranks a run in flight, which outranks the
- * worker reindexing, which outranks a failure nobody has been told about yet.
+ * worker reindexing, which outranks a failure nobody has been told about yet,
+ * which outranks the backlog.
+ *
+ * The backlog row reverses an earlier decision, recorded here and in 07: the
+ * bar said nothing when idle, because the hook already names the backlog once
+ * per session start and a row repeating it every few seconds is noise. What
+ * changed is that the notice is the only place it was ever said, so a
+ * developer who closed the notice had nothing to look at — and the count is
+ * now honest about being unjudged, which is what the earlier version could not
+ * be (19-value-to-a-user.md).
  */
 export function statusLine(status: WorkerStatus, nowMs: number): string {
   // Above the run's progress deliberately. A parked review is the one state
@@ -256,6 +272,21 @@ export function statusLine(status: WorkerStatus, nowMs: number): string {
   // that failed every night looks exactly like one with nothing to do.
   if (typeof status.lastError === "string" && status.lastError !== "") {
     return `${PREFIX}last run failed — run \`signpost doctor\``;
+  }
+
+  // Last, because it asks for nothing: every row above is either happening now
+  // or waiting on the developer. This is the backlog, and it used to be the
+  // hook's message alone — said once per session start and gone.
+  //
+  // It says "not yet captured" and nothing else, because that is all anyone
+  // knows. Which of these sessions holds something worth recording cannot be
+  // decided without a model, and the free screens measured for it came out
+  // barely better than chance (19-value-to-a-user.md, "can a free local screen
+  // find the sessions worth a run?"). A count that claimed more than this
+  // would be the daily-wrong number 07 warns gets a tool uninstalled.
+  const eligible = whole(status.eligibleSessions);
+  if (eligible > 0) {
+    return `${PREFIX}${plural(eligible, "session")} not yet captured`;
   }
 
   return "";
