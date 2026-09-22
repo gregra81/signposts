@@ -213,10 +213,17 @@ the `.ts` stays out. A developer never runs the build; an end user gets the outp
 It reads `status.json` and nothing else — no database, no git subprocess — because it runs on every
 assistant message and on a one-second `refreshInterval`.
 
-It renders one of four things, each true at the moment it renders: a review parked on the developer,
-a run in flight, the worker reindexing, a failure nobody was told about — in that order, because a
-review is the only one of them asking for anything. It says nothing about a backlog. That is the
-hook's message and it is delivered once; a bar that repeats it every few seconds becomes noise.
+It renders one of five things, each true at the moment it renders: a review parked on the developer,
+a run in flight, the worker reindexing, a failure nobody was told about, and last the backlog — in
+that order, because a review is the only one of them asking for anything and the backlog asks for
+nothing.
+
+The backlog row reverses an earlier rule that the bar say nothing when idle, on the grounds that the
+hook names the backlog once per session start and a permanent row repeating it is noise. What that
+missed is that the notice was the only place it was ever said: a developer who scrolled past it had
+nowhere to look. The wording is `N sessions not yet captured` and claims nothing more, because
+nothing free can tell which of them holds anything worth recording — the screens measured for that
+came out barely better than chance (19-value-to-a-user.md).
 
 The progress comes from `settle` (`src/cli/with-run.ts`), for the same reason the watermark does:
 the worker drains no session. A run is a sequence of processes, so the count lives on disk and each

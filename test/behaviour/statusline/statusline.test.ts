@@ -110,19 +110,6 @@ describe("nothing when idle", () => {
     expect(render(f).stdout).toBe("");
   });
 
-  // A backlog is the SessionStart hook's message to deliver, once. Repeating
-  // it on a bar that is on screen permanently is how a notice becomes noise.
-  it("says nothing about a backlog nobody has run", () => {
-    const f = withStatus(fixture(), {
-      phase: "idle",
-      updatedAt: new Date().toISOString(),
-      eligibleSessions: 5,
-      threadsWaiting: 0,
-    });
-
-    expect(render(f).stdout).toBe("");
-  });
-
   it("says nothing, and does not fail, on a state file it cannot parse", () => {
     const f = withStatus(fixture(), "{ this is not json");
     const result = render(f);
@@ -223,6 +210,50 @@ describe("progress during a run", () => {
     });
 
     expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
+  });
+
+  // Replaced "says nothing about a backlog nobody has run", which pinned the
+  // opposite rule: the backlog was the hook's message to deliver once, and a
+  // permanent bar repeating it was held to be noise. Reversed on purpose
+  // (Greg, 2026-09-22) — the notice was the only place it was ever said.
+  //
+  // 19-value-to-a-user.md: the only honest backlog count is an unjudged one.
+  // Nothing free can tell which of these sessions holds anything worth
+  // recording, so the wording claims nothing about them.
+  it("counts the sessions nobody has captured yet", () => {
+    const f = withStatus(fixture(), {
+      phase: "idle",
+      updatedAt: new Date().toISOString(),
+      eligibleSessions: 4,
+      threadsWaiting: 0,
+    });
+
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: 4 sessions not yet captured");
+  });
+
+  it("says one session in the singular", () => {
+    const f = withStatus(fixture(), {
+      phase: "idle",
+      updatedAt: new Date().toISOString(),
+      eligibleSessions: 1,
+      threadsWaiting: 0,
+    });
+
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 session not yet captured");
+  });
+
+  // Last in the order: it asks for nothing, and every other row is either
+  // something happening now or something waiting on the developer.
+  it("keeps the backlog below a failure nobody has been told about", () => {
+    const f = withStatus(fixture(), {
+      phase: "idle",
+      updatedAt: new Date().toISOString(),
+      eligibleSessions: 4,
+      threadsWaiting: 0,
+      lastError: "index rebuild exited 1",
+    });
+
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: last run failed — run `signpost doctor`");
   });
 
   // A detached worker's stderr goes to /dev/null, so this is the only place a
