@@ -225,6 +225,12 @@ nowhere to look. The wording is `N sessions not yet captured` and claims nothing
 nothing free can tell which of them holds anything worth recording — the screens measured for that
 came out barely better than chance (19-value-to-a-user.md).
 
+It ages out on `IDLE_HOURS`, not on `RUN_PROGRESS_STALE_MINUTES` like the progress row. The census
+behind it is retaken at every session start and by `settle`, so a fresher window would blank the row
+in the middle of a long session for a count that is still right; past the eligibility gate, though,
+the set has certainly moved, because anything too fresh to be eligible when it was written has aged
+in since.
+
 The progress comes from `settle` (`src/cli/with-run.ts`), for the same reason the watermark does:
 the worker drains no session. A run is a sequence of processes, so the count lives on disk and each
 invocation adds its own session to what the last one left. It ages out after
