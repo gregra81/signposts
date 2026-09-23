@@ -72,25 +72,30 @@ export function runReview(input: ReviewCommandInput): Promise<ExitCode> {
         const quit = await reviewOne(input, handle, review, now);
         if (quit) {
           input.stdio.output.write("Stopped. What you did not answer is still waiting.\n");
-          return settled(handle);
+          return settled(input.stdio.output, handle);
         }
       }
-      return settled(handle);
+      return settled(input.stdio.output, handle);
     },
   );
 }
 
 /**
- * What answering a review reports to whatever ran it.
+ * What answering a review leaves the person with.
  *
- * The exit code table is the CLI's, not `run`'s (12-wire-contracts.md, "Exit
- * codes"): answering the last review in the terminal is as often as not the
- * invocation that reaches `commit`, so it is also the one that can push a
- * branch and fail to open its pull request. Reporting 0 for that would tell a
- * wrapper the work is on the forge when it is not.
+ * Answering the last review in the terminal is as often as not the invocation
+ * that reaches `commit`, and a commit goes no further than the local branch
+ * (src/io/commit/commit-port.ts). So the one thing left to say is how to put it
+ * in front of a reviewer — the person here has just decided what goes on the
+ * branch, and publishing it is the same person's next step, not this command's.
  */
-function settled(handle: RunHandle): ExitCode {
-  return handle.commitOutcome()?.manualCommand == null ? EXIT_CODES.ok : EXIT_CODES.prCreationFailed;
+function settled(output: NodeJS.WritableStream, handle: RunHandle): ExitCode {
+  const commit = handle.commitOutcome();
+  if (commit !== null) {
+    const destination = commit.pr === null ? "open its pull request" : `add it to pull request #${String(commit.pr)}`;
+    output.write(`Committed to ${commit.branch}, not pushed. Run \`signpost publish\` to push it and ${destination}.\n`);
+  }
+  return EXIT_CODES.ok;
 }
 
 /**

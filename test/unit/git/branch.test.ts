@@ -103,6 +103,32 @@ describe("pickBranch", () => {
     ).toBe("signposts/greg/2026-09-08");
   });
 
+  describe("with work nobody has published", () => {
+    const unpublished = "signposts/greg/2026-09-01";
+    const withUnpublished = (known: { branch: string; open: boolean }[]) =>
+      pickBranch({ pattern: BRANCH_PATTERN, email: EMAIL, date: TODAY, known, unpublished });
+
+    it("keeps committing to it rather than minting today's name", () => {
+      expect(withUnpublished([])).toBe(unpublished);
+    });
+
+    it("still prefers the branch whose pull request is open", () => {
+      expect(withUnpublished([{ branch: "signposts/greg/2026-08-20", open: true }])).toBe(
+        "signposts/greg/2026-08-20",
+      );
+    });
+
+    it("does not reuse it once its pull request has merged", () => {
+      expect(withUnpublished([{ branch: unpublished, open: false }])).toBe("signposts/greg/2026-09-08");
+    });
+
+    it("ignores a branch that is not this developer's", () => {
+      expect(
+        pickBranch({ pattern: BRANCH_PATTERN, email: EMAIL, date: TODAY, known: [], unpublished: "feature/x" }),
+      ).toBe("signposts/greg/2026-09-08");
+    });
+  });
+
   it("still cycles a pattern that carries no date, by number instead", () => {
     const known = [{ branch: "knowledge/greg", open: false }];
     expect(pickBranch({ pattern: "knowledge/{author_slug}", email: EMAIL, date: TODAY, known })).toBe(

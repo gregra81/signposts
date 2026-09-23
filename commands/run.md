@@ -12,6 +12,8 @@ and the shape of a reply. Read it before running anything.
 
 In short: `signpost sessions` says what is eligible; stop and say so if nothing is.
 Otherwise run the loop in a subagent, one session at a time, and bring any
-`human_review` halt back here — only the developer can answer that one.
+`human_review` halt back here — only the developer can answer that one. At the
+end, show the developer what was committed and ask before running
+`signpost publish`: a run pushes nothing on its own.
 
 $ARGUMENTS may name a single session id to run instead of the whole backlog.

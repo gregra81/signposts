@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EXIT_CODES } from "../../../src/core/cli/exit-codes.js";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { buildExtractionGraph } from "../../../src/graph/index.js";
-import type { OpenRun, RunHandle, RunSession } from "../../../src/cli/run-port.js";
+import type { OpenRun, Publish, RunHandle, RunSession } from "../../../src/cli/run-port.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { runCli } from "../helpers/run-cli.js";
 import {
@@ -71,8 +71,8 @@ describe("what a run reports to whatever ran it", () => {
   /** How often the seam was asked what is still eligible — see the last test. */
   let eligibleCalls: number;
 
-  /** A run seam over the scripted graph, saying what its commit port left undone. */
-  function seam(options: HarnessOptions, manualCommand: string | null = null): OpenRun {
+  /** A run seam over the scripted graph. */
+  function seam(options: HarnessOptions): OpenRun {
     const ports = makeHarness(options);
     const checkpointer = new MemorySaver();
     const handle: RunHandle = {
@@ -87,10 +87,7 @@ describe("what a run reports to whatever ran it", () => {
       },
       finish: () => {},
       skip: () => {},
-      commitOutcome: () =>
-        manualCommand === null
-          ? null
-          : { branch: "signposts/greg/2026-09-10", pr: null, url: null, reason: "no forge", manualCommand },
+      commitOutcome: () => null,
       syncCorpus: () => Promise.resolve({ failures: [] }),
       pendingReviews: () => Promise.resolve([]),
       close: () => {},
@@ -114,7 +111,7 @@ describe("what a run reports to whatever ran it", () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  it("exits 0 when the session finished and its pull request was opened", async () => {
+  it("exits 0 when the session finished and its work is committed", async () => {
     const stdio = createFakeStdio();
 
     const exitCode = await runCli(["run"], { config, openRun: seam({ script: AUTO, session: gutteredSession() }), stdio });
@@ -123,23 +120,41 @@ describe("what a run reports to whatever ran it", () => {
     expect(JSON.parse(stdio.writtenOutput())).toMatchObject({ status: "finished" });
   });
 
-  it("exits 4, not 1, when the work is committed and no pull request could be opened", async () => {
+  it("exits 4, not 1, when publish pushed nothing a pull request carries", async () => {
+    // A run no longer pushes (19-value-to-a-user.md, open item 1), so this is
+    // `publish`'s code now.
     const stdio = createFakeStdio();
     const command = "gh pr create --head signposts/greg/2026-09-05 --title 'signposts: …'";
+    const publish: Publish = () =>
+      Promise.resolve({
+        branch: "signposts/greg/2026-09-05",
+        sessions: 1,
+        pr: null,
+        url: null,
+        reason: "could not open a pull request: no forge",
+        manualCommand: command,
+      });
 
-    const exitCode = await runCli(["run"], {
-      config,
-      openRun: seam({ script: AUTO, session: gutteredSession() }, command),
-      stdio,
-    });
+    const exitCode = await runCli(["publish"], { config, publish, stdio });
 
-    // Not a failure: the session ran to the end, the proposals are on the
-    // branch, and what is missing is one command a developer can run. A
-    // caller that treats non-zero as fatal is meant to special-case this
-    // number rather than report a broken run.
+    // Not a failure: the proposals are on the branch, and what is missing is
+    // one command a developer can run. A caller that treats non-zero as fatal
+    // is meant to special-case this number rather than report a broken run.
     expect(exitCode).toBe(EXIT_CODES.prCreationFailed);
     expect(exitCode).not.toBe(EXIT_CODES.failure);
-    expect(JSON.parse(stdio.writtenOutput())).toMatchObject({ status: "finished" });
+    expect(JSON.parse(stdio.writtenOutput())).toMatchObject({
+      status: "published",
+      publish: { manualCommand: command },
+    });
+  });
+
+  it("exits 0 from a publish with nothing to push", async () => {
+    const stdio = createFakeStdio();
+
+    const exitCode = await runCli(["publish"], { config, publish: () => Promise.resolve(null), stdio });
+
+    expect(exitCode).toBe(EXIT_CODES.ok);
+    expect(JSON.parse(stdio.writtenOutput())).toEqual({ status: "nothing", publish: null });
   });
 
   it("exits 5 when the run is halted on a review only a person can answer", async () => {

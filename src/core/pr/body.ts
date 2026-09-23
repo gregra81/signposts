@@ -112,3 +112,43 @@ export function prLabels(operations: readonly Operation[]): string[] {
 export function commitMessage(sessionId: string, operations: readonly Operation[]): string {
   return `signposts: ${String(operations.length)} from session ${sessionId}`;
 }
+
+/**
+ * The whole message of a session's commit: `commitMessage` as the subject, and
+ * the session's `prSection` as the body.
+ *
+ * The section travels in the commit because the run no longer opens the pull
+ * request (19-value-to-a-user.md, open item 1). `signpost publish` does, later,
+ * after the developer has said yes, and by then the operations are gone from
+ * memory. The commits it is about to push are the one record of each session
+ * that survives until then, and they are exactly the sessions the pull request
+ * has not been told about yet.
+ */
+export function sessionCommitMessage(sessionId: string, operations: readonly Operation[]): string {
+  return `${commitMessage(sessionId, operations)}${SUBJECT_SEPARATOR}${prSection(sessionId, operations)}`;
+}
+
+/** What git puts between a commit's subject and its body. */
+const SUBJECT_SEPARATOR = "\n\n";
+
+/**
+ * The PR section a `sessionCommitMessage` carries, or null for a commit with
+ * none: one made before sections rode in commits, or not made by signposts.
+ */
+export function sectionFromCommit(message: string): string | null {
+  const blank = message.indexOf(SUBJECT_SEPARATOR);
+  if (blank === -1) {
+    return null;
+  }
+  const body = message.slice(blank + SUBJECT_SEPARATOR.length).trim();
+  return body === "" ? null : `${body}\n`;
+}
+
+/**
+ * `prLabels` for sections rather than operations, which are all `publish` has.
+ * A replaced claim is a `supersede` row, and `row` is what writes it.
+ */
+export function prLabelsForSections(sections: readonly string[]): string[] {
+  const replaced = sections.some((section) => section.includes(`\n| ${OPERATION_TAGS.supersede} |`));
+  return replaced ? [PR_LABEL, PR_LABEL_CONTRADICTION] : [PR_LABEL];
+}

@@ -312,28 +312,27 @@ async function report(
     ...(result.state.criticRetries > 0 ? { reExtracted: result.state.criticRetries } : {}),
   };
   write(input.stdout, output);
-  return exitCode(handle, result);
+  return exitCode(result);
 }
 
 /**
  * What the invocation reports to whatever ran it (12-wire-contracts.md, "Exit
  * codes").
  *
- * Neither of the two non-zero codes here is a failure, and that is the whole
- * point of them: a hook or a CI step that treats non-zero as fatal must not
- * raise an alarm because a person has a review to answer, or because the work
- * is safely committed on a branch that `gh` was not around to open a pull
- * request for. Both are reported alongside the same JSON object every other
- * outcome prints — `status` and `pending` are unchanged, the exit code is the
- * part a caller that does not parse JSON can still read.
+ * The non-zero code here is not a failure, and that is the whole point of it:
+ * a hook or a CI step that treats non-zero as fatal must not raise an alarm
+ * because a person has a review to answer. It is reported alongside the same
+ * JSON object every other outcome prints — `status` and `pending` are
+ * unchanged, the exit code is the part a caller that does not parse JSON can
+ * still read.
+ *
+ * `prCreationFailed` is not one of them any more. A run commits and stops;
+ * pushing and the pull request are `signpost publish`'s, and so is that code.
  *
  * A halt on a model call is *not* one of them: the session driving the loop
  * answers those itself, and it is told to by `status: "waiting"`.
  */
-function exitCode(handle: RunHandle, result: RunResult): ExitCode {
-  if (handle.commitOutcome()?.manualCommand != null) {
-    return EXIT_CODES.prCreationFailed;
-  }
+function exitCode(result: RunResult): ExitCode {
   if (result.pending.some((pending) => pending.request.kind === REVIEW_REQUEST_KIND)) {
     return EXIT_CODES.awaitingHuman;
   }

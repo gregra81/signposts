@@ -9,9 +9,12 @@ import {
   commitMessage,
   prBody,
   prLabels,
+  prLabelsForSections,
   prSection,
   PR_LABEL,
   PR_LABEL_CONTRADICTION,
+  sectionFromCommit,
+  sessionCommitMessage,
 } from "../../../src/core/pr/body.js";
 import type { Operation } from "../../../src/core/contracts/graph.js";
 import type { Signpost } from "../../../src/core/signpost/schema.js";
@@ -186,5 +189,26 @@ describe("prLabels", () => {
 describe("commitMessage", () => {
   it("says how much came from which session", () => {
     expect(commitMessage("01J9F", [ADD, REINFORCE])).toBe("signposts: 2 from session 01J9F");
+  });
+});
+
+describe("the section a session's commit carries", () => {
+  it("round-trips through the commit message", () => {
+    const message = sessionCommitMessage("01J9F", [ADD]);
+
+    expect(message.split("\n")[0]).toBe(commitMessage("01J9F", [ADD]));
+    expect(sectionFromCommit(message)).toBe(prSection("01J9F", [ADD]));
+  });
+
+  it("is absent from a commit with no body", () => {
+    expect(sectionFromCommit("signposts: 1 from session 01J9F")).toBe(null);
+    expect(sectionFromCommit("signposts: 1 from session 01J9F\n\n  \n")).toBe(null);
+  });
+
+  it("labels a replaced claim from the sections alone, as prLabels does from operations", () => {
+    const sections = [prSection("sess-1", [ADD]), prSection("sess-2", [SUPERSEDE])];
+
+    expect(prLabelsForSections(sections)).toEqual(prLabels([ADD, SUPERSEDE]));
+    expect(prLabelsForSections([prSection("sess-1", [ADD, REINFORCE])])).toEqual(prLabels([ADD, REINFORCE]));
   });
 });

@@ -100,14 +100,11 @@ export interface RunHandle {
   /** Eligible sessions for this repo, oldest activity first. */
   eligible(now: Date): RunSession[];
   /**
-   * Where this invocation's proposals went — the branch, the pull request, or
-   * the reason there is none — or null when nothing was committed.
+   * The branch this invocation's proposals were committed to, and the pull
+   * request `publish` will add them to — or null when nothing was committed.
    *
    * Read off the handle rather than carried in the graph's state: the commit
-   * port is what discovers it, and it belongs to this invocation — a later
-   * process cannot retry a `gh` that is still missing. `manualCommand` on it
-   * is what the run commands turn into an exit code once the run has come back
-   * (12-wire-contracts.md, "Exit codes").
+   * port is what discovers it, and it belongs to this invocation.
    */
   commitOutcome(): CommitOutcome | null;
   /** Records a session as processed, and the repo as past its bootstrap run. */
@@ -154,3 +151,43 @@ export type OpenRun = (input: {
   /** Where a step that could not finish says so. */
   warn: (message: string) => void;
 }) => Promise<OpenedRun>;
+
+/**
+ * Where `signpost publish` put the work: the branch, the pull request, or the
+ * reason there is none and the command that would finish it by hand.
+ *
+ * `pr` is null on two quite different outcomes and `reason` is what separates
+ * them: a push that failed, and a push that worked with a forge that did not.
+ * `url` is set only when this invocation opened the pull request — `gh pr
+ * create` prints it, and a PR found by listing gives a number and no URL.
+ */
+export interface PublishOutcome {
+  branch: string;
+  /** How many sessions' commits this pushed. */
+  sessions: number;
+  /** The pull request the commits are on, once there is one. */
+  pr: number | null;
+  /** Its URL, when this invocation is the one that opened it. */
+  url: string | null;
+  /** Why there is no pull request, or why it could not be updated. Null if all is well. */
+  reason: string | null;
+  /**
+   * The command that finishes the job by hand, when one is outstanding. The
+   * exit code reads this field, so the JSON and the code cannot tell different
+   * stories.
+   */
+  manualCommand: string | null;
+}
+
+/**
+ * Pushes what the runs committed and opens or updates the pull request —
+ * src/io/commit/publish.ts. Null when there was nothing to publish.
+ *
+ * A seam of its own rather than a method on the run handle: it needs a forge
+ * and git, and none of the database, checkpointer or embedder `openRun` opens.
+ */
+export type Publish = (input: {
+  config: ResolvedConfig;
+  repoRoot: string;
+  warn: (message: string) => void;
+}) => Promise<PublishOutcome | null>;

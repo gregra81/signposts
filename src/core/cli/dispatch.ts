@@ -25,6 +25,7 @@ const KNOWN_COMMANDS = [
   "run",
   "resume",
   "review",
+  "publish",
   "worker",
   "mcp",
 ] as const;

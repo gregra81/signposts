@@ -94,45 +94,29 @@ export interface CommitInput {
 }
 
 /**
- * Where a session's proposals ended up, in the terms a person cares about.
+ * Where a session's proposals ended up: a commit on the developer's signposts
+ * branch, in the worktree, and nowhere else yet.
  *
- * `RunOutput` used to be `{sessionId, contentHash, status, pending, proposed}`
- * and nothing else, so a run whose push failed printed `"status": "finished"`
- * with a list of proposals and exited 0. The warning was on stderr, and stdout
- * is the contract — while SKILL.md closes by telling the user "which sessions
- * ran, what was proposed, and the pull request". There may be no pull request,
- * and nothing in the JSON said so (18-end-to-end-gaps.md, item 5).
- *
- * `pr` is null on two quite different outcomes and `reason` is what separates
- * them: a push that failed, and a push that worked with a forge that did not.
- * `url` is set only when this invocation opened the pull request — `gh pr
- * create` prints it, and a PR found by listing gives a number and no URL.
+ * A run used to push and open the pull request itself, so the first thing a
+ * developer saw after a successful run was a PR on their repository that
+ * nobody had asked for (19-value-to-a-user.md, open item 1). The push and the
+ * PR are `signpost publish` now, run once the developer has seen what was
+ * proposed and said yes — see src/io/commit/publish.ts.
  */
 export interface CommitOutcome {
   branch: string;
-  /** The pull request the commit is on, once there is one. */
-  pr: number | null;
-  /** Its URL, when this invocation is the one that opened it. */
-  url: string | null;
-  /** Why there is no pull request, or why it could not be updated. Null if all is well. */
-  reason: string | null;
   /**
-   * The command that finishes the job by hand, when one is outstanding.
-   *
-   * On the outcome rather than in a callback of its own. It used to be both —
-   * a `prNotOpened(command)` for the exit code and a `committed(outcome)` for
-   * stdout, called one after the other at every failure site, which is two
-   * records of one event free to disagree. The exit code reads this field now
-   * (src/cli/run-port.ts), so the JSON and the code cannot tell different
-   * stories.
+   * The open pull request this branch already has, which `publish` will add
+   * to. Null when it has none and `publish` will open one. The commit is not
+   * on it either way until `publish` pushes.
    */
-  manualCommand: string | null;
+  pr: number | null;
 }
 
 /**
- * Node 10: write markdown, regenerate the index, reindex embeddings, open or
- * update the PR. A port because all of that is git, filesystem and forge work
- * that belongs outside the graph.
+ * Node 10: write markdown, regenerate the index and commit it to the
+ * developer's signposts branch. A port because all of that is git and
+ * filesystem work that belongs outside the graph.
  */
 export interface CommitPort {
   apply(input: CommitInput): Promise<void>;

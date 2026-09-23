@@ -90,10 +90,16 @@ export interface PickBranchInput {
   date: string;
   /** This developer's branches the forge knows a PR for, newest first. */
   known: readonly KnownBranch[];
+  /**
+   * The branch the worktree is on when it carries commits the remote does not
+   * have: sessions a run committed and the developer has not published yet.
+   */
+  unpublished?: string | null;
 }
 
 /**
- * The branch this session should commit on: the one under review, or a new one.
+ * The branch this session should commit on: the one under review, the one the
+ * developer has not published yet, or a new one.
  *
  * Reuse is decided by the pull request rather than by the branch existing,
  * because a merged branch still exists — locally, and usually on the remote
@@ -117,6 +123,18 @@ export function pickBranch(input: PickBranchInput): string {
   }
 
   const taken = new Set(mine.map((candidate) => candidate.branch));
+
+  // Work the developer has not published yet is under review too — by them,
+  // before anyone else. A run no longer pushes (19-value-to-a-user.md, open
+  // item 1), so without this a "not now" on Monday left Monday's sessions on a
+  // branch Tuesday's run walked away from, since Tuesday mints Tuesday's name.
+  // One whose pull request is open was returned above; one whose pull request
+  // merged or closed is not reused, whatever it has on it — its name is spent.
+  const unpublished = input.unpublished ?? null;
+  if (unpublished !== null && unpublished.startsWith(prefix) && !taken.has(unpublished)) {
+    return unpublished;
+  }
+
   const unsuffixed = branchFor(input.pattern, input.email, input.date);
 
   // The unsuffixed name is the first cycle, so the second is `-2`, the way a

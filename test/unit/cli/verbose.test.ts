@@ -116,4 +116,9 @@ describe("finishedLines", () => {
     expect(finishedLines([], 0).at(-1)).toContain("done");
     expect(finishedLines([], 1).at(-1)).toContain("1 session(s) still eligible");
   });
+
+  it("names the publish step once the run is done, and not before", () => {
+    expect(finishedLines([], 0).at(-1)).toContain("`signpost publish`");
+    expect(finishedLines([], 1).at(-1)).not.toContain("publish");
+  });
 });

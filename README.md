@@ -11,8 +11,8 @@ evaporate when the session ends. The next person, human or Claude, has to relear
 
 signposts reads the Claude Code transcripts already sitting on your disk, pulls out the lessons
 that you couldn't get by just reading the code, checks them against what's already been recorded,
-and opens a pull request against a folder of markdown in the repo. A human reviews it like any
-other PR — nothing gets merged automatically.
+and commits them to a branch of markdown in the repo. When you say yes, it opens a pull request,
+and a human reviews it like any other PR — nothing gets merged automatically.
 
 A signpost is what a previous traveler leaves behind so the next one doesn't take the wrong turn.
 
@@ -91,9 +91,11 @@ recorded.
 3. Your Claude Code session proposes candidate signposts, then critiques them with a skeptical eye.
 4. For each candidate, retrieve the nearest existing signposts and classify it: new, duplicate,
    refinement, or contradiction.
-5. High-confidence new additions open a PR automatically. Anything low-confidence, anything that
-   edits or deletes existing knowledge, and every contradiction stops and waits for a human.
-6. Write the markdown to `.signposts/` and open the PR.
+5. High-confidence new additions go straight onto the branch. Anything low-confidence, anything
+   that edits or deletes existing knowledge, and every contradiction stops and waits for a human.
+6. Write the markdown to `.signposts/` and commit it to your branch, locally.
+7. Show you what was committed. `signpost publish` pushes it and opens or updates the PR, and it
+   runs only when you say yes.
 
 ## Decisions that shaped this
 
@@ -116,7 +118,12 @@ doesn't belong here — that's the entire point of the tool.
 isn't really final until enough time has passed.
 
 **Your working tree is never touched.** A run commits through a second worktree, so proposals
-appear on a branch and in a PR while you carry on with whatever you were doing.
+appear on a branch while you carry on with whatever you were doing.
+
+**Nothing leaves your machine until you say so.** A run stops at a local commit. The push and the
+pull request are a separate step, `signpost publish`, because a PR you didn't ask for is a bad
+first thing to see after a run that worked. Say no and the commits wait on the branch; the next
+run adds to them.
 
 **The write path shipped first.** Retrieval-and-inject is a crowded space; capturing the knowledge
 at all was the part worth building first. The read path is now an MCP server with one tool,
@@ -160,9 +167,9 @@ searches it.
 
 ## Requirements
 
-Node 24 or newer, git, and a repo with a GitHub `origin`. `gh` authenticated if you want the pull
-request opened for you; without it the branch is still pushed and you get the `gh pr create` line
-to run yourself. The first run downloads a 23MB embedding model, once per machine, after which
+Node 24 or newer, git, and a repo with a GitHub `origin`. `gh` authenticated if you want
+`signpost publish` to open the pull request for you; without it the branch is still pushed and you
+get the `gh pr create` line to run yourself. The first run downloads a 23MB embedding model, once per machine, after which
 retrieval works offline.
 
 ## Uninstall
