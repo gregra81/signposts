@@ -201,7 +201,7 @@ function score(all) {
  * wording back.
  * @param {string} workspace @param {string} label @param {{claudeMd: string | null, followUps: string[]}} condition
  * @param {string} prompt @param {number} i
- * @returns {Promise<{failed?: string, offered?: boolean, askedFirst?: boolean, actedFirst?: boolean, raisedAgain?: boolean}>}
+ * @returns {Promise<{failed?: string, offered?: boolean, askedFirst?: boolean, actedFirst?: boolean, raisedAgain?: boolean, turns?: number}>}
  */
 function runOnce(workspace, label, condition, prompt, i) {
   const repoRoot = makeRepo(workspace, `${label}-${i}`, CONTEXT, condition.claudeMd);
@@ -231,11 +231,12 @@ function runOnce(workspace, label, condition, prompt, i) {
     let stderr = "";
     let sent = 0;
     const next = () => {
-      if (sent < messages.length) {
-        child.stdin.write(line(messages[sent]));
-        sent += 1;
-      } else {
+      const message = messages[sent];
+      sent += 1;
+      if (message === undefined) {
         child.stdin.end();
+      } else {
+        child.stdin.write(line(message));
       }
     };
     let turnsDone = 0;
@@ -265,7 +266,7 @@ console.log(`model ${MODEL}, ${RUNS} run(s) × ${PROMPTS.length} prompt(s) per c
 
 for (const [label, condition] of Object.entries(CONDITIONS)) {
   if (ONLY !== null && ONLY !== label) continue;
-  /** @type {{prompt: string, failed?: string, offered?: boolean, askedFirst?: boolean, actedFirst?: boolean, raisedAgain?: boolean}[]} */
+  /** @type {{prompt: string, failed?: string, offered?: boolean, askedFirst?: boolean, actedFirst?: boolean, raisedAgain?: boolean, turns?: number}[]} */
   const rows = [];
   for (const prompt of PROMPTS) {
     for (let i = 0; i < RUNS; i += 1) {
