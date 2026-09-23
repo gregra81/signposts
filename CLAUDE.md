@@ -186,7 +186,12 @@ what you just wrote.
 
 `hooks/session-start.ts` is a standalone bundle that imports nothing from `src/` (the third lint
 rule) and ships pre-compiled by `pnpm build:hooks`, because type-stripping is parse work paid on
-every session start. It checks three conditions with `stat` calls only — eligible transcripts,
+every session start. The same bundle is the `SessionEnd` hook: run with `--session-end`, it leaves
+an empty marker per session under `STATE_DIR/ended-sessions`, and eligibility waits
+`ENDED_IDLE_HOURS` instead of a day for a session whose marker is no older than its last write. It
+is one bundle rather than two because a second file's shipped `.js` could not import a `.ts`
+sibling from inside `node_modules`, and a third copy of the state-directory rule is how the two
+processes stop agreeing. It checks three conditions with `stat` calls only — eligible transcripts,
 threads waiting, a stale index — takes the run lock, spawns `signpost worker --adopt-lock`
 detached, prints one `systemMessage` and exits. Measured, not asserted: `node scripts/measure-hook.mjs`
 prints the distribution against `HOOK_BUDGET_MS`, and it sits around 23ms against a 50ms budget, of

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { isEligible } from "../../../src/core/eligibility/eligibility.js";
 import type { Session } from "../../../src/core/eligibility/types.js";
-import { IDLE_HOURS, MAX_AGE_DAYS } from "../../../src/core/config/constants.js";
+import {
+  ENDED_IDLE_HOURS,
+  ENDED_MARKER_SLACK_MINUTES,
+  IDLE_HOURS,
+  MAX_AGE_DAYS,
+} from "../../../src/core/config/constants.js";
 
 const NOW = new Date("2026-08-09T00:00:00Z");
 const HOUR_MS = 60 * 60 * 1000;
@@ -105,5 +110,48 @@ describe("isEligible", () => {
       processedKeys: new Set(["s1:hash-1"]),
     };
     expect(isEligible(rerun, NOW)).toBe(false);
+  });
+});
+
+// 19-value-to-a-user.md, open item 5: a session Claude Code said had ended
+// waits ENDED_IDLE_HOURS, not a day — unless it was written to after the end.
+describe("isEligible, for a session that ended", () => {
+  const quietFor = (hours: number) => new Date(NOW.getTime() - hours * HOUR_MS);
+  const MINUTE_MS = 60 * 1000;
+
+  it("is eligible ENDED_IDLE_HOURS after it ended, a day before it otherwise would be", () => {
+    const lastActivityAt = quietFor(ENDED_IDLE_HOURS);
+    const quiet: Session = { ...BASELINE, lastActivityAt };
+
+    expect(isEligible({ ...quiet, endedAt: lastActivityAt }, NOW)).toBe(true);
+    expect(isEligible(quiet, NOW)).toBe(false);
+  });
+
+  it("still waits the hour", () => {
+    const lastActivityAt = new Date(NOW.getTime() - ENDED_IDLE_HOURS * HOUR_MS + 1);
+    expect(isEligible({ ...BASELINE, lastActivityAt, endedAt: lastActivityAt }, NOW)).toBe(false);
+  });
+
+  it("counts a marker written a little before the transcript's last line", () => {
+    const lastActivityAt = quietFor(ENDED_IDLE_HOURS);
+    const slack = ENDED_MARKER_SLACK_MINUTES * MINUTE_MS;
+
+    expect(
+      isEligible({ ...BASELINE, lastActivityAt, endedAt: new Date(lastActivityAt.getTime() - slack) }, NOW),
+    ).toBe(true);
+    expect(
+      isEligible({ ...BASELINE, lastActivityAt, endedAt: new Date(lastActivityAt.getTime() - slack - 1) }, NOW),
+    ).toBe(false);
+  });
+
+  it("ignores the marker once the session was resumed after it", () => {
+    const endedAt = quietFor(ENDED_IDLE_HOURS + 3);
+    expect(isEligible({ ...BASELINE, lastActivityAt: quietFor(ENDED_IDLE_HOURS), endedAt }, NOW)).toBe(false);
+  });
+
+  it("keeps a configured window shorter than the hour", () => {
+    const lastActivityAt = quietFor(0.5);
+    const thresholds = { idleHours: 0.25, maxAgeDays: MAX_AGE_DAYS };
+    expect(isEligible({ ...BASELINE, lastActivityAt, endedAt: lastActivityAt }, NOW, thresholds)).toBe(true);
   });
 });

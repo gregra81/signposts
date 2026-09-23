@@ -33,6 +33,27 @@ export const SQLITE_BINDING = "better-sqlite3";
 /** Load-bearing: sessions are resumable, lower means extracting from unfinished work. */
 export const IDLE_HOURS = 24;
 
+/**
+ * How long a session has to be quiet once Claude Code has said it ended — the
+ * marker the SessionEnd hook leaves (hooks/session-start.ts, `--session-end`).
+ * IDLE_HOURS is a day because a quiet session may still be resumed; one its
+ * developer exited or cleared is much less likely to be, and a resume after
+ * this only grows the transcript, which a run then judges again as a new
+ * content hash (19-value-to-a-user.md, open item 5).
+ */
+export const ENDED_IDLE_HOURS = 1;
+
+/**
+ * How far before the transcript's last write an end marker still counts, in minutes.
+ * Claude Code may finish writing the transcript after the SessionEnd hook has
+ * run, and a marker a few seconds older than the last line is still that
+ * session's end. A resume is a person coming back, minutes at the least.
+ */
+export const ENDED_MARKER_SLACK_MINUTES = 1;
+
+/** Under the state directory: one empty file per ended session, named for it, its mtime the end. */
+export const ENDED_DIRNAME = "ended-sessions";
+
 export const MAX_AGE_DAYS = 90;
 
 export const MAX_TRANSCRIPT_BYTES = 50_000_000;

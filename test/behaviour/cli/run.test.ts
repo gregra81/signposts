@@ -177,6 +177,33 @@ describe("the run loop", () => {
     expect(await listed({ SIGNPOSTS_THRESHOLDS_IDLE_HOURS: "1" })).toContain(`${SESSION_ID}-fresh`);
   }, 30_000);
 
+  // 19-value-to-a-user.md, open item 5: the SessionEnd hook's marker lets a
+  // session in after ENDED_IDLE_HOURS instead of a day.
+  it("lists a session two hours after Claude Code said it ended", async () => {
+    const projectDir = path.join(homeDir, ".claude", "projects", projectDirName(repoRoot));
+    const endedId = `${SESSION_ID}-ended`;
+    const endedPath = path.join(projectDir, `${endedId}.jsonl`);
+    writeFileSync(endedPath, `${transcript()}\n`, "utf8");
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(endedPath, twoHoursAgo, twoHoursAgo);
+
+    const listed = async () => {
+      const stdio = createFakeStdio();
+      await runCli(["sessions"], { config, stdio });
+      return (firstJson(stdio.writtenOutput()) as { sessions: { sessionId: string }[] }).sessions.map(
+        (session) => session.sessionId,
+      );
+    };
+
+    expect(await listed()).not.toContain(endedId);
+
+    mkdirSync(config.paths.endedDir, { recursive: true });
+    writeFileSync(path.join(config.paths.endedDir, endedId), "");
+    utimesSync(path.join(config.paths.endedDir, endedId), twoHoursAgo, twoHoursAgo);
+
+    expect(await listed()).toContain(endedId);
+  }, 30_000);
+
   it("lists the eligible session", async () => {
     const stdio = createFakeStdio();
 
