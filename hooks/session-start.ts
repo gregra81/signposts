@@ -51,6 +51,7 @@ import {
   realpathSync,
   statSync,
   unlinkSync,
+  writeFileSync,
   writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -74,6 +75,10 @@ import { fileURLToPath } from "node:url";
  * 24 hours (19-value-to-a-user.md, open items).
  */
 const IDLE_HOURS = 24;
+/** A session Claude Code said had ended is eligible after this. See ENDED_IDLE_HOURS in 13-constants.md. */
+const ENDED_IDLE_HOURS = 1;
+/** How far before a transcript's last write its end marker still counts. */
+const ENDED_MARKER_SLACK_MINUTES = 1;
 const MAX_AGE_DAYS = 90;
 const REVIEW_EXPIRY_WARN_DAYS = 7;
 /** Past this, Claude gets a pointer to index.md rather than its content. */
@@ -88,12 +93,15 @@ const DB_FILENAME = "signposts.db";
 const STATUSLINE_FILENAME = "status.json";
 const LOCKFILE_FILENAME = "run.lock";
 const INDEX_FILENAME = "index.md";
+const ENDED_DIRNAME = "ended-sessions";
 
 const MS_PER_MINUTE = 60_000;
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 86_400_000;
 
 const IDLE_MS = IDLE_HOURS * MS_PER_HOUR;
+const ENDED_IDLE_MS = ENDED_IDLE_HOURS * MS_PER_HOUR;
+const ENDED_MARKER_SLACK_MS = ENDED_MARKER_SLACK_MINUTES * MS_PER_MINUTE;
 const MAX_AGE_MS = MAX_AGE_DAYS * MS_PER_DAY;
 const LOCK_STALE_MS = LOCK_STALE_MINUTES * MS_PER_MINUTE;
 
@@ -159,6 +167,8 @@ export interface HookPaths {
   dbPath: string;
   statuslineState: string;
   lockfile: string;
+  /** One empty marker per session Claude Code said had ended — see `recordSessionEnd`. */
+  endedDir: string;
   knowledgeDir: string;
   indexFile: string;
   transcriptRoot: string;
@@ -177,6 +187,7 @@ export function derivePaths(repoRoot: string, homeDir: string, claudeConfigDir?:
     dbPath: path.join(stateDir, DB_FILENAME),
     statuslineState: path.join(stateDir, STATUSLINE_FILENAME),
     lockfile: path.join(stateDir, LOCKFILE_FILENAME),
+    endedDir: path.join(stateDir, ENDED_DIRNAME),
     knowledgeDir: path.join(repoRoot, SIGNPOSTS_DIRNAME),
     indexFile: path.join(repoRoot, SIGNPOSTS_DIRNAME, INDEX_FILENAME),
     transcriptRoot: path.join(configRoot, TRANSCRIPT_DIRNAME),
@@ -319,11 +330,17 @@ export function judgedSessions(state: WorkerState): Record<string, number> {
  * stands in for them here.
  */
 export function looksEligible(
-  file: { lastActivityMs: number; startedMs: number },
+  file: { lastActivityMs: number; startedMs: number; endedMs?: number | null },
   nowMs: number,
   watermark: number,
 ): boolean {
-  const idle = nowMs - file.lastActivityMs >= IDLE_MS;
+  // The same rule as src/core/eligibility: an end marker no older than the
+  // last write, give or take the slack, shortens the wait to an hour.
+  const ended =
+    file.endedMs !== undefined &&
+    file.endedMs !== null &&
+    file.endedMs >= file.lastActivityMs - ENDED_MARKER_SLACK_MS;
+  const idle = nowMs - file.lastActivityMs >= (ended ? ENDED_IDLE_MS : IDLE_MS);
   const notTooOld = nowMs - file.startedMs <= MAX_AGE_MS;
   const sinceLastRun = file.lastActivityMs > watermark;
   return idle && notTooOld && sinceLastRun;
@@ -368,10 +385,16 @@ export function countEligibleSessions(
     } catch {
       continue;
     }
-    if (alreadyJudged(judged[entry.slice(0, -TRANSCRIPT_EXTENSION.length)], stats.mtimeMs)) {
+    const sessionId = entry.slice(0, -TRANSCRIPT_EXTENSION.length);
+    if (alreadyJudged(judged[sessionId], stats.mtimeMs)) {
       continue;
     }
-    if (looksEligible({ lastActivityMs: stats.mtimeMs, startedMs: stats.birthtimeMs }, nowMs, watermark)) {
+    const file = {
+      lastActivityMs: stats.mtimeMs,
+      startedMs: stats.birthtimeMs,
+      endedMs: mtimeMs(path.join(paths.endedDir, sessionId)),
+    };
+    if (looksEligible(file, nowMs, watermark)) {
       count += 1;
     }
   }
@@ -781,7 +804,61 @@ function spawnWorker(worker: string, repoRoot: string): number | null {
 // The hook itself.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// SessionEnd: the same bundle, run with SESSION_END_FLAG.
+// ---------------------------------------------------------------------------
+
+/**
+ * `hooks.json` runs this file for SessionEnd as well, with this flag. One
+ * bundle rather than a second file: a second one could not share the paths
+ * above, since the shipped `.js` cannot import a `.ts` sibling from inside
+ * `node_modules`, and a third copy of the state-directory rule is the drift
+ * CLAUDE.md's symlink note is about.
+ */
+export const SESSION_END_FLAG = "--session-end";
+
+/** A session id as Claude Code names transcripts: safe to use as a file name. */
+const SESSION_ID_PATTERN = /^[A-Za-z0-9-]+$/;
+
+/**
+ * Leaves the marker that says this session ended: an empty file named for it
+ * under `endedDir`, whose mtime is the moment it ended (19-value-to-a-user.md,
+ * open item 5). Eligibility reads it — here and in src/core/eligibility — and
+ * waits ENDED_IDLE_HOURS instead of a day, as long as nothing was written to
+ * the transcript after it.
+ *
+ * Nothing for a repo that has not consented (no `.signposts/`), for the reason
+ * `main` gives. Returns whether a marker was written.
+ */
+export function recordSessionEnd(
+  input: { session_id?: unknown; cwd?: unknown },
+  env: NodeJS.ProcessEnv,
+  homeDir: string,
+): boolean {
+  const sessionId = input.session_id;
+  if (typeof sessionId !== "string" || !SESSION_ID_PATTERN.test(sessionId)) {
+    return false;
+  }
+  const startDir = env[PROJECT_DIR_ENV_VAR] ?? (typeof input.cwd === "string" ? input.cwd : process.cwd());
+  const repoRoot = findRepoRoot(startDir);
+  if (repoRoot === null) {
+    return false;
+  }
+  const paths = derivePaths(repoRoot, homeDir, env[CONFIG_DIR_ENV_VAR]);
+  if (!exists(paths.knowledgeDir)) {
+    return false;
+  }
+  mkdirSync(paths.endedDir, { recursive: true });
+  writeFileSync(path.join(paths.endedDir, sessionId), "");
+  return true;
+}
+
 function main(): void {
+  if (process.argv.includes(SESSION_END_FLAG)) {
+    recordSessionEnd(JSON.parse(readFileSync(0, "utf8")) as Record<string, unknown>, process.env, homedir());
+    return;
+  }
+
   const startDir = process.env[PROJECT_DIR_ENV_VAR] ?? process.cwd();
   const repoRoot = findRepoRoot(startDir);
   if (repoRoot === null) {

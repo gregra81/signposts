@@ -8,7 +8,7 @@
 // between them.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -175,6 +175,33 @@ describe("the run loop", () => {
 
     expect(await listed({})).not.toContain(`${SESSION_ID}-fresh`);
     expect(await listed({ SIGNPOSTS_THRESHOLDS_IDLE_HOURS: "1" })).toContain(`${SESSION_ID}-fresh`);
+  }, 30_000);
+
+  // 19-value-to-a-user.md, open item 5: the SessionEnd hook's marker lets a
+  // session in after ENDED_IDLE_HOURS instead of a day.
+  it("lists a session two hours after Claude Code said it ended", async () => {
+    const projectDir = path.join(homeDir, ".claude", "projects", projectDirName(repoRoot));
+    const endedId = `${SESSION_ID}-ended`;
+    const endedPath = path.join(projectDir, `${endedId}.jsonl`);
+    writeFileSync(endedPath, `${transcript()}\n`, "utf8");
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(endedPath, twoHoursAgo, twoHoursAgo);
+
+    const listed = async () => {
+      const stdio = createFakeStdio();
+      await runCli(["sessions"], { config, stdio });
+      return (firstJson(stdio.writtenOutput()) as { sessions: { sessionId: string }[] }).sessions.map(
+        (session) => session.sessionId,
+      );
+    };
+
+    expect(await listed()).not.toContain(endedId);
+
+    mkdirSync(config.paths.endedDir, { recursive: true });
+    writeFileSync(path.join(config.paths.endedDir, endedId), "");
+    utimesSync(path.join(config.paths.endedDir, endedId), twoHoursAgo, twoHoursAgo);
+
+    expect(await listed()).toContain(endedId);
   }, 30_000);
 
   it("lists the eligible session", async () => {
@@ -348,6 +375,78 @@ describe("the run loop", () => {
     expect(output.pending[0]?.request.node).toBe("extract");
     expect(output.reExtracted).toBe(1);
   }, 30_000);
+
+  // 19-value-to-a-user.md, open item 2: driving the loop by hand meant copying
+  // `--content-hash` out of every halt. The halted thread carries it.
+  describe("resume without the thread named in full", () => {
+    /** Starts the run and writes an answer to its first halt, `extract`. */
+    async function haltOnExtract(): Promise<{ contentHash: string }> {
+      const started = createFakeStdio();
+      await runCli(["run", "--first"], { config, stdio: started });
+      const first = firstJson(started.writtenOutput()) as { contentHash: string; pending: { id: string }[] };
+      writeFileSync(
+        repliesPath,
+        JSON.stringify({
+          replies: {
+            [first.pending[0]!.id]: {
+              candidates: [
+                {
+                  tempId: "t1",
+                  claim: "Staging is read only outside the ETL window",
+                  category: "environment",
+                  scope: { repo: "acme/api" },
+                  evidence: "A migration against staging was refused.",
+                  confidence: 0.9,
+                  hedged: false,
+                },
+              ],
+            },
+          },
+        }),
+        "utf8",
+      );
+      return { contentHash: first.contentHash };
+    }
+
+    it("finds the only halted thread when neither --session nor --content-hash is given", async () => {
+      await haltOnExtract();
+
+      const stdio = createFakeStdio();
+      const exitCode = await runCli(["resume", "--replies", repliesPath], { config, stdio });
+
+      expect(exitCode, stdio.writtenError()).toBe(0);
+      const output = firstJson(stdio.writtenOutput()) as { sessionId: string; pending: { request: { node: string } }[] };
+      expect(output.sessionId).toBe(SESSION_ID);
+      expect(output.pending[0]?.request.node).toBe("critic");
+    }, 30_000);
+
+    it("resumes the thread the halt reported, not the transcript as it is now", async () => {
+      const { contentHash } = await haltOnExtract();
+      // The developer carried on in that Claude Code session after the halt,
+      // so the transcript hashes to a different thread now.
+      const transcriptPath = path.join(homeDir, ".claude", "projects", projectDirName(repoRoot), `${SESSION_ID}.jsonl`);
+      appendFileSync(transcriptPath, `${JSON.stringify({ type: "summary", summary: "later" })}\n`, "utf8");
+
+      const stdio = createFakeStdio();
+      const exitCode = await runCli(["resume", "--session", SESSION_ID, "--replies", repliesPath], { config, stdio });
+
+      expect(exitCode, stdio.writtenError()).toBe(0);
+      const output = firstJson(stdio.writtenOutput()) as { contentHash: string; pending: { request: { node: string } }[] };
+      expect(output.contentHash).toBe(contentHash);
+      expect(output.pending[0]?.request.node).toBe("critic");
+    }, 30_000);
+
+    it("says so when nothing is halted, rather than starting anything", async () => {
+      writeFileSync(repliesPath, JSON.stringify({ replies: {} }), "utf8");
+
+      const stdio = createFakeStdio();
+      const exitCode = await runCli(["resume", "--replies", repliesPath], { config, stdio });
+
+      expect(exitCode).toBe(1);
+      expect(stdio.writtenError()).toContain("nothing is halted in this repo");
+      expect(stdio.writtenOutput()).toBe("");
+    }, 30_000);
+  });
 
   it("refuses an answer of the wrong shape rather than carrying it into the graph", async () => {
     const started = createFakeStdio();

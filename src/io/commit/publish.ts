@@ -201,3 +201,14 @@ async function openOrUpdatePr(input: PrInput): Promise<PublishOutcome> {
 
   return { branch, sessions, pr: open, url, reason: null, manualCommand: null };
 }
+
+/**
+ * How many sessions are committed on the worktree's branch and not pushed —
+ * one commit per session. Zero when there is no worktree. What `settle` and
+ * `publish` write into the status file for the status line
+ * (19-value-to-a-user.md, open item 14).
+ */
+export function countUnpublished(repoRoot: string, worktreeDir: string): number {
+  const branch = worktreeBranch(worktreeDir);
+  return branch === null ? 0 : unpushedMessages(repoRoot, worktreeDir, branch).length;
+}

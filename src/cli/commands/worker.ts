@@ -79,7 +79,13 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
 
   writeStatus(
     config.paths.statuslineState,
-    runningStatus(input.now(), previous?.lastRunFinishedAt, previous?.runProgress, previous?.judgedSessions),
+    runningStatus(
+      input.now(),
+      previous?.lastRunFinishedAt,
+      previous?.runProgress,
+      previous?.judgedSessions,
+      previous?.unpublishedSessions,
+    ),
   );
 
   let indexedAt: Date | undefined;
@@ -130,6 +136,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
         lastRunFinishedAt: current?.lastRunFinishedAt,
         runProgress: current?.runProgress,
         judgedSessions: current?.judgedSessions,
+        unpublishedSessions: current?.unpublishedSessions,
       }),
     );
     lock.release();

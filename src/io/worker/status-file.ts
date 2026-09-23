@@ -12,6 +12,7 @@ import { JSON_INDENT } from "../../core/config/constants.ts";
 import {
   runFinishedStatus,
   runProgressStatus,
+  unpublishedStatus,
   type WorkerStatus,
 } from "../../core/worker/status.ts";
 
@@ -45,6 +46,11 @@ export function readStatus(statusPath: string): WorkerStatus | undefined {
  */
 export function recordRunFinished(statusPath: string, finishedThrough: Date): void {
   writeStatus(statusPath, runFinishedStatus(readStatus(statusPath), finishedThrough));
+}
+
+/** Sets how many sessions sit committed and unpushed, the same read-modify-write as above. */
+export function recordUnpublished(statusPath: string, sessions: number, now: Date): void {
+  writeStatus(statusPath, unpublishedStatus(readStatus(statusPath), sessions, now));
 }
 
 /**

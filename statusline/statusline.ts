@@ -159,6 +159,8 @@ export interface WorkerStatus {
   reviewExpiresAt?: string;
   lastError?: string;
   runProgress?: RunProgress;
+  /** Sessions committed to the signposts branch and not pushed — written by `settle` and `publish`. */
+  unpublishedSessions?: number;
 }
 
 export function readStatus(statusPath: string): WorkerStatus {
@@ -229,9 +231,10 @@ function expiryClause(status: WorkerStatus, nowMs: number): string {
  *
  * The order is by immediacy, and only one of these renders: a bar is one row
  * shared with whatever else the developer put there, so this earns at most a
- * clause of it. A parked review outranks a run in flight, which outranks the
- * worker reindexing, which outranks a failure nobody has been told about yet,
- * which outranks the backlog.
+ * clause of it. A parked review outranks a run in flight, which outranks
+ * commits waiting to be published, which outrank the worker reindexing, which
+ * outranks a failure nobody has been told about yet, which outranks the
+ * backlog.
  *
  * The backlog row reverses an earlier decision, recorded here and in 07: the
  * bar said nothing when idle, because the hook already names the backlog once
@@ -262,6 +265,17 @@ export function statusLine(status: WorkerStatus, nowMs: number): string {
     // change for, and a change is not always a new signpost — a retire removes
     // one and a reinforce adds provenance to one that was already there.
     return `${PREFIX}${done}/${total} sessions · ${String(found)} found`;
+  }
+
+  // Below the run in flight, because a run commits as it goes and the count is
+  // expected to climb until it ends. Above everything else, because it is the
+  // other row that waits on the developer: a run pushes nothing, and after a
+  // "not now" this is the only place that remembers (19-value-to-a-user.md,
+  // open item 14). Not aged out: git said it, and it stays true until a run or
+  // `publish` asks git again.
+  const unpublished = whole(status.unpublishedSessions);
+  if (unpublished > 0) {
+    return `${PREFIX}${plural(unpublished, "session")} not published — run \`signpost publish\``;
   }
 
   // The worker only ever reindexes (it cannot answer a model call), so this is

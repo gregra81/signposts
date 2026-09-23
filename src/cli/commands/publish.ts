@@ -10,6 +10,8 @@ import { JSON_INDENT } from "../../core/config/constants.ts";
 import type { PublishOutput } from "../protocol.ts";
 import type { Publish } from "../run-port.ts";
 import { fail } from "../with-run.ts";
+import { countUnpublished } from "../../io/commit/publish.ts";
+import { recordUnpublished } from "../../io/worker/status-file.ts";
 
 export interface RunPublishInput {
   config: ResolvedConfig;
@@ -30,6 +32,15 @@ export async function runPublish(input: RunPublishInput): Promise<ExitCode> {
   } catch (error) {
     return fail(input.stderr, error instanceof Error ? error.message : String(error));
   }
+
+  // Recounted rather than zeroed: a push that failed left every commit where it
+  // was, and the status line must keep saying so (19-value-to-a-user.md, open
+  // item 14).
+  recordUnpublished(
+    input.config.paths.statuslineState,
+    countUnpublished(input.repoRoot, input.config.paths.worktreeDir),
+    new Date(),
+  );
 
   const output: PublishOutput =
     outcome === null ? { status: "nothing", publish: null } : { status: "published", publish: outcome };

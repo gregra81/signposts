@@ -1,0 +1,40 @@
+# publish-reversal
+#
+# A reversal the resolver can settle, which is the one case nothing covered:
+# every contradiction recorded before this came back `undecidable`, because the
+# resolver's prompt says to read the repository and the recorder gave it no
+# tools (signposts 19-value-to-a-user.md, open item 8). The recorder now gives
+# `resolve` read-only tools in the signposts checkout, and the premise is true
+# of that checkout: a run used to push and open the PR on its own, and since
+# PR #64 it stops at a local commit and `signpost publish` pushes. So the new
+# claim wins because the code says so, not because the transcript is louder.
+#
+# Step 2 is routine work in between. It keeps the negative floor, and it is the
+# honest shape of a repo's history: most sessions teach nothing.
+repo: gregra81/signposts
+
+steps:
+  - transcript: 01-establish.jsonl
+    intent: "the old rule, stated with its reason: a run opens the PR itself, on purpose"
+    expect_operations: [add]
+    expect_mirror_size: 1
+    expect_claims:
+      - "When a run finishes, signposts pushes the branch and opens the pull request on its own, with no confirmation step, because the PR is the review."
+
+  - transcript: 02-routine.jsonl
+    intent: "a test run and a patch bump; nothing durable"
+    expect_operations: []
+    expect_mirror_size: 1
+
+  - transcript: 03-reverse.jsonl
+    intent: "the rule is reversed, with the reason; the code agrees with the new claim"
+    # The step this scenario exists for: CONTRADICTION, the resolver reads
+    # src/io/commit/commit-port.ts and answers `new_wins`, and the operation is
+    # a `supersede`, which keeps the old claim as superseded beside the new one.
+    expect_operations: [supersede]
+    expect_mirror_size: 2
+    # The gist is the human's own two sentences, not the reply's wording. A
+    # first draft bundled the publish step and the developer's yes into it and
+    # scored 0.747 against a claim that carries only this part.
+    expect_claims:
+      - "A run now stops at a local commit in the worktree and pushes nothing, and it must never publish on its own."

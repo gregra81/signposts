@@ -212,6 +212,28 @@ describe("the three wake conditions", () => {
     expect(await workerLines(f, 1)).toHaveLength(1);
   });
 
+  // 19-value-to-a-user.md, open item 5: a session Claude Code said had ended
+  // is announced after ENDED_IDLE_HOURS, through the same bundle's SessionEnd run.
+  it("announces a session two hours after it ended, rather than a day", async () => {
+    const f = withTranscript(withCurrentIndex(fixture()), "ended-2h", 2);
+    expect(JSON.parse(runHook(f).stdout || "null")).toBe(null);
+
+    const ended = spawnSync(process.execPath, [HOOK, "--session-end"], {
+      encoding: "utf8",
+      input: JSON.stringify({ session_id: "ended-2h", cwd: f.repoRoot, hook_event_name: "SessionEnd", reason: "other" }),
+      env: { ...process.env, HOME: f.home, CLAUDE_PROJECT_DIR: f.repoRoot, CLAUDE_CONFIG_DIR: f.configDir },
+    });
+    expect(ended.status).toBe(0);
+    expect(ended.stdout).toBe("");
+    // The end is when the hook ran, which is after the transcript's last write.
+    const marker = path.join(f.stateDir, "ended-sessions", "ended-2h");
+    expect(existsSync(marker)).toBe(true);
+
+    const started = runHook(f);
+    expect(JSON.parse(started.stdout).systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
+    expect(await workerLines(f, 1)).toHaveLength(1);
+  });
+
   it("wakes on a resumable thread the worker recorded", async () => {
     const f = withCurrentIndex(fixture());
     writeWorkerState(f, { threadsWaiting: 2 });
