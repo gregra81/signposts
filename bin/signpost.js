@@ -9,19 +9,23 @@
 // 18-end-to-end-gaps.md item 9 for what an installed copy did before it
 // existed: nothing, quietly.
 //
-// `dist/` first for the reason above, not because `src/` is absent — the
-// tarball ships both, because a consumer running through `tsx` imports `src/`
-// directly (CLAUDE.md, "Language and imports"). In a checkout that has built,
-// both are here and either would work; the built one skips type stripping.
+// The tarball ships both trees, because a consumer running through `tsx`
+// imports `src/` directly (CLAUDE.md, "Language and imports"), so both are
+// present in the one place it matters: a checkout. `./entry.js` decides, and
+// its comment says why the answer there is `src/` rather than whichever
+// exists — a stale `dist/` from a single `pnpm test:install` used to run in
+// place of the developer's edits, silently.
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { chooseTree } from "./entry.js";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const built = path.join(root, "dist", "io", "production-app.js");
 const source = path.join(root, "src", "io", "production-app.ts");
 
-const entry = [built, source].find((candidate) => existsSync(candidate));
+const tree = chooseTree(root, { hasDist: existsSync(built), hasSrc: existsSync(source) });
+const entry = tree === "dist" ? built : tree === "src" ? source : undefined;
 if (entry === undefined) {
   process.stderr.write(
     `signposts: neither ${path.relative(root, built)} nor ${path.relative(root, source)} is here. ` +

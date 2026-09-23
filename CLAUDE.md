@@ -76,8 +76,10 @@ It is also why distribution has a build step even though development does not. `
 setting is `rewriteRelativeImportExtensions`: those `.ts` extensions are what make the checkout
 runnable without a build, and they name files that do not exist in `dist/`. `tsc` rewrites them,
 so there is no hand-written build script — an earlier version of this used
-`stripTypeScriptTypes` and a regex over the specifiers, which was a worse `tsc`. `bin/signpost.js`
-prefers `dist/` and falls back to `src/`, so one wrapper serves both layouts.
+`stripTypeScriptTypes` and a regex over the specifiers, which was a worse `tsc`. `bin/signpost.js` runs `src/` unless it is
+under `node_modules`, where Node will not strip types and only `dist/` can run — the rule is in
+`bin/entry.js`. It used to prefer `dist/` whenever it existed, which froze every checkout that had
+ever packed at the moment it packed.
 
 The tarball ships **both** trees. `dist/` is what an installed copy runs; `src/` stays because a
 consumer running through `tsx` imports it directly. Dropping `src/` from `files` once broke such a
