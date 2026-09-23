@@ -159,7 +159,9 @@ signpost publish                                   # push the branch, open or up
 ```
 
 `--first` clears what the previous run left pending, so it belongs on the first session of a run
-and nowhere else. The skill runs the loop in a subagent (a session's prompts are thousands of
+and nowhere else. `resume` can leave out `--content-hash`, and `--session` too when only one thread
+is halted: it reads the hash off the halted thread in the checkpoint database, never off the
+transcript, which may have grown since the halt. The skill still passes both. The skill runs the loop in a subagent (a session's prompts are thousands of
 tokens) and brings a `human_review` halt back to the main session, because only the developer can
 answer it.
 

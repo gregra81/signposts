@@ -20,6 +20,8 @@ import type { ExitCode } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { JSON_INDENT } from "../../core/config/constants.ts";
 import { parseReplies } from "../../core/cli/replies.ts";
+import { chooseResumeTarget } from "../../core/cli/resume-target.ts";
+import { listHaltedSessions } from "../../io/review/pending.ts";
 import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import { OPERATION_TAGS } from "../../core/contracts/graph.ts";
 import { UnusableTranscriptError } from "../../core/errors/unusable-transcript.ts";
@@ -221,12 +223,9 @@ export function runResume(input: RunCommandInput): Promise<ExitCode> {
   const trace = tracer(input);
   return withRun(input, async (handle) => {
     trace(() => contextLines({ repo: handle.repo, stateDir: input.config.paths.stateDir }));
-    const session = resuming(input, handle) ?? pick(input, handle);
-    if (session === undefined) {
-      return fail(
-        input.stderr,
-        "no session to resume — pass --session <id> --content-hash <hash>, as the halt reported them",
-      );
+    const session = await resuming(input, handle);
+    if ("error" in session) {
+      return fail(input.stderr, session.error);
     }
     const repliesPath = input.repliesPath;
     if (repliesPath === undefined) {
@@ -259,12 +258,32 @@ function pick(input: RunCommandInput, handle: RunHandle): RunSession | undefined
  * The session a resume is about, from what the caller was told rather than
  * from the file — `namedSession` in ../with-run.ts explains why both halves of
  * the thread id have to be handed back rather than re-derived.
+ *
+ * Handed back in full is what the skill does. A person driving the loop by
+ * hand can leave either half out, and the halted thread supplies it: it carries
+ * the hash its halt reported (19-value-to-a-user.md, open item 2).
  */
-function resuming(input: RunCommandInput, handle: RunHandle): SettledSession | undefined {
-  if (input.sessionId === undefined || input.contentHash === undefined) {
-    return undefined;
+async function resuming(
+  input: RunCommandInput,
+  handle: RunHandle,
+): Promise<SettledSession | { error: string }> {
+  const now = new Date();
+  if (input.sessionId !== undefined && input.contentHash !== undefined) {
+    return namedSession(handle, input.sessionId, input.contentHash, now);
   }
-  return namedSession(handle, input.sessionId, input.contentHash, new Date());
+  const halted = await listHaltedSessions({
+    graph: handle.graph,
+    checkpointer: handle.checkpointer,
+    repo: handle.repo,
+    now,
+  });
+  const target = chooseResumeTarget(halted, {
+    ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+    ...(input.contentHash === undefined ? {} : { contentHash: input.contentHash }),
+  });
+  return "error" in target
+    ? target
+    : namedSession(handle, target.session.sessionId, target.session.contentHash, now);
 }
 
 /** Prints what happened, and settles what the run left behind (../with-run.ts). */
