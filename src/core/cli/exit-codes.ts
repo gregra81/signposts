@@ -19,10 +19,10 @@ export const EXIT_CODES = {
   /** Unexpected error — the only code that means something went wrong. */
   failure: 1,
   /**
-   * The session's work is committed to the local branch and no pull request
-   * carries it: the push failed, or it landed and `gh` did not (no binary, no
-   * token, a forge that could not be reached). The command that finishes the
-   * job by hand is on stderr.
+   * `signpost publish` could not finish: the work is committed to the local
+   * branch and no pull request carries it, because the push failed, or it
+   * landed and `gh` did not (no binary, no token, a forge that could not be
+   * reached). The command that finishes the job by hand is on stderr.
    */
   prCreationFailed: 4,
   /** Halted on `human_review`. Not a failure — see the module comment. */

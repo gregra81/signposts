@@ -32,9 +32,10 @@ import { runIndex } from "./cli/commands/index.ts";
 import { runDoctor } from "./cli/commands/doctor.ts";
 import { runExtraction, runResume, runSessionsList } from "./cli/commands/run.ts";
 import { runReview } from "./cli/commands/review.ts";
+import { runPublish } from "./cli/commands/publish.ts";
 import { runWorker } from "./cli/commands/worker.ts";
 import { runMcp } from "./cli/commands/mcp.ts";
-import type { OpenRun } from "./cli/run-port.ts";
+import type { OpenRun, Publish } from "./cli/run-port.ts";
 
 export type { ExitCode };
 
@@ -56,6 +57,12 @@ export interface CreateAppInput {
   config: ResolvedConfig;
   /** Opens what a run command needs, for one invocation — see src/cli/run-port.ts. */
   openRun: OpenRun;
+  /**
+   * Pushes the signposts branch and opens its pull request — see
+   * src/io/commit/publish.ts. Optional so a test of anything else need not
+   * build a forge; without it `publish` says it is unavailable.
+   */
+  publish?: Publish;
   /** Defaults to the real process streams — see module comment. */
   stdio?: Stdio;
   /**
@@ -79,7 +86,7 @@ export interface App {
 // would invite someone to run the background process by hand expecting it to
 // distil their sessions, which it cannot do (see cli/commands/worker.ts).
 // `mcp` typed at a terminal is a server talking JSON-RPC to a keyboard.
-const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|review> [--verbose]\n";
+const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|review|publish> [--verbose]\n";
 
 // What `--help` prints. The one-line USAGE above named no flag at all, so the
 // only way to learn `--content-hash` was to read the skill or the source
@@ -97,6 +104,7 @@ const HELP = `${USAGE}
                --content-hash <hash> the contentHash the halt reported
                --replies <path|->    answers keyed by pending id; - reads stdin
   review     answer pending reviews yourself, at a terminal
+  publish    push what the runs committed and open or update the pull request (JSON)
 
   --verbose  narrate sessions, run and resume on stderr; stdout stays one JSON object
   --help     this text
@@ -112,7 +120,7 @@ function defaultStdio(): Stdio {
   };
 }
 
-export function createApp({ config, openRun, stdio, version, prefetchModel }: CreateAppInput): App {
+export function createApp({ config, openRun, publish, stdio, version, prefetchModel }: CreateAppInput): App {
   const io = stdio ?? defaultStdio();
   const repoRoot = config.paths.repoRoot;
 
@@ -183,6 +191,12 @@ export function createApp({ config, openRun, stdio, version, prefetchModel }: Cr
           });
         case "mcp":
           return runMcp({ config, repoRoot, stderr: io.error, stdin: io.input });
+        case "publish":
+          if (publish === undefined) {
+            io.error.write("signposts: publish is not available in this build\n");
+            return EXIT_CODES.failure;
+          }
+          return runPublish({ config, repoRoot, publish, stdout: io.output, stderr: io.error });
         case "review":
           return runReview({
             config,

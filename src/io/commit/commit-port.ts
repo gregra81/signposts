@@ -1,16 +1,19 @@
-// Node 10's port: write the markdown, regenerate the index, commit, push,
-// open or update the pull request.
+// Node 10's port: write the markdown, regenerate the index, commit. It stops
+// there.
 //
 // Everything happens in the worktree (src/io/git/worktree.ts), never in the
 // developer's checkout. The corpus this applies to is therefore the branch's,
 // not the working tree's: successive sessions accumulate on one branch, and a
 // proposal is invisible in the developer's editor until the PR merges.
 //
-// The order is deliberate. Files, then commit, then push, then the PR — each
-// step is worth keeping even if the next one fails. A pushed branch with no
-// PR is one `gh pr create` away from being reviewed; a lost extraction is
-// gone. So a forge failure returns the command to run by hand
-// (06-review-and-pr.md: "never fail the run over PR creation").
+// It does not push and does not touch the pull request. It used to do both,
+// and the first thing a developer saw after a successful run was a PR on their
+// repository with nobody in the loop — correct by the gate, and still a
+// surprise (19-value-to-a-user.md, open item 1). The run ends with the work
+// committed locally; the developer is shown what was proposed and
+// `signpost publish` (./publish.ts) pushes it and opens or updates the PR.
+// Each commit carries its session's PR section, which is how `publish` knows
+// what to say once the operations are long gone.
 //
 // The local embedding index is deliberately not rebuilt here. What this
 // writes is *proposed*, and proposals reach retrieval through the pending
@@ -25,14 +28,13 @@ import type { CommitInput, CommitOutcome, CommitPort } from "../../graph/ports.t
 import { describeError } from "../../core/errors/format-zod-error.ts";
 import { INDEX_FILENAME, SIGNPOSTS_DIRNAME } from "../../core/config/constants.ts";
 import { branchPrefix, pickBranch } from "../../core/git/branch.ts";
-import { commitMessage, prBody, prLabels, prSection, PR_TITLE } from "../../core/pr/body.ts";
-import { manualPrCommand, manualPushCommand } from "../../core/pr/manual-command.ts";
+import { sessionCommitMessage } from "../../core/pr/body.ts";
 import { applyOperations, signpostPath } from "../../core/signpost/apply-operations.ts";
 import { parseSignpost, serialiseSignpost } from "../../core/signpost/codec.ts";
 import { generateIndexDoc } from "../../core/signpost/index-doc.ts";
 import type { Signpost } from "../../core/signpost/schema.ts";
 import { readSignpostFiles } from "../signpost/read-dir.ts";
-import { commitAll, ensureWorktree, push } from "../git/worktree.ts";
+import { commitAll, ensureWorktree, unpushedMessages, worktreeBranch } from "../git/worktree.ts";
 
 export interface CommitPortInput {
   repoRoot: string;
@@ -42,25 +44,22 @@ export interface CommitPortInput {
   branchPattern: string;
   /** REAL `git config user.email`, resolved once at the composition root. */
   author: string;
+  /** Asked which branch is under review. Nothing is opened or updated on it here. */
   forge: Forge;
   /** Where a step that could not finish says so. */
   warn: (message: string) => void;
   /**
-   * Called once per session that committed anything, with where the work went:
-   * the branch, the pull request, the reason there is none, and the command
-   * that would finish it by hand.
-   *
-   * One callback, not two. `manualCommand` is what the CLI turns into
-   * EXIT_CODES.prCreationFailed — a caller that treats non-zero as fatal has to
-   * tell that from a real failure (12-wire-contracts.md, "Exit codes") — and
-   * the same record is what stdout prints, because stdout said nothing at all
-   * about the branch or the pull request before (18-end-to-end-gaps.md, item
-   * 5). Two callbacks meant two records of one event.
+   * Called once per session that committed anything, with the branch it went
+   * to and the pull request `publish` will add it to. The run command prints
+   * it as RunOutput's `commit`.
    */
   committed: (outcome: CommitOutcome) => void;
   /** ISO date, from the injected clock — `reinforce` records it. */
   today: () => string;
 }
+
+/** The index is rewritten from the whole corpus on every commit — see `ensureWorktree`. */
+export const REGENERATED_PATHS: readonly string[] = [path.join(SIGNPOSTS_DIRNAME, INDEX_FILENAME)];
 
 export function makeCommitPort(input: CommitPortInput): CommitPort {
   return {
@@ -73,7 +72,7 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
       }
 
       // Per session, not once when the port is built: a run processes several
-      // sessions, and the first of them can be what opens the pull request the
+      // sessions, and the first of them can be what starts the branch the
       // second should commit onto.
       const cycle = await chooseBranch(input);
       const branch = cycle.branch;
@@ -85,7 +84,7 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
         // `writeCorpus` rewrites the index from the whole corpus every time,
         // so two commits both "changing" it is an artefact of that rather
         // than a disagreement, and it is rewritten again a few lines below.
-        regenerated: [path.join(SIGNPOSTS_DIRNAME, INDEX_FILENAME)],
+        regenerated: REGENERATED_PATHS,
       });
       if (!worktree.ok) {
         throw new Error(`signposts: could not prepare the worktree for ${branch}: ${worktree.output}`);
@@ -100,7 +99,7 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
 
       // Reported, not thrown: an operation that could not be applied is one
       // proposal, and losing the whole session over it costs every model call
-      // the developer answered by hand. The branch and the PR carry the rest.
+      // the developer answered by hand. The branch carries the rest.
       for (const skip of applied.skipped) {
         input.warn(
           `signposts: skipped ${skip.op} ${skip.id} on ${branch} — ${skip.reason}. ` +
@@ -112,41 +111,13 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
       const committed = commitAll({
         worktreeDir: input.worktreeDir,
         paths: written,
-        message: commitMessage(operations.sessionId, operations.operations),
+        message: sessionCommitMessage(operations.sessionId, operations.operations),
       });
       if (!committed.ok) {
         throw new Error(`signposts: could not commit to ${branch}: ${committed.output}`);
       }
 
-      const pushed = push(input.worktreeDir, branch);
-      if (!pushed.ok) {
-        // The same state as a `gh` that could not open the pull request, and
-        // worse: the commit is on the local branch and nothing carries it.
-        // So it reports the same thing (12-wire-contracts.md, "Exit codes").
-        // Saying nothing here exited 0 for the outcome where the work never
-        // left the machine, while the milder failure below exited 4.
-        const command =
-          cycle.openPr === null
-            ? `${manualPushCommand(branch)} && ${createPrCommand(branch, operations)}`
-            : // The branch already has a pull request; pushing puts the
-              // commit on it. Sending anyone to `gh pr create` for a branch
-              // that has one is an error, or a second PR on a fork.
-              manualPushCommand(branch);
-        input.warn(
-          `signposts: wrote ${String(written.length)} file(s) to ${branch} but could not push ` +
-            `(${pushed.output}). Run:\n${command}`,
-        );
-        input.committed({
-          branch,
-          pr: cycle.openPr,
-          url: null,
-          reason: `could not push: ${pushed.output}`,
-          manualCommand: command,
-        });
-        return;
-      }
-
-      await openOrUpdatePr(input, cycle, operations);
+      input.committed({ branch, pr: cycle.openPr });
     },
   };
 }
@@ -159,13 +130,13 @@ interface Cycle {
 }
 
 /**
- * Which cycle this session belongs to: the branch under review, or a new one.
+ * Which cycle this session belongs to: the branch under review, the one the
+ * developer has not published yet, or a new one.
  *
  * A forge that cannot be reached is not fatal here either. With no listing
  * there is nothing to say a branch is under review, so today's name is minted
- * — which is the branch an earlier session today already pushed to, and a new
- * one otherwise. The pull request is the part that is lost, and the push
- * warning already tells the developer how to open it by hand.
+ * — which is the branch an earlier session today already committed to, and a
+ * new one otherwise. `publish` asks the forge again when it pushes.
  */
 async function chooseBranch(input: CommitPortInput): Promise<Cycle> {
   const prefix = branchPrefix(input.branchPattern, input.author);
@@ -178,11 +149,17 @@ async function chooseBranch(input: CommitPortInput): Promise<Cycle> {
     input.warn(`signposts: could not ask the forge which ${prefix}* branches are under review (${reason}).`);
   }
 
+  const current = worktreeBranch(input.worktreeDir);
+  const unpublished =
+    current !== null && unpushedMessages(input.repoRoot, input.worktreeDir, current).length > 0
+      ? current
+      : null;
   const branch = pickBranch({
     pattern: input.branchPattern,
     email: input.author,
     date: input.today(),
     known,
+    unpublished,
   });
 
   return {
@@ -231,92 +208,4 @@ function writeCorpus(
   written.push(indexRelative);
 
   return written;
-}
-
-/**
- * The `gh pr create` a developer runs for a branch that has no pull request.
- *
- * The body this run would have posted goes into it, not a summary of it: a
- * pull request opened by hand is the same pull request, and re-typing the
- * proposal table is not something a developer will do.
- */
-function createPrCommand(branch: string, operations: CommitInput): string {
-  return manualPrCommand({
-    branch,
-    title: PR_TITLE,
-    body: prBody("", prSection(operations.sessionId, operations.operations)),
-  });
-}
-
-/**
- * One open PR per developer: commit onto the existing one and update its
- * body, or open the first.
- *
- * A forge that cannot be reached is reported, not thrown. The branch is
- * pushed by this point, so the work is safe and one command away from review.
- * What that command is depends on how far this got: telling someone to open a
- * pull request that is already open sends them to `gh pr create` for a branch
- * that has one, which errors — or, on a fork, opens a second.
- */
-async function openOrUpdatePr(
-  input: CommitPortInput,
-  cycle: Cycle,
-  operations: CommitInput,
-): Promise<void> {
-  const branch = cycle.branch;
-  const section = prSection(operations.sessionId, operations.operations);
-  // The pull request this branch has, as far as we have got. Assigned from
-  // `openPr` as well as from the listing, because the number is what the
-  // failure path needs and a PR opened a line ago is no less open than one
-  // found: a `setLabels` that throws right after a successful `openPr` used to
-  // leave this null and send the developer to `gh pr create` for the pull
-  // request that call had just created.
-  let open: number | null = cycle.openPr;
-  // Only when this invocation opened it: `gh pr create` prints the URL, and a
-  // pull request found by listing gives a number and nothing else.
-  let url: string | null = null;
-
-  try {
-    if (open === null) {
-      const created = await input.forge.openPr({ branch, title: PR_TITLE, body: prBody("", section) });
-      open = created.number;
-      url = created.url;
-    } else {
-      await input.forge.updatePr(open, prBody(await input.forge.readPrBody(open), section));
-    }
-
-    await input.forge.setLabels(open, prLabels(operations.operations));
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    if (open === null) {
-      const command = createPrCommand(branch, operations);
-      input.warn(
-        `signposts: pushed ${branch}, but could not open its pull request (${reason}). Run:\n${command}`,
-      );
-      input.committed({
-        branch,
-        pr: null,
-        url: null,
-        reason: `could not open a pull request: ${reason}`,
-        manualCommand: command,
-      });
-      return;
-    }
-    input.warn(
-      `signposts: pushed ${branch} and its commit is on pull request #${String(open)}, ` +
-        `but that pull request could not be updated (${reason}). ` +
-        `The body and labels are stale; the commit is not.`,
-    );
-    input.committed({
-      branch,
-      pr: open,
-      url,
-      reason: `the pull request body and labels are stale: ${reason}`,
-      // The commit is on the pull request; nothing is left to run by hand.
-      manualCommand: null,
-    });
-    return;
-  }
-
-  input.committed({ branch, pr: open, url, reason: null, manualCommand: null });
 }

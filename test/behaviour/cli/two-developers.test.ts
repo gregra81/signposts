@@ -47,8 +47,9 @@ import { parseSignpost } from "../../../src/core/signpost/codec.js";
 import { projectDirName } from "../../../src/core/transcript/project-dir.js";
 import { FakeForge } from "../../../src/io/forge/fake-forge.js";
 import { makeOpenRun } from "../../../src/io/open-run.js";
+import { makePublish } from "../../../src/io/commit/publish.js";
 import { isModelRequest, REVIEW_REQUEST_KIND, type PendingRequest } from "../../../src/graph/index.js";
-import type { OpenRun } from "../../../src/cli/run-port.js";
+import type { OpenRun, Publish } from "../../../src/cli/run-port.js";
 import { giveConsent, markPastBootstrap } from "../helpers/consent.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { runCli } from "../helpers/run-cli.js";
@@ -75,6 +76,12 @@ interface RunOutput {
   pending: PendingRequest[];
   proposed: string[];
   commit: { branch: string; pr: number | null } | null;
+}
+
+/** What `signpost publish` prints, as far as these tests read it. */
+interface PublishOutput {
+  status: "published" | "nothing";
+  publish: { branch: string; pr: number | null } | null;
 }
 
 /** One machine: a checkout, a home directory, and the state derived from both. */
@@ -150,6 +157,7 @@ describe("two developers, one remote", () => {
   /** The one GitHub both machines push to. */
   let forge: FakeForge;
   let openRun: OpenRun;
+  let publish: Publish;
   let dana: Machine;
   let sam: Machine;
   /** Every classify user turn either machine was given, in order. */
@@ -161,6 +169,7 @@ describe("two developers, one remote", () => {
     forge = new FakeForge();
     classifyTurns = [];
     openRun = makeOpenRun(() => forge);
+    publish = makePublish(() => forge);
     today = new Date().toISOString().split("T")[0]!;
 
     execFileSync("git", ["init", "--bare", "--initial-branch=main", remote]);
@@ -284,7 +293,8 @@ describe("two developers, one remote", () => {
 
   /**
    * Runs one session the way the skill does: `run --first`, then a `resume`
-   * per halt, each its own invocation.
+   * per halt, each its own invocation — and once it has committed, `publish`,
+   * standing in for the developer saying yes to it.
    *
    * A review halt ends the loop rather than being answered. Only the
    * developer can answer one, and whether the run stopped there at all is what
@@ -294,14 +304,14 @@ describe("two developers, one remote", () => {
     machine: Machine,
     sessionId: string,
     script: Script,
-  ): Promise<{ output: RunOutput; exitCode: number; stderr: string }> {
+  ): Promise<{ output: RunOutput; exitCode: number; stderr: string; published: PublishOutput | null }> {
     const contentHash = await contentHashOf(machine, sessionId);
     const repliesPath = path.join(machine.homeDir, "replies.json");
     let result = await invoke(machine, ["run", "--session", sessionId, "--first"]);
 
     while (result.output.status === "waiting") {
       if (result.output.pending.some((pending) => !isModelRequest(pending.request))) {
-        return result;
+        return { ...result, published: null };
       }
       const replies = Object.fromEntries(
         result.output.pending.map((pending) => [pending.id, reply(script, pending)]),
@@ -318,7 +328,17 @@ describe("two developers, one remote", () => {
       ]);
     }
 
-    return result;
+    if (result.output.commit === null) {
+      return { ...result, published: null };
+    }
+    const stdio = createFakeStdio();
+    const exitCode = await runCli(["publish"], { config: machine.config, openRun, publish, stdio });
+    expect(exitCode, stdio.writtenError()).toBe(EXIT_CODES.ok);
+    return {
+      ...result,
+      stderr: `${result.stderr}${stdio.writtenError()}`,
+      published: JSON.parse(stdio.writtenOutput()) as PublishOutput,
+    };
   }
 
   /** Nothing retrieved is novel; anything retrieved is answered by `kind`. */
@@ -479,7 +499,7 @@ describe("two developers, one remote", () => {
     // Two branches, two pull requests, and main is where it was.
     expect(branchesOnRemote()).toEqual([dana.branch, "main", sam.branch].sort());
     expect(forge.openPrCalls.map((call) => call.branch)).toEqual([dana.branch, sam.branch]);
-    expect(danas.output.commit?.pr).not.toBe(sams.output.commit?.pr);
+    expect(danas.published?.publish?.pr).not.toBe(sams.published?.publish?.pr);
     expect(git(remote, "rev-parse", "main")).toBe(git(dana.repoRoot, "rev-parse", "origin/main"));
 
     // Neither branch overwrote the other: each carries exactly its own claim,

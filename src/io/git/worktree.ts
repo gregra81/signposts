@@ -267,3 +267,43 @@ export function commitAll(input: {
 export function push(worktreeDir: string, branch: string): GitResult {
   return git(worktreeDir, ["push", "--set-upstream", "origin", branch]);
 }
+
+/** The branch the worktree has checked out, or null when there is no worktree. */
+export function worktreeBranch(worktreeDir: string): string | null {
+  if (!existsSync(path.join(worktreeDir, ".git"))) {
+    return null;
+  }
+  const head = git(worktreeDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  return head.ok && head.output !== "HEAD" ? head.output : null;
+}
+
+/** Whether `branch` has ever been pushed, as far as this clone's remote-tracking refs know. */
+export function wasPushed(repoRoot: string, branch: string): boolean {
+  return git(repoRoot, ["rev-parse", "--verify", `refs/remotes/origin/${branch}`]).ok;
+}
+
+/**
+ * The full messages of the worktree's commits that the remote does not have,
+ * oldest first.
+ *
+ * Measured against `origin/<branch>` once the branch has been pushed, and
+ * against the base before that, since everything past the base is then this
+ * developer's and unpushed.
+ */
+export function unpushedMessages(repoRoot: string, worktreeDir: string, branch: string): string[] {
+  const upstream = wasPushed(repoRoot, branch) ? `origin/${branch}` : baseRef(repoRoot);
+  const log = git(worktreeDir, ["log", "--reverse", "--format=%B%x00", `${upstream}..HEAD`]);
+  if (!log.ok) {
+    return [];
+  }
+  return log.output
+    .split("\0")
+    .map((message) => message.trim())
+    .filter((message) => message !== "");
+}
+
+/** The base branch as a ref: the remote's copy where there is one. */
+function baseRef(repoRoot: string): string {
+  const base = baseBranch(repoRoot);
+  return git(repoRoot, ["rev-parse", "--verify", `refs/remotes/origin/${base}`]).ok ? `origin/${base}` : base;
+}

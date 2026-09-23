@@ -146,15 +146,16 @@ then `signpost init` in a repo: consent, `.signposts/`, the CLAUDE.md pointer,
 and `.claude/skills/signposts/SKILL.md` — the skill is how the tool is driven, and it is rewritten
 on every accepted `init` so it cannot drift from the CLI it describes.
 
-The CLI is nine commands. `doctor`, `init` and `index` stand alone; `sessions`, `run` and `resume`
-are the loop the skill drives, one JSON object per invocation; `review` is the developer's own
-terminal; `worker` is spawned by the hook and `mcp` by the plugin, and neither is ever typed (see
-below):
+The CLI is ten commands. `doctor`, `init` and `index` stand alone; `sessions`, `run` and `resume`
+are the loop the skill drives, one JSON object per invocation, and `publish` is what the skill runs
+once the developer says yes; `review` is the developer's own terminal; `worker` is spawned by the
+hook and `mcp` by the plugin, and neither is ever typed (see below):
 
 ```
 signpost sessions                                  # eligible transcripts
 signpost run --session <id> [--first]              # -> {status: "waiting", pending: [...]}
 signpost resume --session <id> --replies <path>    # -> the next halt, or "finished"
+signpost publish                                   # push the branch, open or update the PR
 ```
 
 `--first` clears what the previous run left pending, so it belongs on the first session of a run
@@ -165,9 +166,16 @@ answer it.
 A run never touches the developer's checkout. `commit` writes through a second worktree
 (`paths.worktreeDir`) on `signposts/<author-slug>/<date>`, so proposals live on a branch and in a PR
 and appear in the working tree only when it merges. Sessions accumulate onto whichever of those
-branches still has an open PR; once it merges the next session starts a new one from the base,
-because nothing rebases the branch and a reused one drifts from the merged corpus
-(`src/core/git/branch.ts`).
+branches still has an open PR, or has commits nobody has pushed; once the PR merges the next
+session starts a new one from the base, because nothing rebases the branch and a reused one drifts
+from the merged corpus (`src/core/git/branch.ts`).
+
+**A run pushes nothing.** `commit` stops at a local commit, and `signpost publish`
+(`src/io/commit/publish.ts`) does the push and the PR, after the skill has shown the developer what
+was committed and they have said yes. It used to happen inside every run, and the first thing a
+developer saw after a run that worked was a pull request nobody asked for (19-value-to-a-user.md,
+open item 1). Each commit carries its session's PR section in its message, because by the time
+`publish` runs the operations are gone and the unpushed commits are the only record of them.
 
 So a change can still be correct, tested, and unreachable by a user. Say so when that is true of
 what you just wrote.

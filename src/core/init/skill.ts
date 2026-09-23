@@ -39,8 +39,9 @@ description: Turn the corrections in your idle Claude Code sessions into reviewe
 
 signposts reads this repo's finished Claude Code transcripts and proposes durable
 team knowledge — the things you corrected it about, which cannot be read off the
-code — as markdown in \`.signposts/\`, on a branch, in a pull request. It does no
-reasoning of its own: it pauses and asks *you* for each judgement, then carries on.
+code — as markdown in \`.signposts/\`, on a branch, and in a pull request once the
+developer says so. It does no reasoning of its own: it pauses and asks *you* for
+each judgement, then carries on.
 
 ## The loop
 
@@ -64,8 +65,8 @@ Every command prints one JSON object. A run advances one halt at a time.
      is what stops it being re-derived from the transcript: the developer may
      have carried on in that Claude Code session since the halt, and a session
      identified by a different hash is a different thread.
-   - \`finished\` — \`proposed\` lists what went into the branch and PR. Move to
-     the next session.
+   - \`finished\` — \`proposed\` lists what was committed to the local branch
+     named in \`commit\`. Nothing is pushed yet. Move to the next session.
    - \`reExtracted\`, on any status, means the critic rejected most of a batch and
      sent it back to \`extract\` that many times. The proposals are a second pass,
      which is why there may be fewer of them. Tell the user in one line.
@@ -74,10 +75,8 @@ Every command prints one JSON object. A run advances one halt at a time.
      will not be offered again. Mention it in one line and move to the next
      session; it is not a failure.
 
-**Exit codes.** \`4\` and \`5\` are not failures: \`5\` means the run halted on a
-\`human_review\` and \`4\` means the proposals are committed to the branch and no
-pull request carries them yet (the command that finishes it is on stderr).
-Report those as they are. Only \`1\` is a failure.
+**Exit codes.** \`5\` is not a failure: it means the run halted on a
+\`human_review\`. Only \`1\` is a failure.
 
 ## Answering a halt
 
@@ -117,6 +116,17 @@ Rejected operations are dropped; nothing merges without a decision on each.
 
 ## What to tell the user at the end
 
-Which sessions ran, what was proposed, and the pull request. Nothing merges
-automatically; the PR is where they review it.
+Which sessions ran and what was proposed, then ask whether to publish it: push
+the branch and open the pull request, or add to it when \`commit.pr\` names one.
+**Ask, and wait for the answer.** The run committed locally and nothing has left
+this machine; publishing is the developer's call, not yours.
+
+On yes, run \`signpost publish\` and report the pull request it names. \`status:
+"nothing"\` means no run committed anything since the last publish. Exit \`4\` is
+not a failure: the branch is committed and no pull request carries it yet, and
+\`publish.manualCommand\` is the command that finishes it — show it as it is.
+
+On no, say that the commits stay on the branch and the next run adds to it, and
+that \`signpost publish\` pushes them whenever they want. Nothing merges
+automatically either way; the PR is where the team reviews it.
 `;

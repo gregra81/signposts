@@ -12,7 +12,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeCommitPort } from "../../../src/io/commit/commit-port.js";
+import { publishBranch } from "../../../src/io/commit/publish.js";
 import type { CommitOutcome } from "../../../src/graph/ports.js";
+import type { PublishOutcome } from "../../../src/cli/run-port.js";
+import type { Forge } from "../../../src/io/forge/forge.js";
 import { FakeForge, FAKE_PR_URL_PREFIX } from "../../../src/io/forge/fake-forge.js";
 import { BRANCH_PATTERN, SIGNPOSTS_DIRNAME } from "../../../src/core/config/constants.js";
 import { PR_TITLE } from "../../../src/core/pr/body.js";
@@ -76,31 +79,57 @@ describe("the commit port", () => {
   let worktreeDir: string;
   let forge: FakeForge;
   let warnings: string[];
-  /** The `gh pr create` lines the port handed back for a developer to run. */
+  /** The `gh pr create` lines `publish` handed back for a developer to run. */
   let manualCommands: string[];
+  /** Where each `publish` said the work went — PublishOutput's `publish`. */
+  let outcomes: PublishOutcome[];
   /** Where each committing session said its work went — RunOutput's `commit`. */
-  let outcomes: CommitOutcome[];
+  let commits: CommitOutcome[];
 
-  function port() {
+  function port(overrides: { author?: string; forge?: Forge; today?: string } = {}) {
     return makeCommitPort({
       repoRoot,
       worktreeDir,
       branchPattern: BRANCH_PATTERN,
-      author: AUTHOR,
-      forge,
+      author: overrides.author ?? AUTHOR,
+      forge: overrides.forge ?? forge,
       warn: (message) => warnings.push(message),
-      committed: (outcome) => {
-        outcomes.push(outcome);
-        if (outcome.manualCommand !== null) {
-          manualCommands.push(outcome.manualCommand);
-        }
-      },
-      today: () => TODAY,
+      committed: (outcome) => commits.push(outcome),
+      today: () => overrides.today ?? TODAY,
     });
   }
 
-  function apply(sessionId: string, operations: Operation[]) {
-    return port().apply({ repo: "acme/api", repoRoot, sessionId, operations });
+  /** What a run does: commit the session, and nothing else. */
+  function commit(sessionId: string, operations: Operation[], overrides: Parameters<typeof port>[0] = {}) {
+    return port(overrides).apply({ repo: "acme/api", repoRoot, sessionId, operations });
+  }
+
+  /** What `signpost publish` does once the developer says yes. */
+  async function publish(through: Forge = forge) {
+    const outcome = await publishBranch({
+      repoRoot,
+      worktreeDir,
+      branchPattern: BRANCH_PATTERN,
+      forge: through,
+      warn: (message) => warnings.push(message),
+    });
+    if (outcome !== null) {
+      outcomes.push(outcome);
+      if (outcome.manualCommand !== null) {
+        manualCommands.push(outcome.manualCommand);
+      }
+    }
+    return outcome;
+  }
+
+  /**
+   * A run followed by a publish: the write path end to end. The tests below
+   * that push or talk to the forge were written when a run did both, and they
+   * describe the same path — it now takes the developer's yes in the middle.
+   */
+  async function apply(sessionId: string, operations: Operation[], overrides: Parameters<typeof port>[0] = {}) {
+    await commit(sessionId, operations, overrides);
+    await publish(overrides.forge ?? forge);
   }
 
   beforeEach(() => {
@@ -112,6 +141,7 @@ describe("the commit port", () => {
     warnings = [];
     manualCommands = [];
     outcomes = [];
+    commits = [];
 
     execFileSync("git", ["init", "--bare", "--initial-branch=main", remote]);
     execFileSync("git", ["clone", remote, repoRoot]);
@@ -151,6 +181,62 @@ describe("the commit port", () => {
     expect(git(repoRoot, "rev-parse", "HEAD")).toBe(before);
     expect(git(repoRoot, "status", "--porcelain")).toBe("");
     expect(existsSync(path.join(repoRoot, SIGNPOSTS_DIRNAME))).toBe(false);
+  });
+
+  // 19-value-to-a-user.md, open item 1: a finished run opened a pull request
+  // with nobody in the loop. A run commits and stops; `publish` is the yes.
+  describe("a run on its own", () => {
+    it("commits without pushing or opening a pull request", async () => {
+      await commit("sess-1", [{ op: "add", signpost: signpost() }]);
+
+      expect(git(worktreeDir, "log", "--pretty=%s", "-1")).toBe("signposts: 1 from session sess-1");
+      expect(git(remote, "for-each-ref", "--format=%(refname:short)", "refs/heads/")).toBe("main");
+      expect(forge.openPrCalls).toEqual([]);
+      expect(forge.updatePrCalls).toEqual([]);
+      expect(commits).toEqual([{ branch: BRANCH, pr: null }]);
+    });
+
+    it("names the open pull request a publish will add to, and leaves it alone", async () => {
+      await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+      const published = git(remote, "rev-parse", BRANCH);
+
+      await commit("sess-2", [{ op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR }]);
+
+      expect(commits[1]).toEqual({ branch: BRANCH, pr: 1 });
+      expect(git(remote, "rev-parse", BRANCH)).toBe(published);
+      expect(forge.updatePrCalls).toEqual([]);
+    });
+
+    it("keeps committing to the branch nobody has published, on a later day", async () => {
+      // Without this a "not now" on one day left that day's sessions on a
+      // branch the next day's run walked away from.
+      await commit("sess-1", [{ op: "add", signpost: signpost() }]);
+      await commit("sess-2", [{ op: "add", signpost: signpost({ id: "second", claim: "Second claim" }) }], {
+        today: "2026-09-06",
+      });
+
+      expect(commits.map((outcome) => outcome.branch)).toEqual([BRANCH, BRANCH]);
+      await publish();
+      expect(forge.openPrCalls.map((call) => call.branch)).toEqual([BRANCH]);
+      // One section per session, taken from the commits it pushed.
+      const body = forge.openPrCalls[0]!.body;
+      expect(body).toContain("### Session `sess-1`");
+      expect(body).toContain("### Session `sess-2`");
+      expect(body).toContain("Second claim");
+    });
+  });
+
+  it("publishes nothing when every commit is already pushed", async () => {
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    expect(await publish()).toBe(null);
+    expect(forge.openPrCalls).toHaveLength(1);
+    expect(forge.updatePrCalls).toEqual([]);
+  });
+
+  it("publishes nothing when no run has committed anything", async () => {
+    expect(await publish()).toBe(null);
+    expect(existsSync(worktreeDir)).toBe(false);
   });
 
   it("pushes the branch to the remote", async () => {
@@ -262,12 +348,13 @@ describe("the commit port", () => {
   // 18-end-to-end-gaps.md item 5: `RunOutput` had no field for the branch, the
   // pull request, or the fact that neither happened, so a run whose push
   // failed printed `"status": "finished"` with its proposals and exited 0.
-  describe("what it reports back for RunOutput's `commit`", () => {
+  // The push and the pull request are `publish`'s now, and so is the report.
+  describe("what publish reports back", () => {
     it("names the branch and the pull request it opened", async () => {
       await apply("sess-1", [{ op: "add", signpost: signpost() }]);
 
       expect(outcomes).toEqual([
-        { branch: BRANCH, pr: 1, url: `${FAKE_PR_URL_PREFIX}1`, reason: null, manualCommand: null },
+        { branch: BRANCH, sessions: 1, pr: 1, url: `${FAKE_PR_URL_PREFIX}1`, reason: null, manualCommand: null },
       ]);
     });
 
@@ -279,6 +366,7 @@ describe("the commit port", () => {
       // number and nothing else.
       expect(outcomes[1]).toEqual({
         branch: BRANCH,
+        sessions: 1,
         pr: 1,
         url: null,
         reason: null,
@@ -294,36 +382,17 @@ describe("the commit port", () => {
   });
 
   it("keeps the push when the forge cannot be reached, and says how to finish by hand", async () => {
-    const failing = makeCommitPort({
-      repoRoot,
-      worktreeDir,
-      branchPattern: BRANCH_PATTERN,
-      author: AUTHOR,
-      forge: {
-        // Unreachable means unreachable: the listing that picks the branch
-        // and the call that opens the pull request both fail.
-        branchesUnder: () => Promise.reject(new Error("gh: not authenticated")),
-        openPr: () => Promise.reject(new Error("gh: not authenticated")),
-        readPrBody: (prNumber) => forge.readPrBody(prNumber),
-        updatePr: (prNumber, body) => forge.updatePr(prNumber, body),
-        setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
-      },
-      warn: (message) => warnings.push(message),
-      committed: (outcome) => {
-        outcomes.push(outcome);
-        if (outcome.manualCommand !== null) {
-          manualCommands.push(outcome.manualCommand);
-        }
-      },
-      today: () => TODAY,
-    });
+    const unreachable: Forge = {
+      // Unreachable means unreachable: the listing that picks the branch
+      // and the call that opens the pull request both fail.
+      branchesUnder: () => Promise.reject(new Error("gh: not authenticated")),
+      openPr: () => Promise.reject(new Error("gh: not authenticated")),
+      readPrBody: (prNumber) => forge.readPrBody(prNumber),
+      updatePr: (prNumber, body) => forge.updatePr(prNumber, body),
+      setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
+    };
 
-    await failing.apply({
-      repo: "acme/api",
-      repoRoot,
-      sessionId: "sess-1",
-      operations: [{ op: "add", signpost: signpost() }],
-    });
+    await apply("sess-1", [{ op: "add", signpost: signpost() }], { forge: unreachable });
 
     expect(git(remote, "rev-parse", "--verify", BRANCH)).toBeTruthy();
     expect(warnings.join("\n")).toContain(`gh pr create --head ${BRANCH}`);
@@ -333,8 +402,8 @@ describe("the commit port", () => {
     // given, and those are what a developer would actually send to GitHub.
     // The body is a multi-line markdown table with quotes and backticks in
     // it, which is exactly what a naively printed command loses.
-    // And the JSON the run prints says so, rather than "finished" with a list
-    // of proposals and nothing about the pull request that does not exist.
+    // And the JSON publish prints says so, rather than a clean result with
+    // nothing about the pull request that does not exist.
     expect(outcomes[0]?.pr).toBe(null);
     expect(outcomes[0]?.reason).toContain("could not open a pull request");
 
@@ -424,34 +493,19 @@ describe("the commit port", () => {
     // an error or, on a fork, a second PR.
     await apply("sess-1", [{ op: "add", signpost: signpost() }]);
 
-    const failingUpdate = makeCommitPort({
-      repoRoot,
-      worktreeDir,
-      branchPattern: BRANCH_PATTERN,
-      author: AUTHOR,
-      forge: {
-        branchesUnder: (prefix) => forge.branchesUnder(prefix),
-        openPr: (input) => forge.openPr(input),
-        readPrBody: (prNumber) => forge.readPrBody(prNumber),
-        updatePr: () => Promise.reject(new Error("gh: label not found")),
-        setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
-      },
-      warn: (message) => warnings.push(message),
-      committed: (outcome) => {
-        outcomes.push(outcome);
-        if (outcome.manualCommand !== null) {
-          manualCommands.push(outcome.manualCommand);
-        }
-      },
-      today: () => TODAY,
-    });
+    const failingUpdate: Forge = {
+      branchesUnder: (prefix) => forge.branchesUnder(prefix),
+      openPr: (input) => forge.openPr(input),
+      readPrBody: (prNumber) => forge.readPrBody(prNumber),
+      updatePr: () => Promise.reject(new Error("gh: label not found")),
+      setLabels: (prNumber, labels) => forge.setLabels(prNumber, labels),
+    };
 
-    await failingUpdate.apply({
-      repo: "acme/api",
-      repoRoot,
-      sessionId: "sess-2",
-      operations: [{ op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR }],
-    });
+    await apply(
+      "sess-2",
+      [{ op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR }],
+      { forge: failingUpdate },
+    );
 
     const warning = warnings.join("\n");
     expect(warning).toContain("pull request #1");
@@ -507,27 +561,8 @@ describe("the commit port", () => {
     // branchFor slugs the address's local part, so a new address is a new
     // branch over a worktree still checked out on the old. Committing there
     // put the commit on the old branch and pushed a branch that had nothing.
-    const moved = makeCommitPort({
-      repoRoot,
-      worktreeDir,
-      branchPattern: BRANCH_PATTERN,
+    await apply("sess-2", [{ op: "add", signpost: signpost({ id: "second", claim: "Second claim" }) }], {
       author: "greg.rashkevitch@example.com",
-      forge,
-      warn: (message) => warnings.push(message),
-      committed: (outcome) => {
-        outcomes.push(outcome);
-        if (outcome.manualCommand !== null) {
-          manualCommands.push(outcome.manualCommand);
-        }
-      },
-      today: () => TODAY,
-    });
-
-    await moved.apply({
-      repo: "acme/api",
-      repoRoot,
-      sessionId: "sess-2",
-      operations: [{ op: "add", signpost: signpost({ id: "second", claim: "Second claim" }) }],
     });
 
     expect(git(worktreeDir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(

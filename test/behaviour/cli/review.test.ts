@@ -23,6 +23,7 @@ import { buildExtractionGraph, startRun } from "../../../src/graph/index.js";
 import { openCheckpointer } from "../../../src/io/db/checkpointer.js";
 import { listPendingReviews } from "../../../src/io/review/pending.js";
 import type { FinishedSession, OpenRun, RunHandle } from "../../../src/cli/run-port.js";
+import type { CommitOutcome } from "../../../src/graph/ports.js";
 import {
   candidate,
   existingSignpost,
@@ -128,7 +129,7 @@ async function runToCompletion(): Promise<void> {
  * `eligible` returns nothing, as it would for a transcript that is not on this
  * machine — the review must not need the transcript to answer a halt.
  */
-function openRunWith(harness: Harness, manualCommand: string | null = null): OpenRun {
+function openRunWith(harness: Harness, commit: CommitOutcome | null = null): OpenRun {
   return async ({ warn }) => {
     const { checkpointer, close } = openCheckpointer(checkpointPath);
     const graph = buildExtractionGraph({ ports: harness, checkpointer });
@@ -141,12 +142,9 @@ function openRunWith(harness: Harness, manualCommand: string | null = null): Ope
       eligible: () => [],
       finish: (session) => finished.push(session),
       skip: () => {},
-      // What the commit port left undone, if anything — answering the last
+      // Where the commit port put the work, if anywhere — answering the last
       // review is often the invocation that commits.
-      commitOutcome: () =>
-        manualCommand === null
-          ? null
-          : { branch: "signposts/greg/2026-09-10", pr: null, url: null, reason: "no forge", manualCommand },
+      commitOutcome: () => commit,
       syncCorpus: () => Promise.resolve({ failures: [] }),
       pendingReviews: (now, options) =>
         listPendingReviews({ graph, checkpointer, repo: RUN_INPUT.repo, now, warn, ...options }),
@@ -201,21 +199,23 @@ describe("signpost review", () => {
     expect(finished.map((session) => session.sessionId)).toEqual([RUN_INPUT.sessionId]);
   });
 
-  it("reports the pull request it could not open, rather than a clean 0", async () => {
-    // Accepting here is what carries the thread through `commit`, so this is
-    // the invocation that pushed the branch and failed to open its PR. A
-    // wrapper reading `$?` must not be told the work is on the forge
-    // (12-wire-contracts.md, "Exit codes").
+  it("says the commit is not pushed, and how to publish it", async () => {
+    // Accepting here is what carries the thread through `commit`, and a commit
+    // goes no further than the local branch (19-value-to-a-user.md, open item
+    // 1). The person at the terminal is the one who publishes it.
     await haltForReview();
-    const command = "git push --set-upstream origin signposts/greg/2026-09-05";
+    const stdio = createScriptedStdio(["a"]);
 
     const exitCode = await runCli(["review"], {
       config,
-      stdio: createScriptedStdio(["a"]),
-      openRun: openRunWith(makeHarness(gatedOptions()), command),
+      stdio,
+      openRun: openRunWith(makeHarness(gatedOptions()), { branch: "signposts/greg/2026-09-05", pr: 3 }),
     });
 
-    expect(exitCode).toBe(EXIT_CODES.prCreationFailed);
+    expect(exitCode).toBe(EXIT_CODES.ok);
+    expect(stdio.writtenOutput()).toContain(
+      "Committed to signposts/greg/2026-09-05, not pushed. Run `signpost publish` to push it and add it to pull request #3.",
+    );
   });
 
   it("commits nothing when the developer rejects, and does not ask again", async () => {

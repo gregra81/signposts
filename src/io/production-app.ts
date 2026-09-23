@@ -29,6 +29,8 @@ import { resolveConfig } from "../core/config/resolve.ts";
 import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
 import { findRepoRoot } from "./git/repo-root.ts";
 import { openRun } from "./open-run.ts";
+import { makePublish } from "./commit/publish.ts";
+import { ghForge } from "./forge/gh-forge.ts";
 import { prefetchModel } from "./embed/prefetch.ts";
 
 /** Set by `.claude-plugin/plugin.json` to `${CLAUDE_PROJECT_DIR}` — see below. */
@@ -130,7 +132,7 @@ export function buildProductionApp(): App {
     };
   }
 
-  return createApp({ config, openRun, prefetchModel, ...versionField() });
+  return createApp({ config, openRun, publish: makePublish(ghForge), prefetchModel, ...versionField() });
 }
 
 function versionField(): { version?: string } {

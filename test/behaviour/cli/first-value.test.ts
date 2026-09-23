@@ -35,6 +35,7 @@ import type { RunOutput } from "../../../src/cli/protocol.js";
 import { isModelRequest, type PendingRequest } from "../../../src/graph/index.js";
 import { FakeForge } from "../../../src/io/forge/fake-forge.js";
 import { makeOpenRun } from "../../../src/io/open-run.js";
+import { makePublish } from "../../../src/io/commit/publish.js";
 import { createFakeStdio, createScriptedStdio } from "../helpers/fake-stdio.js";
 import { runCli } from "../helpers/run-cli.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
@@ -152,8 +153,9 @@ describe("manual steps to first value", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("takes three answers from a person to get one signpost into a pull request", async () => {
+  it("takes four answers from a person to get one signpost into a pull request", async () => {
     const openRun = makeOpenRun(() => forge);
+    const publish = makePublish(() => forge);
     let humanAnswers = 0;
     let modelAnswers = 0;
 
@@ -221,9 +223,20 @@ describe("manual steps to first value", () => {
       .reduce((sum, pending) => sum + (pending.request as { needsHuman: unknown[] }).needsHuman.length, 0);
     humanAnswers += operationsToDecide;
 
-    // 5. The developer answers it at their own terminal, and it commits.
+    // 5. The developer answers it at their own terminal, and it commits —
+    //    locally, and nowhere else yet.
     const review = createScriptedStdio(Array.from({ length: operationsToDecide }, () => "a"));
     expect(await runCli(["review"], { config, openRun, stdio: review }), review.writtenError()).toBe(0);
+    expect(forge.openPrCalls).toEqual([]);
+
+    // 6. The developer is shown what was committed and says yes to publishing
+    //    it. Before this step a run opened the pull request on its own, and the
+    //    first thing a developer saw after a successful run was a PR nobody
+    //    asked for (19-value-to-a-user.md, open item 1). This answer is the
+    //    price of that, and the count below includes it.
+    const published = createFakeStdio();
+    expect(await runCli(["publish"], { config, openRun, publish, stdio: published }), published.writtenError()).toBe(0);
+    humanAnswers += 1;
 
     // First value: one signpost, committed, on a branch with a pull request.
     expect(forge.openPrCalls).toHaveLength(1);
@@ -231,7 +244,8 @@ describe("manual steps to first value", () => {
     const files = execFileSync("git", ["ls-tree", "-r", "--name-only", branch], { cwd: remote, encoding: "utf8" });
     expect(files.split("\n").filter((file) => file.startsWith(".signposts/") && file.endsWith(".md") && !file.endsWith("index.md"))).toHaveLength(1);
 
-    // The number this test exists for. Consent, the offer, one decision.
-    expect({ humanAnswers, modelAnswers }).toEqual({ humanAnswers: 3, modelAnswers: 3 });
+    // The number this test exists for. Consent, the offer, one decision, and
+    // the yes to publishing it.
+    expect({ humanAnswers, modelAnswers }).toEqual({ humanAnswers: 4, modelAnswers: 3 });
   }, 120_000);
 });

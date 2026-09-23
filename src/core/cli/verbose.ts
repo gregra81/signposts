@@ -83,8 +83,11 @@ export function finishedLines(
     ...(reExtracted > 0
       ? [`the critic sent the batch back ${reExtracted} time(s); these are the second pass`]
       : []),
+    // A run pushes nothing (19-value-to-a-user.md, open item 1), and the
+    // skill is what asks about publishing. Someone driving the loop by hand
+    // has no skill, so the last line tells them the step that is left.
     remaining === 0
-      ? "nothing else eligible — the run is done"
+      ? "nothing else eligible — the run is done; `signpost publish` pushes what it committed"
       : `${remaining} session(s) still eligible; run again to take the next one`,
   ];
 }
