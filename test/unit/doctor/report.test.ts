@@ -20,8 +20,32 @@ const BASE_FACTS: DoctorFacts = {
   git: { authorEmail: "greg@example.com", repo: "acme/api" },
   consent: "given",
   statusLine: { state: "ok" },
+  build: { tree: "src", ignoredDistBuiltAt: null },
   lastError: null,
 };
+
+// 19-value-to-a-user.md, "Driving the loop end to end": a checkout's stale
+// dist/ ran in place of its source for six merged PRs, and doctor reported
+// "ready" throughout, because it checked everything except which code it was.
+describe("the line naming the code it runs", () => {
+  const lineFor = (build: DoctorFacts["build"]) =>
+    buildDoctorReport({ ...BASE_FACTS, build }).find((l) => l.startsWith("code:"))!;
+
+  it("names the checkout's own source", () => {
+    expect(lineFor({ tree: "src", ignoredDistBuiltAt: null })).toBe("code: src/ — this checkout");
+  });
+
+  it("says a build is present and ignored, and when it was made", () => {
+    const line = lineFor({ tree: "src", ignoredDistBuiltAt: "2026-09-10" });
+
+    expect(line).toContain("src/");
+    expect(line).toContain("dist/ built 2026-09-10 is ignored");
+  });
+
+  it("names an installed copy's build", () => {
+    expect(lineFor({ tree: "dist", ignoredDistBuiltAt: null })).toBe("code: dist/ — an installed copy");
+  });
+});
 
 describe("isNodeVersionSupported", () => {
   it("at floor is supported", () => {
@@ -203,7 +227,7 @@ describe("detectSignpostPlugin", () => {
 describe("buildDoctorReport", () => {
   it("reports every fact as one line, in order", () => {
     const lines = buildDoctorReport(BASE_FACTS);
-    expect(lines).toHaveLength(11);
+    expect(lines).toHaveLength(12);
     expect(lines[0]).toContain("node:");
     expect(lines[1]).toContain("git author:");
     expect(lines[2]).toContain("git origin:");
@@ -213,8 +237,10 @@ describe("buildDoctorReport", () => {
     expect(lines[6]).toContain("session-start hook:");
     expect(lines[7]).toContain("consent:");
     expect(lines[8]).toContain("status line:");
-    expect(lines[9]).toContain("last background error:");
-    expect(lines[10]).toContain("nothing blocks");
+    // Added 2026-09-23 with the fact itself; the two below moved down one.
+    expect(lines[9]).toContain("code:");
+    expect(lines[10]).toContain("last background error:");
+    expect(lines[11]).toContain("nothing blocks");
   });
 
   it("node below floor is called out", () => {
@@ -330,18 +356,23 @@ describe("the facts doctor learned to read", () => {
     expect(buildDoctorReport({ ...BASE_FACTS, statusLine })[8]).toBe(expected);
   });
 
+  // Found by prefix rather than index: adding the `code:` line above moved
+  // this one, and an index says nothing about which line was meant.
+  const errorLine = (facts: DoctorFacts) =>
+    buildDoctorReport(facts).find((line) => line.startsWith("last background error:"));
+
   it("reports the background worker's last error, which nothing else ever showed", () => {
-    expect(buildDoctorReport({ ...BASE_FACTS, lastError: "index rebuild exited 1" })[9]).toBe(
+    expect(errorLine({ ...BASE_FACTS, lastError: "index rebuild exited 1" })).toBe(
       "last background error: index rebuild exited 1",
     );
-    expect(buildDoctorReport(BASE_FACTS)[9]).toBe("last background error: none");
+    expect(errorLine(BASE_FACTS)).toBe("last background error: none");
   });
 });
 
 describe("blockers", () => {
   it("is empty for a machine that can run", () => {
     expect(blockers(BASE_FACTS)).toEqual([]);
-    expect(buildDoctorReport(BASE_FACTS)[10]).toBe("ready: nothing blocks `signpost run`");
+    expect(buildDoctorReport(BASE_FACTS).at(-1)).toBe("ready: nothing blocks `signpost run`");
   });
 
   it.each([
@@ -353,7 +384,7 @@ describe("blockers", () => {
   ])("%j blocks a run", (override, reason) => {
     const facts = { ...BASE_FACTS, ...override };
     expect(blockers(facts)).toEqual([reason]);
-    expect(buildDoctorReport(facts)[10]).toBe(`blocked: ${reason}`);
+    expect(buildDoctorReport(facts).at(-1)).toBe(`blocked: ${reason}`);
   });
 
   it("does not count what only degrades a run", () => {
@@ -374,6 +405,6 @@ describe("blockers", () => {
 
   it("lists every blocker, not only the first", () => {
     const facts = { ...BASE_FACTS, git: { authorEmail: null, repo: null }, consent: "unknown" as const };
-    expect(buildDoctorReport(facts)[10]).toBe("blocked: no git author, no origin remote");
+    expect(buildDoctorReport(facts).at(-1)).toBe("blocked: no git author, no origin remote");
   });
 });

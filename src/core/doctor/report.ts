@@ -182,11 +182,40 @@ export interface DoctorFacts {
   consent: ConsentFact;
   statusLine: StatusLineFact;
   /**
+   * Which of the two trees this process is running, and whether a build it is
+   * ignoring is sitting next to it. The wrapper's rule is in `bin/entry.js`;
+   * this is doctor saying out loud which way it went, because for six merged
+   * PRs a checkout ran a `dist/` from a fortnight earlier and every other
+   * line here said ready (19-value-to-a-user.md, "Driving the loop end to
+   * end").
+   */
+  build: BuildFact;
+  /**
    * `lastError` from status.json: what the detached worker last failed at. Its
    * stderr goes to /dev/null, and the status line tells the developer to run
    * doctor about it — which, until this, read nothing at all.
    */
   lastError: string | null;
+}
+
+export interface BuildFact {
+  tree: "src" | "dist";
+  /** ISO date of a `dist/` that is present but not being run, else null. */
+  ignoredDistBuiltAt: string | null;
+}
+
+/**
+ * Not a blocker: running either tree is legitimate, and which one is right
+ * depends on where the package lives. Saying which is the whole point.
+ */
+function buildLine(facts: DoctorFacts): string {
+  const { tree, ignoredDistBuiltAt } = facts.build;
+  if (tree === "dist") {
+    return "code: dist/ — an installed copy";
+  }
+  return ignoredDistBuiltAt === null
+    ? "code: src/ — this checkout"
+    : `code: src/ — this checkout; the dist/ built ${ignoredDistBuiltAt} is ignored`;
 }
 
 function nodeLine(facts: DoctorFacts): string {
@@ -307,6 +336,7 @@ export function buildDoctorReport(facts: DoctorFacts): string[] {
     hookLine(facts),
     consentLine(facts),
     statusLineLine(facts),
+    buildLine(facts),
     `last background error: ${facts.lastError ?? "none"}`,
     blocked.length === 0 ? "ready: nothing blocks `signpost run`" : `blocked: ${blocked.join(", ")}`,
   ];

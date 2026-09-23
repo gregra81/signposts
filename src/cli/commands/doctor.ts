@@ -14,6 +14,7 @@
 // answer the developer trusts before opening the issue.
 
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExitCode } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { EMBEDDING_MODEL, NODE_MIN_VERSION } from "../../core/config/constants.ts";
@@ -23,6 +24,7 @@ import { checkModelCache } from "../../io/doctor/model-cache.ts";
 import { checkDbIntegrity } from "../../io/doctor/db-integrity.ts";
 import { checkSessionStartHookInstalled } from "../../io/doctor/hook-settings.ts";
 import { checkGitFacts } from "../../io/doctor/git-facts.ts";
+import { checkBuild } from "../../io/doctor/build.ts";
 import { checkConsent } from "../../io/doctor/consent.ts";
 import { checkStatusLine } from "../../io/doctor/statusline.ts";
 import { readStatus } from "../../io/worker/status-file.ts";
@@ -32,6 +34,14 @@ export interface RunDoctorInput {
   config: ResolvedConfig;
   repoRoot: string;
   stdout: NodeJS.WritableStream;
+}
+
+/**
+ * The package root: three directories above this file in either tree
+ * (`src/cli/commands` and `dist/cli/commands` are the same depth).
+ */
+function packageRoot(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 }
 
 function currentNodeMajorVersion(): number {
@@ -58,6 +68,10 @@ export function runDoctor({ config, repoRoot, stdout }: RunDoctorInput): ExitCod
     hook: checkSessionStartHookInstalled(repoRoot, path.dirname(config.paths.transcriptRoot)),
     consent: checkConsent(config.paths.dbPath, git.repo),
     statusLine: checkStatusLine(repoRoot),
+    // `import.meta.url` of this module: whichever tree it was loaded from is
+    // the tree the whole process is running. `config.paths` cannot answer it,
+    // and neither can the filesystem, which sees both.
+    build: checkBuild(import.meta.url, packageRoot()),
     lastError: readStatus(config.paths.statuslineState)?.lastError ?? null,
   };
 
