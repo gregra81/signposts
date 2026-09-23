@@ -141,6 +141,42 @@ describe("the run loop", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  // 19-value-to-a-user.md's open items: the config accepted `idle_hours` and
+  // SIGNPOSTS_THRESHOLDS_IDLE_HOURS and the gate read neither, so the one
+  // override a person reaches for to try the tool without waiting a day was
+  // silently ignored. This walks the whole path: env to config to discovery.
+  it("honours a shortened idle window from the environment", async () => {
+    const projectDir = path.join(homeDir, ".claude", "projects", projectDirName(repoRoot));
+    const freshPath = path.join(projectDir, `${SESSION_ID}-fresh.jsonl`);
+    writeFileSync(freshPath, `${transcript()}\n`, "utf8");
+    const anHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    utimesSync(freshPath, anHourAgo, anHourAgo);
+
+    const listed = async (env: Record<string, string>) => {
+      const stdio = createFakeStdio();
+      const withEnv = resolveConfig({
+        repoRoot,
+        homeDir,
+        repoFileContents: undefined,
+        userFileContents: undefined,
+        env: {
+          SIGNPOSTS_RETRIEVAL_ALLOW_REMOTE_MODELS: "false",
+          SIGNPOSTS_RETRIEVAL_LOCAL_MODEL_PATH: testLocalModelPath(),
+          ...env,
+        },
+      });
+      await runCli(["sessions"], {
+        config: { ...withEnv, paths: { ...withEnv.paths, modelCacheDir: testModelCache() } },
+        stdio,
+      });
+      const output = firstJson(stdio.writtenOutput()) as { sessions: { sessionId: string }[] };
+      return output.sessions.map((session) => session.sessionId);
+    };
+
+    expect(await listed({})).not.toContain(`${SESSION_ID}-fresh`);
+    expect(await listed({ SIGNPOSTS_THRESHOLDS_IDLE_HOURS: "1" })).toContain(`${SESSION_ID}-fresh`);
+  }, 30_000);
+
   it("lists the eligible session", async () => {
     const stdio = createFakeStdio();
 

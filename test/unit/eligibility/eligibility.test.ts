@@ -52,6 +52,33 @@ const cases: Array<[string, Session, boolean]> = [
   ],
 ];
 
+// 19-value-to-a-user.md's open items: `idle_hours` and
+// SIGNPOSTS_THRESHOLDS_IDLE_HOURS were accepted by the config schema and read
+// by nobody — this gate used the compile-time constant, so the one override a
+// person reaches for to try the tool without waiting a day did nothing.
+describe("the thresholds the config carries", () => {
+  it("honours a shorter idle window than the default", () => {
+    const fresh = { ...BASELINE, lastActivityAt: new Date(NOW.getTime() - 2 * HOUR_MS) };
+
+    expect(isEligible(fresh, NOW)).toBe(false);
+    expect(isEligible(fresh, NOW, { idleHours: 1, maxAgeDays: MAX_AGE_DAYS })).toBe(true);
+  });
+
+  it("honours a longer one", () => {
+    expect(isEligible(BASELINE, NOW, { idleHours: IDLE_HOURS + 48, maxAgeDays: MAX_AGE_DAYS })).toBe(
+      false,
+    );
+  });
+
+  it("honours a shorter maximum age", () => {
+    expect(isEligible(BASELINE, NOW, { idleHours: IDLE_HOURS, maxAgeDays: 1 })).toBe(false);
+  });
+
+  it("falls back to the constants when given nothing, which is what every caller did", () => {
+    expect(isEligible(BASELINE, NOW)).toBe(true);
+  });
+});
+
 describe("isEligible", () => {
   it.each(cases)("%s", (_name, session, expected) => {
     expect(isEligible(session, NOW)).toBe(expected);

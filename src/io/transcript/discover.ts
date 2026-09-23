@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { isEligible } from "../../core/eligibility/eligibility.ts";
+import { isEligible, type EligibilityThresholds } from "../../core/eligibility/eligibility.ts";
 import { projectDirName } from "../../core/transcript/project-dir.ts";
 
 const TRANSCRIPT_EXTENSION = ".jsonl";
@@ -34,6 +34,12 @@ export interface DiscoverInput {
   /** `${sessionId}:${contentHash}` for everything already processed. */
   processedKeys: ReadonlySet<string>;
   now: Date;
+  /**
+   * The configured gate, from `thresholds` — omitted only by a caller with no
+   * config, which then gets the compile-time defaults. Passing it is what
+   * makes `idle_hours` mean anything (19-value-to-a-user.md, open items).
+   */
+  thresholds?: EligibilityThresholds;
 }
 
 /** Eligible sessions, oldest activity first — the order a run should process them in. */
@@ -74,6 +80,7 @@ export function discoverSessions(input: DiscoverInput): DiscoveredSession[] {
         processedKeys: input.processedKeys,
       },
       input.now,
+      input.thresholds,
     );
     if (eligible) {
       found.push({ sessionId, contentHash, transcriptPath, lastActivityAt: stats.mtime });

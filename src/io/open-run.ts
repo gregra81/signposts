@@ -123,6 +123,10 @@ const openRunWith = async (
           repoRoot,
           processedKeys: processedKeys(db, repo),
           now,
+          thresholds: {
+            idleHours: config.thresholds.idle_hours,
+            maxAgeDays: config.thresholds.max_age_days,
+          },
         }),
 
       pendingReviews: (now, options) => listPendingReviews({ graph, checkpointer, repo, now, warn, ...options }),
