@@ -59,6 +59,10 @@ describe("signpost doctor", () => {
     expect(output).toContain("embedding model cache:");
     expect(output).toContain("no database yet");
     expect(output).toContain("session-start hook: not found in settings or in an enabled plugin");
+    // Which tree is running, because a stale one is invisible otherwise: this
+    // suite runs from src/, and a checkout that has built says so too
+    // (19-value-to-a-user.md, "Driving the loop end to end").
+    expect(output).toMatch(/code: src\/ — this checkout/);
   });
 
   it("against an initialised repo: reports db ok after `init` has created it", async () => {
