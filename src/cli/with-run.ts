@@ -13,7 +13,7 @@ import type { ResolvedConfig } from "../core/config/resolve.ts";
 import { pendingProposals } from "../core/graph/pending.ts";
 import { soonestExpiry } from "../core/review/expiry.ts";
 import type { RunResult } from "../graph/index.ts";
-import { recordRunFinished, recordRunProgress } from "../io/worker/status-file.ts";
+import { recordRunFinished, recordRunProgress, recordUnpublished } from "../io/worker/status-file.ts";
 import {
   isUnavailable,
   type OpenedRun,
@@ -96,6 +96,12 @@ export interface SettleInput {
    * this its sessions are adopted by the run that replaces it.
    */
   isFirst: boolean;
+  /**
+   * How many sessions sit committed and unpushed, asked of git once the
+   * session has finished — `countUnpublished` in src/io/commit/publish.ts.
+   * Optional so a caller with no worktree to ask records nothing.
+   */
+  countUnpublished?: () => number;
 }
 
 /**
@@ -158,6 +164,13 @@ export async function settle(input: SettleInput): Promise<void> {
   });
 
   await recordJudged(input, result.state.validated.length);
+
+  // After the watermark, and whether or not this session committed: the
+  // count is what git says, and the status line's reminder is only as true
+  // as the last time something asked (19-value-to-a-user.md, open item 14).
+  if (input.countUnpublished !== undefined) {
+    recordUnpublished(input.statusPath, input.countUnpublished(), input.now);
+  }
 }
 
 /**

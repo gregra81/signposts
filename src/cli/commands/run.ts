@@ -22,6 +22,7 @@ import { JSON_INDENT } from "../../core/config/constants.ts";
 import { parseReplies } from "../../core/cli/replies.ts";
 import { chooseResumeTarget } from "../../core/cli/resume-target.ts";
 import { listHaltedSessions } from "../../io/review/pending.ts";
+import { countUnpublished } from "../../io/commit/publish.ts";
 import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import { OPERATION_TAGS } from "../../core/contracts/graph.ts";
 import { UnusableTranscriptError } from "../../core/errors/unusable-transcript.ts";
@@ -298,6 +299,7 @@ async function report(
     session,
     result,
     statusPath: input.config.paths.statuslineState,
+    countUnpublished: () => countUnpublished(input.repoRoot, input.config.paths.worktreeDir),
     now: new Date(),
     isFirst: input.isFirst === true,
   });

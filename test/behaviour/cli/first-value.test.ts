@@ -228,6 +228,11 @@ describe("manual steps to first value", () => {
     const review = createScriptedStdio(Array.from({ length: operationsToDecide }, () => "a"));
     expect(await runCli(["review"], { config, openRun, stdio: review }), review.writtenError()).toBe(0);
     expect(forge.openPrCalls).toEqual([]);
+    // What the status line reminds the developer of until they publish
+    // (19-value-to-a-user.md, open item 14).
+    const unpublished = () =>
+      (JSON.parse(readFileSync(config.paths.statuslineState, "utf8")) as WorkerStatus).unpublishedSessions;
+    expect(unpublished()).toBe(1);
 
     // 6. The developer is shown what was committed and says yes to publishing
     //    it. Before this step a run opened the pull request on its own, and the
@@ -237,6 +242,7 @@ describe("manual steps to first value", () => {
     const published = createFakeStdio();
     expect(await runCli(["publish"], { config, openRun, publish, stdio: published }), published.writtenError()).toBe(0);
     humanAnswers += 1;
+    expect(unpublished()).toBeUndefined();
 
     // First value: one signpost, committed, on a branch with a pull request.
     expect(forge.openPrCalls).toHaveLength(1);

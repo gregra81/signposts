@@ -8,6 +8,7 @@ import {
   runFinishedStatus,
   runningStatus,
   runProgressStatus,
+  unpublishedStatus,
 } from "../../../src/core/worker/status.ts";
 
 const NOW = new Date("2026-09-09T12:00:00.000Z");
@@ -534,5 +535,40 @@ describe("reviewExpiresAt", () => {
       finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 1, reviewExpiresAt: EXPIRES }).reviewExpiresAt,
     ).toBe(EXPIRES.toISOString());
     expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 })).not.toHaveProperty("reviewExpiresAt");
+  });
+});
+
+// 19-value-to-a-user.md, open item 14: how many sessions sit committed and
+// unpushed, for the status line's reminder.
+describe("unpublishedStatus", () => {
+  const previous = finishedStatus({ now: NOW, eligibleSessions: 2, threadsWaiting: 1, lastRunFinishedAt: WATERMARK });
+
+  it("sets the count and leaves the rest of the file alone", () => {
+    expect(unpublishedStatus(previous, 2, NOW)).toEqual({ ...previous, unpublishedSessions: 2 });
+  });
+
+  it("drops the field at zero, so a published branch leaves nothing behind", () => {
+    expect(unpublishedStatus({ ...previous, unpublishedSessions: 3 }, 0, NOW)).toEqual(previous);
+  });
+
+  it("refuses a count that is not whole and not positive", () => {
+    expect(unpublishedStatus(previous, -1, NOW)).toEqual(previous);
+    expect(unpublishedStatus(previous, 1.7, NOW)).toEqual({ ...previous, unpublishedSessions: 1 });
+  });
+
+  it("writes a whole snapshot when there is no previous one", () => {
+    expect(unpublishedStatus(undefined, 1, NOW)).toEqual({
+      phase: "idle",
+      updatedAt: NOW.toISOString(),
+      eligibleSessions: 0,
+      threadsWaiting: 0,
+      unpublishedSessions: 1,
+    });
+  });
+
+  it("is carried through both of the worker's writes", () => {
+    expect(runningStatus(NOW, undefined, undefined, undefined, 2).unpublishedSessions).toBe(2);
+    expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0, unpublishedSessions: 2 }).unpublishedSessions).toBe(2);
+    expect(runningStatus(NOW)).not.toHaveProperty("unpublishedSessions");
   });
 });

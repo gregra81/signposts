@@ -230,10 +230,12 @@ the `.ts` stays out. A developer never runs the build; an end user gets the outp
 It reads `status.json` and nothing else — no database, no git subprocess — because it runs on every
 assistant message and on a one-second `refreshInterval`.
 
-It renders one of five things, each true at the moment it renders: a review parked on the developer,
-a run in flight, the worker reindexing, a failure nobody was told about, and last the backlog — in
-that order, because a review is the only one of them asking for anything and the backlog asks for
-nothing.
+It renders one of six things, each true at the moment it renders: a review parked on the developer,
+a run in flight, sessions committed and not published, the worker reindexing, a failure nobody was
+told about, and last the backlog — in that order. A review and unpublished commits are the two that
+wait on the developer. A run commits as it goes, so the unpublished count sits below its progress,
+and the backlog asks for nothing. The unpublished count is git's: `settle` and `publish` ask it and
+write `unpublishedSessions`, and the worker carries the field through like the watermark.
 
 The backlog row reverses an earlier rule that the bar say nothing when idle, on the grounds that the
 hook names the backlog once per session start and a permanent row repeating it is noise. What that

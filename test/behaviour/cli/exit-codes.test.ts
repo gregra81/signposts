@@ -14,7 +14,7 @@
 // the graph, and the exit code that comes back out of it.
 
 import { MemorySaver } from "@langchain/langgraph";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -146,6 +146,22 @@ describe("what a run reports to whatever ran it", () => {
       status: "published",
       publish: { manualCommand: command },
     });
+  });
+
+  // 19-value-to-a-user.md, open item 14: publish recounts from git, so a stale
+  // reminder goes away once there is nothing left to push.
+  it("recounts what is unpublished after a publish, and clears a stale count", async () => {
+    mkdirSync(config.paths.stateDir, { recursive: true });
+    writeFileSync(
+      config.paths.statuslineState,
+      JSON.stringify({ phase: "idle", updatedAt: new Date().toISOString(), eligibleSessions: 0, threadsWaiting: 0, unpublishedSessions: 3 }),
+    );
+
+    await runCli(["publish"], { config, publish: () => Promise.resolve(null), stdio: createFakeStdio() });
+
+    const status = JSON.parse(readFileSync(config.paths.statuslineState, "utf8")) as Record<string, unknown>;
+    expect(status).not.toHaveProperty("unpublishedSessions");
+    expect(status["eligibleSessions"]).toBe(0);
   });
 
   it("exits 0 from a publish with nothing to push", async () => {
