@@ -62,7 +62,17 @@ import { fileURLToPath } from "node:url";
 // are a second copy rather than an import.
 // ---------------------------------------------------------------------------
 
-/** Load-bearing: sessions are resumable, lower means extracting from unfinished work. */
+/**
+ * Load-bearing: sessions are resumable, lower means extracting from unfinished
+ * work.
+ *
+ * `thresholds.idle_hours` overrides this for the CLI (and so for the worker's
+ * census, which the notice's counts come from), but not here: honouring it
+ * would mean resolving the config, which is file reads this hook's budget does
+ * not have. So a repo that shortens the window sees the change in
+ * `signpost sessions` and in the census, while this fast path still counts at
+ * 24 hours (19-value-to-a-user.md, open items).
+ */
 const IDLE_HOURS = 24;
 const MAX_AGE_DAYS = 90;
 const REVIEW_EXPIRY_WARN_DAYS = 7;
