@@ -297,8 +297,11 @@ Two manifests, and both are needed. `.claude-plugin/marketplace.json` is what
 `/plugin marketplace add gregra81/signposts` reads, and it offers this repo's own plugin **at the
 release tag** (`"ref": "v<version>"`); `.claude-plugin/plugin.json` is that plugin. It was `"./"`,
 which is the default branch, while `install.sh` installs the CLI from a release: every merge shipped
-plugin wiring ahead of the CLI it drives. Bumping the version means moving the ref too — the manifest
-test and the release workflow both fail otherwise. Without the first, the
+plugin wiring ahead of the CLI it drives. **A release moves three fields together:** `package.json`'s
+version, the marketplace `ref`, and `.claude-plugin/plugin.json`'s `version` — the last is Claude Code's
+cache key, and v0.1.2 left it behind, so `/plugin update` told every existing install it was current. The
+manifest test and the release workflow check all three. `install.sh` runs `marketplace update` and
+`plugin update` after the install, because `add` and `install` do nothing for a plugin already there. Without the first, the
 second cannot be installed at all, which is how v0.1.0 shipped — the README described an install
 nobody could perform.
 

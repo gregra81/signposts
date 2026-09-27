@@ -24,6 +24,7 @@ set -euo pipefail
 REPO="gregra81/signposts"
 # `<plugin>@<marketplace>`, both declared in .claude-plugin/marketplace.json.
 PLUGIN="signposts@signposts"
+MARKETPLACE="${PLUGIN#*@}"
 NODE_MIN_MAJOR=24
 REQUESTED="${SIGNPOSTS_VERSION:-latest}"
 
@@ -157,9 +158,15 @@ install_plugin() {
   fi
 
   say "installing the Claude Code plugin"
+  # `marketplace add` and `install` are both no-ops for something already
+  # there, so on an upgrade they left the previous release's plugin in place
+  # beside the new CLI — v0.1.1's wiring on v0.1.2's code. The refresh reads
+  # the marketplace's new pin, and `update` moves an installed plugin onto it.
   local output
   if ! output="$(claude plugin marketplace add "$REPO" 2>&1)" ||
-    ! output="$(claude plugin install "$PLUGIN" --scope user --yes 2>&1)"; then
+    ! output="$(claude plugin marketplace update "$MARKETPLACE" 2>&1)" ||
+    ! output="$(claude plugin install "$PLUGIN" --scope user --yes 2>&1)" ||
+    ! output="$(claude plugin update "$PLUGIN" --scope user --yes 2>&1)"; then
     say "the plugin did not install: ${output}"
     plugin_by_hand
   fi

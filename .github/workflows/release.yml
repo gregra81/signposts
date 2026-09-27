@@ -44,6 +44,16 @@ jobs:
             exit 1
           fi
 
+      # Claude Code's cache key for the plugin. Left behind, `/plugin update`
+      # sees nothing new and an existing install keeps the old plugin — v0.1.2.
+      - name: tag matches the plugin's own version
+        run: |
+          declared="$(node -p "require('./.claude-plugin/plugin.json').version")"
+          if [ "v$declared" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match version $declared in .claude-plugin/plugin.json" >&2
+            exit 1
+          fi
+
       # The same chain a pull request runs. A tag is not a reason to skip it:
       # this artefact is what a `curl | bash` puts on someone's machine.
       - run: pnpm run typecheck
