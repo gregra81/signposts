@@ -1,6 +1,6 @@
 {
   "name": "signposts",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Turns the corrections you type at Claude Code into reviewed team knowledge, as markdown in your own repo.",
   "keywords": [
     "claude-code",

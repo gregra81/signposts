@@ -165,6 +165,39 @@ else
   fail "the missing-claude fallback did not print both /plugin commands"
 fi
 
+# --- an upgrade, with claude on PATH ---------------------------------------------
+
+# `marketplace add` and `plugin install` are no-ops for a plugin already there,
+# so v0.1.2's installer left the previous release's plugin beside the new CLI.
+# A stub `claude` records what it was asked; the upgrade needs the marketplace
+# refreshed and the plugin updated, in that order, after the install.
+setup_case upgrade
+cat >"$case_dir/stub/claude" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$CLAUDE_LOG"
+STUB
+chmod +x "$case_dir/stub/claude"
+export CLAUDE_LOG="$case_dir/claude.log"
+
+status=0
+env -i \
+  HOME="$case_dir/home" \
+  PATH="$case_dir/prefix/bin:$case_dir/stub:/usr/bin:/bin" \
+  NPM_LOG="$case_dir/npm.log" NPM_PREFIX="$case_dir/prefix" CLAUDE_LOG="$CLAUDE_LOG" \
+  SIGNPOSTS_VERSION="$version" \
+  bash "$case_dir/install.sh" >"$case_dir/out" 2>&1 || status=$?
+if [ "$status" = 0 ]; then pass "installs with claude on PATH"; else fail "installer exited $status"; cat "$case_dir/out" >&2; fi
+
+expected="plugin marketplace add gregra81/signposts
+plugin marketplace update signposts
+plugin install signposts@signposts --scope user --yes
+plugin update signposts@signposts --scope user --yes"
+if [ "$(cat "$CLAUDE_LOG" 2>/dev/null)" = "$expected" ]; then
+  pass "refreshes the marketplace and updates an installed plugin"
+else
+  fail "claude was asked: $(tr '\n' ';' <"$CLAUDE_LOG" 2>/dev/null)"
+fi
+
 # --- a corrupted SHA256SUMS ----------------------------------------------------
 
 setup_case corrupt

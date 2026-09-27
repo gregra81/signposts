@@ -35,6 +35,15 @@ describe("the plugin manifest", () => {
     expect(manifest["name"]).toBe("signposts");
   });
 
+  // Claude Code uses this field as the plugin's cache key: `/plugin update`
+  // compares it with what is installed and does nothing when they match. v0.1.2
+  // bumped package.json and the marketplace ref and left this at 0.1.1, so every
+  // existing install reported "already at the latest version" and kept the
+  // previous release's plugin (19-value-to-a-user.md, "Fewer human steps").
+  it("carries the package's version, which is what makes an update an update", () => {
+    expect(manifest["version"]).toBe(packageJson["version"]);
+  });
+
   it("points at paths that exist", () => {
     const declared = manifest["commands"];
     expect(typeof declared).toBe("string");
