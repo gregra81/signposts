@@ -66,6 +66,20 @@ describe("the plugin's skill", () => {
     expect(SKILL).not.toMatch(/ask (?:them )?whether to publish/i);
   });
 
+  // The live walkthrough: the session read the skill's base directory as the
+  // repo, and the subagent ran `cd <plugin dir> && signpost run`, which the
+  // allow rule does not match and which works on the wrong repository.
+  it("says the repo is the working directory, and to run signpost bare", () => {
+    expect(SKILL).toContain("The repo is the current working directory");
+    expect(SKILL).toContain("no `cd`, no `&&`");
+  });
+
+  // The live walkthrough's second prompt: the subagent was told to read this
+  // file, which sits in the plugin's directory, outside the project.
+  it("has the instructions passed inline, not read from the plugin's directory", () => {
+    expect(SKILL).toContain("Do not point it at this file");
+  });
+
   it("never mentions the review halt that went", () => {
     expect(SKILL).not.toContain("human_review");
     expect(SKILL).not.toContain("signpost review");

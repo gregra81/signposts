@@ -14,6 +14,13 @@ carries on.
 The developer already said yes to the run, and that yes covers the pull request.
 Do not ask them anything else between here and reporting it.
 
+**The repo is the current working directory** — the one this session was started
+in. It is not this skill's directory, which is wherever the plugin is installed.
+Run every `signpost` command bare, from where you are: no `cd`, no `&&`, no
+pipes. The permission rule the run relies on matches `signpost …` and nothing
+else, so a compound command stops the run for a prompt, and one run in the
+plugin's directory works on the wrong repository.
+
 ## The loop
 
 Every command prints one JSON object. A run advances one halt at a time.
@@ -23,8 +30,12 @@ Every command prints one JSON object. A run advances one halt at a time.
    what it did on stderr.
 2. **Delegate the rest to a subagent, one per session, one session at a time.**
    The prompts below are thousands of tokens each and belong in a subagent's
-   context, not the developer's. Give the subagent this file and the session id,
-   and start the next subagent only after this one comes back. Never run sessions
+   context, not the developer's. Put what it needs in its prompt — the session id,
+   the repo's absolute path (your current working directory), and the sections
+   "The loop" and "Answering a halt" below, copied in — and tell it to run
+   `signpost` bare from there. Do not point it at this file: it lives in the plugin's
+   directory, outside the repo, and reading it there stops the run for a prompt. Start the next subagent only after this one comes
+   back, and wait for it: its result is what you report. Never run sessions
    in parallel: each session compares its candidates against what the earlier
    ones proposed, and two sessions running at once can each propose the same
    signpost.
