@@ -144,6 +144,20 @@ else
   fail "the shipped hook failed: $hook_out"
 fi
 
+# Outside a repo, exiting 0 with no output is also exactly what a hook that
+# never ran does — and every installed hook never ran until 2026-09-27: its
+# entry-point check compared the PATH symlink with the real file. So this one
+# asks for a side effect: a SessionEnd marker, from the binary on PATH.
+mkdir -p "$case_dir/a-repo"
+git -C "$case_dir/a-repo" init -q
+printf '{"session_id":"install-probe","cwd":"%s"}' "$case_dir/a-repo" |
+  in_sandbox 'signpost-session-start --session-end' >/dev/null 2>&1 || true
+if find "$case_dir/home/.signposts" -path '*/ended-sessions/install-probe' 2>/dev/null | grep -q .; then
+  pass "the hook on PATH does its work, through npm's symlink"
+else
+  fail "the hook on PATH wrote no SessionEnd marker"
+fi
+
 if grep -qF "/plugin marketplace add gregra81/signposts" "$case_dir/out" &&
   grep -qF "/plugin install signposts@signposts" "$case_dir/out"; then
   pass "prints both /plugin commands when claude is missing"

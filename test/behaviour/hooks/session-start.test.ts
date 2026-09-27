@@ -17,6 +17,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -114,8 +115,8 @@ function writeWorkerState(f: Fixture, state: Record<string, unknown>): Fixture {
   return f;
 }
 
-function runHook(f: Fixture, extraEnv: Record<string, string> = {}) {
-  return spawnSync(process.execPath, [HOOK], {
+function runHook(f: Fixture, extraEnv: Record<string, string> = {}, script = HOOK) {
+  return spawnSync(process.execPath, [script], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -153,6 +154,24 @@ async function waitUntil(done: () => boolean, attempts = 600, intervalMs = 100):
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }
+
+// How an installed copy runs: npm puts a symlink on PATH, and Claude Code runs
+// that. The entry-point check compared the symlink's path with the file's own,
+// so every installed hook exited 0 having done nothing, while every test here
+// passed by spawning the file directly (found in the live walkthrough,
+// 19-value-to-a-user.md "Fewer human steps").
+describe("run through the symlink npm installs", () => {
+  it("does its work, not just exit 0", () => {
+    const f = withTranscript(withCurrentIndex(fixture()), "yesterday", IDLE_HOURS + 1);
+    const link = path.join(f.home, "signpost-session-start");
+    symlinkSync(HOOK, link);
+
+    const result = runHook(f, {}, link);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
+  });
+});
 
 describe("silence when there is nothing to do", () => {
   it("emits nothing in a repo where init never ran", () => {

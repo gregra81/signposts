@@ -881,12 +881,29 @@ function wake(paths: HookPaths, repoRoot: string): WakeReasons | null {
 }
 
 /**
- * `bin/signpost.js` is imported by nothing; this file is imported by its own
- * tests, which must not spawn a worker on import. Node sets `argv[1]` to the
- * script it was told to run, so comparing it to this module's own path is
- * what distinguishes "run as the hook" from "imported for its functions".
+ * Whether this file is the script Node was told to run, rather than a module a
+ * test imported for its functions (which must not spawn a worker on import).
+ *
+ * Compared through `realpathSync`, both sides. An installed copy is run
+ * through the symlink npm puts on PATH — `…/bin/signpost-session-start` —
+ * while `import.meta.url` is the file it points at, so a plain `path.resolve`
+ * never matched: every installed hook since v0.1.0 exited 0 having done
+ * nothing. The offer, the worker and the SessionEnd marker all hang off this
+ * line, and the tests spawned the file by its real path, where it matched
+ * (19-value-to-a-user.md, "Fewer human steps", found in the live walkthrough).
  */
-if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+export function isEntryPoint(argv1: string | undefined, moduleUrl: string): boolean {
+  if (argv1 === undefined) {
+    return false;
+  }
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint(process.argv[1], import.meta.url)) {
   try {
     main();
   } catch {
