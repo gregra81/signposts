@@ -29,7 +29,6 @@ import type {
   CandidateOperations,
   Classification,
   GatedOperations,
-  HumanDecision,
   NeighbourSignpost,
   Operation,
   Resolution,
@@ -94,8 +93,6 @@ export const GraphAnnotation = Annotation.Root({
   gated: replaced<GatedOperations>(() => ({ auto: [], needsHuman: [] })),
   validationErrors: replaced<string[]>(() => []),
   validateAttempts: replaced<number>(() => 0),
-
-  humanDecisions: mergeableRecord<HumanDecision>(),
 });
 
 export type ExtractionState = typeof GraphAnnotation.State;

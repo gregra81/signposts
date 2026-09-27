@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { IDLE_HOURS, REVIEW_EXPIRY_WARN_DAYS, RUN_PROGRESS_STALE_MINUTES } from "../../../src/core/config/constants.ts";
+import { IDLE_HOURS, RUN_PROGRESS_STALE_MINUTES } from "../../../src/core/config/constants.ts";
 import { hashRepoRoot } from "../../../src/core/config/paths.ts";
 import type { WorkerStatus } from "../../../src/core/worker/status.ts";
 
@@ -86,7 +86,6 @@ function progress(minutesAgo: number, done: number, total: number, found: number
     phase: "idle",
     updatedAt: at,
     eligibleSessions: 0,
-    threadsWaiting: 0,
     runProgress: { sessionsDone: done, sessionsTotal: total, found, updatedAt: at },
   };
 }
@@ -104,7 +103,6 @@ describe("nothing when idle", () => {
       phase: "idle",
       updatedAt: new Date().toISOString(),
       eligibleSessions: 0,
-      threadsWaiting: 0,
     });
 
     expect(render(f).stdout).toBe("");
@@ -155,7 +153,6 @@ describe("progress during a run", () => {
       phase: "running",
       updatedAt: new Date().toISOString(),
       eligibleSessions: 0,
-      threadsWaiting: 0,
     });
 
     expect(render(f).stdout.trim()).toBe("🪧 signposts: indexing");
@@ -170,47 +167,13 @@ describe("progress during a run", () => {
       phase: "running",
       updatedAt: new Date(Date.now() - (RUN_PROGRESS_STALE_MINUTES + 1) * MINUTE_MS).toISOString(),
       eligibleSessions: 0,
-      threadsWaiting: 0,
     });
 
     expect(render(f).stdout).toBe("");
   });
 
-  it("shows a review parked on the developer", () => {
-    const f = withStatus(fixture(), {
-      phase: "idle",
-      updatedAt: new Date().toISOString(),
-      eligibleSessions: 0,
-      threadsWaiting: 2,
-    });
 
-    expect(render(f).stdout.trim()).toBe("🪧 signposts: 2 changes need your review");
-  });
 
-  // 19-value-to-a-user.md item 3: warned while there is still time to answer.
-  it("says when a parked review is about to expire", () => {
-    const f = withStatus(fixture(), {
-      phase: "idle",
-      updatedAt: new Date().toISOString(),
-      eligibleSessions: 0,
-      threadsWaiting: 2,
-      reviewExpiresAt: new Date(Date.now() + 3 * 86_400_000 - 60_000).toISOString(),
-    });
-
-    expect(render(f).stdout.trim()).toBe("🪧 signposts: 2 changes need your review · expires in 3 days");
-  });
-
-  it("does not mention expiry while it is further off than REVIEW_EXPIRY_WARN_DAYS", () => {
-    const f = withStatus(fixture(), {
-      phase: "idle",
-      updatedAt: new Date().toISOString(),
-      eligibleSessions: 0,
-      threadsWaiting: 1,
-      reviewExpiresAt: new Date(Date.now() + (REVIEW_EXPIRY_WARN_DAYS + 1) * 86_400_000).toISOString(),
-    });
-
-    expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
-  });
 
   // Replaced "says nothing about a backlog nobody has run", which pinned the
   // opposite rule: the backlog was the hook's message to deliver once, and a
@@ -225,7 +188,6 @@ describe("progress during a run", () => {
       phase: "idle",
       updatedAt: new Date().toISOString(),
       eligibleSessions: 4,
-      threadsWaiting: 0,
     });
 
     expect(render(f).stdout.trim()).toBe("🪧 signposts: 4 sessions not yet captured");
@@ -236,7 +198,6 @@ describe("progress during a run", () => {
       phase: "idle",
       updatedAt: new Date().toISOString(),
       eligibleSessions: 1,
-      threadsWaiting: 0,
     });
 
     expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 session not yet captured");
@@ -251,7 +212,6 @@ describe("progress during a run", () => {
       phase: "idle",
       updatedAt: new Date(Date.now() - (IDLE_HOURS + 1) * 3_600_000).toISOString(),
       eligibleSessions: 4,
-      threadsWaiting: 0,
     });
 
     expect(render(f).stdout).toBe("");
@@ -262,7 +222,6 @@ describe("progress during a run", () => {
       phase: "idle",
       updatedAt: new Date(Date.now() - (IDLE_HOURS - 1) * 3_600_000).toISOString(),
       eligibleSessions: 4,
-      threadsWaiting: 0,
     });
 
     expect(render(f).stdout.trim()).toBe("🪧 signposts: 4 sessions not yet captured");
@@ -275,7 +234,6 @@ describe("progress during a run", () => {
       phase: "idle",
       updatedAt: new Date().toISOString(),
       eligibleSessions: 4,
-      threadsWaiting: 0,
       lastError: "index rebuild exited 1",
     });
 
@@ -289,35 +247,18 @@ describe("progress during a run", () => {
       phase: "idle",
       updatedAt: new Date().toISOString(),
       eligibleSessions: 0,
-      threadsWaiting: 0,
       lastError: "index rebuild exited 1",
     });
 
     expect(render(f).stdout.trim()).toBe("🪧 signposts: last run failed — run `signpost doctor`");
   });
 
-  // Above the progress row deliberately: a run halted on a review re-stamps no
-  // progress, so the progress ages out and this is what has to be left saying
-  // something. It is also the only row asking the developer to do anything.
-  it("puts a parked review above a run in flight", () => {
-    const f = withStatus(fixture(), { ...progress(1, 2, 3, 4), threadsWaiting: 1 });
 
-    expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
-  });
 
-  it("shows the review after the run's progress has aged out", () => {
-    const f = withStatus(fixture(), {
-      ...progress(RUN_PROGRESS_STALE_MINUTES + 1, 2, 3, 4),
-      threadsWaiting: 1,
-    });
-
-    expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
-  });
-
-  // 19-value-to-a-user.md, open item 14: a run pushes nothing, and after a
-  // "not now" to publishing this row is what remembers.
+  // 19-value-to-a-user.md, open item 14: a publish that could not finish
+  // leaves commits behind, and this row is what remembers.
   describe("commits nobody has published", () => {
-    const idle = { phase: "idle" as const, updatedAt: new Date().toISOString(), threadsWaiting: 0 };
+    const idle = { phase: "idle" as const, updatedAt: new Date().toISOString()};
 
     it("says how many sessions are committed and not pushed, and what to run", () => {
       const f = withStatus(fixture(), { ...idle, unpublishedSessions: 2 });
@@ -325,7 +266,7 @@ describe("progress during a run", () => {
       expect(render(f).stdout.trim()).toBe("🪧 signposts: 2 sessions not published — run `signpost publish`");
     });
 
-    it("ranks above a failure and the backlog, and below a review and a run in flight", () => {
+    it("ranks above a failure and the backlog, and below a run in flight", () => {
       const quiet = withStatus(fixture(), {
         ...idle,
         unpublishedSessions: 1,
@@ -333,9 +274,6 @@ describe("progress during a run", () => {
         eligibleSessions: 3,
       });
       expect(render(quiet).stdout.trim()).toBe("🪧 signposts: 1 session not published — run `signpost publish`");
-
-      const reviewing = withStatus(fixture(), { ...idle, unpublishedSessions: 1, threadsWaiting: 1 });
-      expect(render(reviewing).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
 
       const running = withStatus(fixture(), { ...progress(1, 1, 3, 2), unpublishedSessions: 1 });
       expect(render(running).stdout.trim()).toBe("🪧 signposts: 1/3 sessions · 2 found");
@@ -345,7 +283,6 @@ describe("progress during a run", () => {
   it("renders one row and no more", () => {
     const f = withStatus(fixture(), {
       ...progress(1, 2, 3, 4),
-      threadsWaiting: 2,
       lastError: "something",
     });
 

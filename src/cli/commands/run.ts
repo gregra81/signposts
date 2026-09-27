@@ -21,12 +21,12 @@ import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { JSON_INDENT } from "../../core/config/constants.ts";
 import { parseReplies } from "../../core/cli/replies.ts";
 import { chooseResumeTarget } from "../../core/cli/resume-target.ts";
-import { listHaltedSessions } from "../../io/review/pending.ts";
+import { listHaltedSessions } from "../../io/graph/halted-sessions.ts";
 import { countUnpublished } from "../../io/commit/publish.ts";
 import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import { OPERATION_TAGS } from "../../core/contracts/graph.ts";
 import { UnusableTranscriptError } from "../../core/errors/unusable-transcript.ts";
-import { REVIEW_REQUEST_KIND, resumeRun, startRun, type RunResult } from "../../graph/index.ts";
+import { resumeRun, startRun, type RunResult } from "../../graph/index.ts";
 import type { RunOutput, SessionRef, SessionsOutput } from "../protocol.ts";
 import type { OpenRun, RunHandle, RunSession, SettledSession } from "../run-port.ts";
 import { fail, namedSession, settle, settleSkipped, withRun } from "../with-run.ts";
@@ -313,7 +313,7 @@ async function report(
           traceable(session),
           result.pending.map((pending) => ({
             kind: pending.request.kind,
-            node: pending.request.kind === REVIEW_REQUEST_KIND ? undefined : pending.request.node,
+            node: pending.request.node,
             interruptId: pending.id,
           })),
         )
@@ -325,6 +325,7 @@ async function report(
     contentHash: session.contentHash,
     status: waiting ? "waiting" : "finished",
     pending: result.pending,
+    ...(waiting ? { repliesPath: input.config.paths.repliesPath } : {}),
     proposed,
     commit: handle.commitOutcome(),
     // Reported on a halt as well as a finish: the retry has already happened
@@ -333,30 +334,9 @@ async function report(
     ...(result.state.criticRetries > 0 ? { reExtracted: result.state.criticRetries } : {}),
   };
   write(input.stdout, output);
-  return exitCode(result);
-}
-
-/**
- * What the invocation reports to whatever ran it (12-wire-contracts.md, "Exit
- * codes").
- *
- * The non-zero code here is not a failure, and that is the whole point of it:
- * a hook or a CI step that treats non-zero as fatal must not raise an alarm
- * because a person has a review to answer. It is reported alongside the same
- * JSON object every other outcome prints — `status` and `pending` are
- * unchanged, the exit code is the part a caller that does not parse JSON can
- * still read.
- *
- * `prCreationFailed` is not one of them any more. A run commits and stops;
- * pushing and the pull request are `signpost publish`'s, and so is that code.
- *
- * A halt on a model call is *not* one of them: the session driving the loop
- * answers those itself, and it is told to by `status: "waiting"`.
- */
-function exitCode(result: RunResult): ExitCode {
-  if (result.pending.some((pending) => pending.request.kind === REVIEW_REQUEST_KIND)) {
-    return EXIT_CODES.awaitingHuman;
-  }
+  // Always 0. A halt is a model call the session driving the loop answers
+  // itself, told to by `status: "waiting"`; the review halt that used to exit
+  // 5 is gone (19-value-to-a-user.md, "Fewer human steps").
   return EXIT_CODES.ok;
 }
 

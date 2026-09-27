@@ -11,8 +11,8 @@ evaporate when the session ends. The next person, human or Claude, has to relear
 
 signposts reads the Claude Code transcripts already sitting on your disk, pulls out the lessons
 that you couldn't get by just reading the code, checks them against what's already been recorded,
-and commits them to a branch of markdown in the repo. When you say yes, it opens a pull request,
-and a human reviews it like any other PR — nothing gets merged automatically.
+and opens a pull request of markdown in the repo. A human reviews it like any other PR, and
+nothing gets merged automatically.
 
 A signpost is what a previous traveler leaves behind so the next one doesn't take the wrong turn.
 
@@ -20,8 +20,10 @@ A signpost is what a previous traveler leaves behind so the next one doesn't tak
 
 ```
 curl -fsSL https://gregra81.github.io/signposts/install.sh | bash
-signpost init          # asks once, writes .signposts/ and the skill
 ```
+
+That is the only command. There is nothing to set up per repo: once a session has gone quiet, the
+next Claude Code session asks whether to turn it into a pull request, and a yes does the rest.
 
 The script wants Node 24 or newer. It downloads the release tarball, checks it against the
 SHA256SUMS published beside it, and hands it to `npm install -g`. Pin a version with
@@ -45,8 +47,13 @@ inside Claude Code instead:
 /plugin install signposts@signposts
 ```
 
-`SIGNPOSTS_SKIP_PLUGIN=1` installs the CLI on its own. `signpost init` is still yours to run per
-repo: it asks for consent and installs the status line, neither of which a plugin is allowed to do.
+`SIGNPOSTS_SKIP_PLUGIN=1` installs the CLI on its own.
+
+The first run in a repo sets it up on the way through. It installs the status line, and it adds two
+allow rules to `.claude/settings.local.json` (the `signpost` binary and one replies file outside the
+repo), so the run does not stop to ask permission at every step. A plugin is not allowed to do
+either, which is why the run does it. That file stays out of git. Nothing is written into your
+checkout: the `CLAUDE.md` pointer comes in with the first pull request.
 
 ## What you end up with
 
@@ -80,8 +87,8 @@ goes through the nightly ETL job.
 
 Two authors on that file because two people hit the same wall in different words, and the second
 session recognised the first one's claim instead of writing a second file about it. When a third
-session contradicts it, the run stops and asks you rather than overwriting what your colleague
-recorded.
+session contradicts it, the change goes into the pull request flagged, with the reason, and your
+colleague's claim stays until someone merges it.
 
 ## How it works
 
@@ -91,11 +98,10 @@ recorded.
 3. Your Claude Code session proposes candidate signposts, then critiques them with a skeptical eye.
 4. For each candidate, retrieve the nearest existing signposts and classify it: new, duplicate,
    refinement, or contradiction.
-5. High-confidence new additions go straight onto the branch. Anything low-confidence, anything
-   that edits or deletes existing knowledge, and every contradiction stops and waits for a human.
-6. Write the markdown to `.signposts/` and commit it to your branch, locally.
-7. Show you what was committed. `signpost publish` pushes it and opens or updates the PR, and it
-   runs only when you say yes.
+5. Write the markdown to `.signposts/` and commit it to your branch, locally.
+6. Push the branch and open or update the PR. Anything low-confidence, anything that edits or
+   deletes existing knowledge, every contradiction, and everything on a repo's first run is listed
+   in the PR under "Look closely at", with the reason.
 
 ## Decisions that shaped this
 
@@ -122,10 +128,12 @@ resume it after all, the new activity cancels the mark and the full day applies 
 **Your working tree is never touched.** A run commits through a second worktree, so proposals
 appear on a branch while you carry on with whatever you were doing.
 
-**Nothing leaves your machine until you say so.** A run stops at a local commit. The push and the
-pull request are a separate step, `signpost publish`, because a PR you didn't ask for is a bad
-first thing to see after a run that worked. Say no and the commits wait on the branch; the next
-run adds to them.
+**One question, then a pull request.** Claude offers the run and says it will open a pull request.
+Your yes covers both. The run stops at a local commit and `signpost publish` does the push at the
+end, so nothing leaves your machine before you have said yes. There used to be more questions: a
+consent prompt at `init`, a review of every flagged change inside the session, and a separate yes
+to publishing. Each one was a reason not to use the tool, and the pull request was already the
+place where a person reviews the work.
 
 **The write path shipped first.** Retrieval-and-inject is a crowded space; capturing the knowledge
 at all was the part worth building first. The read path is now an MCP server with one tool,
@@ -134,21 +142,16 @@ anyway: it is what still works when the server is not running.
 
 ## The commands
 
-After `init` you mostly don't type any of these — you ask Claude to run signposts, and the skill
-it installed drives the loop.
+You don't normally type any of these. Claude offers a run, and the skill that ships with the plugin
+drives the loop.
 
 | Command | What it is for |
 |---|---|
-| `signpost init` | Consent, `.signposts/`, the CLAUDE.md pointer, the skill, the status line. Asked once. |
-| `signpost review` | Where you answer the things a run stopped on, one at a time, as a before/after diff. |
 | `signpost doctor` | Checks this machine: node version, `gh` auth, model cache, database, whether the hook is installed. |
-| `signpost index` | Rebuilds the local search index by hand. The session-start hook does it in the background. |
 | `signpost sessions`, `run`, `resume` | The loop the skill drives. One JSON object per invocation. |
-
-`signpost review` is the one you will type. A run stops at anything that edits, deletes or
-contradicts knowledge you already have, and it stays stopped until you answer, usually days later
-and from a different process. Accept, reject, edit or skip each proposal. It refuses a stdin that
-is not a terminal, so nothing automated can answer in your place.
+| `signpost publish` | Pushes what the runs committed and opens or updates the PR. The skill runs it at the end. |
+| `signpost index` | Rebuilds the local search index by hand. The session-start hook does it in the background. |
+| `signpost init` | Sets a repo up and downloads the embedding model ahead of time. Optional: the first run does the same. |
 
 `--verbose` narrates a run on stderr: which transcript it picked, what each halt is waiting on,
 and the exact command that answers it. stdout stays one JSON object, so a pipe through `jq` still

@@ -18,6 +18,7 @@ import type { PublishOutcome } from "../../../src/cli/run-port.js";
 import type { Forge } from "../../../src/io/forge/forge.js";
 import { FakeForge, FAKE_PR_URL_PREFIX } from "../../../src/io/forge/fake-forge.js";
 import { BRANCH_PATTERN, SIGNPOSTS_DIRNAME } from "../../../src/core/config/constants.js";
+import { CLAUDE_MD_POINTER } from "../../../src/core/init/policy.js";
 import { PR_TITLE } from "../../../src/core/pr/body.js";
 import { parseSignpost, serialiseSignpost } from "../../../src/core/signpost/codec.js";
 import type { Operation } from "../../../src/core/contracts/graph.js";
@@ -101,7 +102,7 @@ describe("the commit port", () => {
 
   /** What a run does: commit the session, and nothing else. */
   function commit(sessionId: string, operations: Operation[], overrides: Parameters<typeof port>[0] = {}) {
-    return port(overrides).apply({ repo: "acme/api", repoRoot, sessionId, operations });
+    return port(overrides).apply({ repo: "acme/api", repoRoot, sessionId, operations, flagged: [] });
   }
 
   /** What `signpost publish` does once the developer says yes. */
@@ -170,6 +171,33 @@ describe("the commit port", () => {
     );
     expect(git(worktreeDir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(BRANCH);
     expect(git(worktreeDir, "log", "-1", "--pretty=%s")).toBe("signposts: 1 from session sess-1");
+  });
+
+  // `init` used to write the pointer into the developer's checkout, leaving
+  // them a file to commit by hand before anything had happened. It rides in
+  // the first signposts commit now (19-value-to-a-user.md, "Fewer human steps").
+  it("puts the CLAUDE.md pointer on the branch with the first signpost, and only once", async () => {
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+    await apply("sess-2", [
+      { op: "reinforce", id: "staging-read-only", sessionId: "sess-2", author: AUTHOR },
+    ]);
+
+    expect(readFileSync(path.join(worktreeDir, "CLAUDE.md"), "utf8")).toBe(CLAUDE_MD_POINTER);
+    expect(git(worktreeDir, "log", "--pretty=%s", "--", "CLAUDE.md").split("\n")).toEqual([
+      "signposts: 1 from session sess-1",
+    ]);
+    expect(existsSync(path.join(repoRoot, "CLAUDE.md"))).toBe(false);
+  });
+
+  it("leaves a base that already carries the pointer alone", async () => {
+    writeFileSync(path.join(repoRoot, "CLAUDE.md"), `# api\n\n${CLAUDE_MD_POINTER}`, "utf8");
+    git(repoRoot, "add", "CLAUDE.md");
+    git(repoRoot, "commit", "-m", "pointer");
+    git(repoRoot, "push", "origin", "main");
+
+    await apply("sess-1", [{ op: "add", signpost: signpost() }]);
+
+    expect(git(worktreeDir, "log", "--pretty=%s", `main..${BRANCH}`, "--", "CLAUDE.md")).toBe("");
   });
 
   it("leaves the checkout the developer is working in exactly as it was", async () => {

@@ -32,6 +32,18 @@ jobs:
             exit 1
           fi
 
+      # The plugin half installs from the tag the marketplace names, not from
+      # the default branch, so the CLI and its wiring are one release
+      # (19-value-to-a-user.md, open item 15). A release that forgot to move
+      # the pin would ship its CLI beside the previous release's plugin.
+      - name: tag matches the marketplace pin
+        run: |
+          pinned="$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].source.ref")"
+          if [ "$pinned" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match the plugin ref $pinned in .claude-plugin/marketplace.json" >&2
+            exit 1
+          fi
+
       # The same chain a pull request runs. A tag is not a reason to skip it:
       # this artefact is what a `curl | bash` puts on someone's machine.
       - run: pnpm run typecheck

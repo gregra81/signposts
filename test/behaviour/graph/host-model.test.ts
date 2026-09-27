@@ -16,15 +16,12 @@ import {
   isModelRequest,
   MODEL_REQUEST_KIND,
   resumeRun,
-  REVIEW_REQUEST_KIND,
   startRun,
   type ModelRequest,
   type PendingRequest,
   type Replies,
-  type ReviewRequest,
   type RunResult,
 } from "../../../src/graph/index.js";
-import { operationKey } from "../../../src/core/graph/decisions.js";
 import { systemPromptFor } from "../../../src/core/prompts/system.js";
 import { jsonSchemaFor } from "../../../src/core/graph/node-io.js";
 import {
@@ -296,42 +293,13 @@ describe("a run with nothing left to ask", () => {
   });
 });
 
-describe("the two things a run halts on", () => {
-  it("are told apart by kind, so a review is never answered as a model call", async () => {
-    // A `refine` is always gated to a person (ALWAYS_HUMAN_OPS), so this run
-    // ends at `human_review` rather than at another model call.
-    const existing = existingSignpost();
-    const { graph, checkpointer } = hostRun({
-      existing: [existing],
-      neighbours: { t1: [existing] },
-    });
-
-    const extract = await startRun(graph, checkpointer, RUN_INPUT);
-    const critic = await resumeRun(graph, checkpointer, RUN_INPUT, {
-      [onlyModelRequest(extract).id]: { candidates: [FIRST] },
-    });
-    const classify = await resumeRun(graph, checkpointer, RUN_INPUT, {
-      [onlyModelRequest(critic).id]: keepAll([FIRST]),
-    });
-    const review = await resumeRun(
-      graph,
-      checkpointer,
-      RUN_INPUT,
-      answerAll(classify, () => ({
-        tempId: "t1",
-        kind: "REFINEMENT",
-        relatedId: existing.id,
-        rationale: "sharper wording of the same rule",
-      })),
-    );
-
-    expect(review.pending).toHaveLength(1);
-    const [pending] = review.pending;
-    expect(isModelRequest(pending!.request)).toBe(false);
-    expect(pending!.request.kind).toBe(REVIEW_REQUEST_KIND);
-  });
-
-  it("are answered the same way: a review decision resumes by interrupt id too", async () => {
+// Replaces "the two things a run halts on", which asserted that a gated
+// operation stopped the run on a `human_review` a person answered by interrupt
+// id. That review is the pull request now (19-value-to-a-user.md, "Fewer human
+// steps"): a model call is the only thing a run halts on.
+describe("a gated operation", () => {
+  it("does not halt the run: it is committed, flagged with why", async () => {
+    // A `refine` is always gated to a person (ALWAYS_HUMAN_OPS).
     const existing = existingSignpost();
     const { ports, graph, checkpointer } = hostRun({
       existing: [existing],
@@ -345,7 +313,7 @@ describe("the two things a run halts on", () => {
     const classify = await resumeRun(graph, checkpointer, RUN_INPUT, {
       [onlyModelRequest(critic).id]: keepAll([FIRST]),
     });
-    const review = await resumeRun(
+    const done = await resumeRun(
       graph,
       checkpointer,
       RUN_INPUT,
@@ -357,18 +325,8 @@ describe("the two things a run halts on", () => {
       })),
     );
 
-    const [pending] = review.pending;
-    const request = pending!.request as ReviewRequest;
-    const decisions = Object.fromEntries(
-      request.needsHuman.map(({ operation }) => [
-        operationKey(operation),
-        { decision: "accept", decidedAt: "2026-08-27T09:00:00.000Z" },
-      ]),
-    );
-
-    const done = await resumeRun(graph, checkpointer, RUN_INPUT, { [pending!.id]: decisions });
-
     expect(done.pending).toEqual([]);
     expect(ports.commit.operations.map((operation) => operation.op)).toEqual(["refine"]);
+    expect(ports.commit.applied[0]?.flagged.map((item) => item.reason)).toEqual(["edits_existing"]);
   });
 });

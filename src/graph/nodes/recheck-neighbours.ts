@@ -20,7 +20,7 @@
 // settles in between, and a run has finitely many.
 //
 // Why here and not before `commit`: `existingIds` counts pending rows, and
-// once a session halts at `human_review` its own `add`s are indexed. A second
+// once a session settles its own `add`s are indexed. A second
 // `validate` after that point would find this session's own slug taken and
 // mint a `-2`. Before the gate, nothing of this session's is indexed yet.
 //

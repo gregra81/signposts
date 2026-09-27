@@ -9,7 +9,6 @@ import {
   classificationSchema,
   criticVerdictSchema,
   graphStateSchema,
-  humanDecisionSchema,
   operationSchema,
   OPERATION_TAGS,
   resolutionSchema,
@@ -230,39 +229,6 @@ describe("operationSchema", () => {
     expect(
       operationSchema.safeParse({ op: "refine", id: "known", claim: "x".repeat(500) }).success,
     ).toBe(false);
-  });
-});
-
-describe("humanDecisionSchema", () => {
-  const decidedAt = "2026-08-30T09:00:00.000Z";
-
-  it.each(["accept", "reject"] as const)("accepts %s with no replacement", (decision) => {
-    expect(humanDecisionSchema.safeParse({ decision, decidedAt }).success).toBe(true);
-  });
-
-  it("accepts an edit that carries its replacement", () => {
-    expect(
-      humanDecisionSchema.safeParse({
-        decision: "edit",
-        edited: { op: "retire", id: "known", reason: "by hand" },
-        decidedAt,
-      }).success,
-    ).toBe(true);
-  });
-
-  // An edit with nothing to apply is the one decision that cannot be honoured.
-  it("rejects an edit with no replacement, and says which field is missing", () => {
-    const result = humanDecisionSchema.safeParse({ decision: "edit", decidedAt });
-    expect(result.success).toBe(false);
-    expect(issuesOf(result)).toEqual([["edited", 'edited is required when decision is "edit"']]);
-  });
-
-  it("does not demand a replacement for a rejection", () => {
-    expect(humanDecisionSchema.safeParse({ decision: "reject", decidedAt }).success).toBe(true);
-  });
-
-  it("rejects a decision outside the three", () => {
-    expect(humanDecisionSchema.safeParse({ decision: "maybe", decidedAt }).success).toBe(false);
   });
 });
 

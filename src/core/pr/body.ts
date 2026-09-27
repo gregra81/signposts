@@ -9,7 +9,15 @@
 //
 // Pure: operations in, markdown out.
 
-import { OPERATION_TAGS, type Operation } from "../contracts/graph.ts";
+import {
+  GATE_REASONS,
+  OPERATION_TAGS,
+  type GatedOperations,
+  type GateReason,
+  type Operation,
+} from "../contracts/graph.ts";
+
+type Flagged = GatedOperations["needsHuman"];
 
 /** Stable across the life of the branch — the PR is reused, not reopened. */
 export const PR_TITLE = "signposts: knowledge proposed for review";
@@ -72,19 +80,54 @@ function byOperation(operations: readonly Operation[]): Operation[] {
 }
 
 /**
+ * Why the gate held an operation back, in the words the reviewer needs. These
+ * were once asked about inside the session, one by one; the pull request is
+ * where they are reviewed now (19-value-to-a-user.md, "Fewer human steps"), so
+ * the reason has to travel with them.
+ */
+const REASON_TEXT: Record<GateReason, string> = {
+  [GATE_REASONS.low_confidence]: "the model was not confident",
+  [GATE_REASONS.edits_existing]: "it changes a signpost you already have",
+  [GATE_REASONS.deletes_existing]: "it removes a signpost you already have",
+  [GATE_REASONS.unresolved_contradiction]:
+    "it contradicts what is recorded and nothing could settle which is right",
+  [GATE_REASONS.bootstrap_run]: "this repo's first run, so everything is flagged",
+};
+
+/** The id an operation acts on: what it would create, or what it targets. */
+function targetId(operation: Operation): string {
+  return operation.op === OPERATION_TAGS.add ? operation.signpost.id : operation.id;
+}
+
+/** The list under a session's table naming what to look at closely, or "" when nothing was held back. */
+function flaggedList(flagged: Flagged): string {
+  if (flagged.length === 0) {
+    return "";
+  }
+  const items = flagged
+    .map(({ operation, reason }) => `- \`${operation.op} ${targetId(operation)}\` — ${REASON_TEXT[reason]}`)
+    .join("\n");
+  return `\n**Look closely at:**\n\n${items}\n`;
+}
+
+/**
  * One session's contribution to the body.
  *
  * A session that proposed nothing still gets a line. The alternative is a
  * commit in the history with no explanation in the body, which reads as
  * something having gone missing.
  */
-export function prSection(sessionId: string, operations: readonly Operation[]): string {
+export function prSection(
+  sessionId: string,
+  operations: readonly Operation[],
+  flagged: Flagged = [],
+): string {
   const heading = `### Session \`${sessionId}\``;
   if (operations.length === 0) {
     return `${heading}\n\nNothing proposed.\n`;
   }
   const rows = byOperation(operations).map(row).join("\n");
-  return `${heading}\n\n| op | signpost | claim | why |\n| --- | --- | --- | --- |\n${rows}\n`;
+  return `${heading}\n\n| op | signpost | claim | why |\n| --- | --- | --- | --- |\n${rows}\n${flaggedList(flagged)}`;
 }
 
 /**
@@ -124,8 +167,12 @@ export function commitMessage(sessionId: string, operations: readonly Operation[
  * that survives until then, and they are exactly the sessions the pull request
  * has not been told about yet.
  */
-export function sessionCommitMessage(sessionId: string, operations: readonly Operation[]): string {
-  return `${commitMessage(sessionId, operations)}${SUBJECT_SEPARATOR}${prSection(sessionId, operations)}`;
+export function sessionCommitMessage(
+  sessionId: string,
+  operations: readonly Operation[],
+  flagged: Flagged = [],
+): string {
+  return `${commitMessage(sessionId, operations)}${SUBJECT_SEPARATOR}${prSection(sessionId, operations, flagged)}`;
 }
 
 /** What git puts between a commit's subject and its body. */

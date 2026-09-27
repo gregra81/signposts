@@ -69,13 +69,11 @@ describe("an unusable transcript among usable ones", () => {
       graph: buildExtractionGraph({ ports, checkpointer }),
       checkpointer,
       pendingIndex: ports.pendingIndex,
-      index: ports.index,
       eligible: () => sessions.filter((s) => !judged.some((done) => done.sessionId === s.sessionId)),
       finish: (s) => judged.push({ ...s, outcome: "done" }),
       skip: (s) => judged.push({ ...s, outcome: "skipped" }),
       commitOutcome: () => null,
       syncCorpus: () => Promise.resolve({ failures: [] }),
-      pendingReviews: () => Promise.resolve([]),
       close: () => {},
     };
     return Promise.resolve({ handle });

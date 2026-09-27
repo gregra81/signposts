@@ -166,6 +166,18 @@ describe("silence when there is nothing to do", () => {
     expect(existsSync(f.stateDir)).toBe(false);
   });
 
+  // 19-value-to-a-user.md, "Fewer human steps": nobody types `init` any
+  // more, so a repo nothing has run in gets the offer — and still no state,
+  // no worker and no database, until the developer says yes.
+  it("offers a run in a repo nothing has run in, and writes nothing", () => {
+    const f = withTranscript(fixture(), "old", IDLE_HOURS + 1);
+    rmSync(path.join(f.repoRoot, ".signposts"), { recursive: true });
+    const result = runHook(f);
+
+    expect(JSON.parse(result.stdout).systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
+    expect(existsSync(f.stateDir)).toBe(false);
+  });
+
   it("emits nothing outside a git repo", () => {
     const f = fixture();
     rmSync(path.join(f.repoRoot, ".git"), { recursive: true });
@@ -231,20 +243,6 @@ describe("the three wake conditions", () => {
 
     const started = runHook(f);
     expect(JSON.parse(started.stdout).systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
-    expect(await workerLines(f, 1)).toHaveLength(1);
-  });
-
-  it("wakes on a resumable thread the worker recorded", async () => {
-    const f = withCurrentIndex(fixture());
-    writeWorkerState(f, { threadsWaiting: 2 });
-
-    expect(JSON.parse(runHook(f).stdout)).toEqual({
-      systemMessage: "🪧 signposts: 2 changes need your review — run `signpost review`",
-      hookSpecificOutput: {
-        hookEventName: "SessionStart",
-        additionalContext: expect.stringContaining("2 proposed changes parked"),
-      },
-    });
     expect(await workerLines(f, 1)).toHaveLength(1);
   });
 

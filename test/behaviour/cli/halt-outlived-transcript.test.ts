@@ -1,8 +1,10 @@
-// A review answered after the transcript it was about has moved on.
+// A halt answered after the transcript it was about has moved on.
 //
 // The developer carries on in the Claude Code session a run halted on, so by
-// the time the review is answered the file has new bytes, a new mtime, and is
-// not idle — it is no longer in the eligible listing. `namedSession` then has
+// the time the halt is answered the file has new bytes, a new mtime, and is
+// not idle — it is no longer in the eligible listing. It was a review halt
+// until that review moved into the pull request; a model call's halt has the
+// same gap (19-value-to-a-user.md, "Fewer human steps"). `namedSession` then has
 // no recorded activity for the halted bytes, and used to fill the gap with the
 // clock. That clock reading was written to `sessions.last_activity_at` and,
 // with nothing else eligible, became the watermark: every transcript active
@@ -16,12 +18,20 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import type { WorkerStatus } from "../../../src/core/worker/status.js";
-import { buildExtractionGraph, type PendingRequest } from "../../../src/graph/index.js";
+import { buildExtractionGraph, hostModel } from "../../../src/graph/index.js";
 import type { FinishedSession, OpenRun, RunHandle, RunSession } from "../../../src/cli/run-port.js";
 import type { RunOutput } from "../../../src/cli/protocol.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { runCli } from "../helpers/run-cli.js";
-import { candidate, existingSignpost, gutteredSession, makeHarness, RUN_INPUT } from "../helpers/graph-harness.js";
+import {
+  candidate,
+  existingSignpost,
+  gutteredSession,
+  makeHarness,
+  RUN_INPUT,
+  scriptedReplies,
+  type ScriptedModelProvider,
+} from "../helpers/graph-harness.js";
 
 const SESSION: RunSession = {
   sessionId: RUN_INPUT.sessionId,
@@ -32,7 +42,7 @@ const SESSION: RunSession = {
 
 const EXISTING = existingSignpost();
 
-describe("a review answered after its transcript moved on", () => {
+describe("a halt answered after its transcript moved on", () => {
   let root: string;
   let repliesPath: string;
   let config: ResolvedConfig;
@@ -42,6 +52,7 @@ describe("a review answered after its transcript moved on", () => {
   // One harness and checkpointer for both invocations: the thread the run
   // parked has to be there for the resume to answer.
   let openRun: OpenRun;
+  let model: ScriptedModelProvider;
 
   beforeEach(() => {
     root = mkdtempSync(path.join(tmpdir(), "signposts-outlived-"));
@@ -64,19 +75,19 @@ describe("a review answered after its transcript moved on", () => {
         resolve: [{ tempId: "t1", outcome: "new_wins", reasoning: "the config changed in March" }],
       },
     });
+    model = ports.model;
     const checkpointer = new MemorySaver();
     const handle: RunHandle = {
       repo: RUN_INPUT.repo,
-      graph: buildExtractionGraph({ ports, checkpointer }),
+      // The session answers the model calls, so the run halts on each one.
+      graph: buildExtractionGraph({ ports: { ...ports, model: hostModel }, checkpointer }),
       checkpointer,
       pendingIndex: ports.pendingIndex,
-      index: ports.index,
       eligible: () => listed,
       finish: (session) => finished.push(session),
       skip: () => {},
       commitOutcome: () => null,
       syncCorpus: () => Promise.resolve({ failures: [] }),
-      pendingReviews: () => Promise.resolve([]),
       close: () => {},
     };
     openRun = () => Promise.resolve({ handle });
@@ -99,28 +110,21 @@ describe("a review answered after its transcript moved on", () => {
     // The developer carried on in that session: not idle, so not listed.
     listed = [];
 
-    const replies = Object.fromEntries(
-      halted.pending.map((pending: PendingRequest) => [
-        pending.id,
-        Object.fromEntries(
-          (pending.request as { needsHuman: { key: string }[] }).needsHuman.map((item) => [
-            item.key,
-            { decision: "accept", decidedAt: "2026-09-03T10:00:00.000Z" },
-          ]),
-        ),
-      ]),
-    );
-    writeFileSync(repliesPath, JSON.stringify({ replies }), "utf8");
-
-    const resumed = createFakeStdio();
-    await runCli(
-      ["resume", "--session", SESSION.sessionId, "--content-hash", SESSION.contentHash, "--replies", repliesPath],
-      { config, openRun, stdio: resumed },
-    );
-    expect((JSON.parse(resumed.writtenOutput()) as RunOutput).status, resumed.writtenError()).toBe("finished");
+    let output = halted;
+    while (output.status === "waiting") {
+      writeFileSync(repliesPath, JSON.stringify({ replies: await scriptedReplies(model, output.pending) }), "utf8");
+      const resumed = createFakeStdio();
+      await runCli(
+        ["resume", "--session", SESSION.sessionId, "--content-hash", SESSION.contentHash, "--replies", repliesPath],
+        { config, openRun, stdio: resumed },
+      );
+      output = JSON.parse(resumed.writtenOutput()) as RunOutput;
+      expect(output.status, resumed.writtenError()).not.toBe("skipped");
+    }
+    expect(output.status).toBe("finished");
   }
 
-  it("does not move the watermark to the moment the review was answered", async () => {
+  it("does not move the watermark to the moment the halt was answered", async () => {
     await haltThenAnswer();
     expect(status().lastRunFinishedAt).toBeUndefined();
   });

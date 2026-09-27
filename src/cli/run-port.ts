@@ -13,7 +13,7 @@
 
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import type { ResolvedConfig } from "../core/config/resolve.ts";
-import type { ExtractionGraph, GraphPorts, ReviewRequest } from "../graph/index.ts";
+import type { ExtractionGraph, GraphPorts } from "../graph/index.ts";
 import type { CommitOutcome } from "../graph/ports.ts";
 
 /** One eligible transcript — what `sessions` lists and `run` picks from. */
@@ -55,39 +55,6 @@ export interface SkippedSession {
   reason: string;
 }
 
-/**
- * One thread parked on `human_review`, as `signpost review` finds it — with
- * everything needed to show it and to answer it, and nothing that has to have
- * survived in memory since the halt.
- *
- * `interruptId` is what the decisions are filed under, so it is read from the
- * thread now rather than remembered from the run that halted: LangGraph mints
- * it, and the process that halted is long gone.
- */
-export interface PendingReview {
-  threadId: string;
-  sessionId: string;
-  /** The other half of the thread id — what `resumeRun` is handed back. */
-  contentHash: string;
-  interruptId: string;
-  /** When the halt was checkpointed. How long the developer has left it. */
-  waitingSince: Date;
-  /** When it will be dropped, THREAD_EXPIRY_DAYS after `waitingSince`. */
-  expiresAt: Date;
-  needsHuman: ReviewRequest["needsHuman"];
-}
-
-export interface PendingReviewsOptions {
-  /**
-   * Delete threads past THREAD_EXPIRY_DAYS, and say so. Only `signpost review`
-   * sets it: it is the one reader with a person at the other end. The worker's
-   * census and `settle` leave an expired thread where it is, because a drop
-   * they announce goes to /dev/null or to a subagent (19-value-to-a-user.md
-   * item 3).
-   */
-  dropExpired?: boolean;
-}
-
 export interface RunHandle {
   /** The "owner/name" key, from the origin remote. */
   repo: string;
@@ -95,8 +62,6 @@ export interface RunHandle {
   checkpointer: BaseCheckpointSaver;
   /** Proposals reach the next session through this — see runResume's report. */
   pendingIndex: GraphPorts["pendingIndex"];
-  /** What a signpost says today, for the "before" half of a review's diff. */
-  index: GraphPorts["index"];
   /** Eligible sessions for this repo, oldest activity first. */
   eligible(now: Date): RunSession[];
   /**
@@ -112,7 +77,7 @@ export interface RunHandle {
   /**
    * Records a session as judged and not processed, so no later run offers it.
    * Unlike `finish` it does not end the bootstrap run: nothing was extracted,
-   * so nothing has been through the gate a person was meant to check.
+   * so nothing has been through the gate.
    */
   skip(session: SkippedSession): void;
   /**
@@ -124,13 +89,6 @@ export interface RunHandle {
    * it once. 18-end-to-end-gaps.md item 2 is what not calling it at all cost.
    */
   syncCorpus(): Promise<{ failures: string[] }>;
-  /**
-   * Threads in this repo halted on a review, longest-waiting first. Reads the
-   * checkpoint database rather than any record kept by the run that halted —
-   * that run's process exited, possibly days ago. A thread past
-   * THREAD_EXPIRY_DAYS is dropped here rather than listed.
-   */
-  pendingReviews(now: Date, options?: PendingReviewsOptions): Promise<PendingReview[]>;
   close(): void;
 }
 

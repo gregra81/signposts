@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseCommand, spendsTokens } from "../../../src/core/cli/dispatch.js";
+import { parseCommand, setsUpRepo } from "../../../src/core/cli/dispatch.js";
 import { detectSignpostPlugin } from "../../../src/core/doctor/report.js";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -62,12 +62,23 @@ describe("the marketplace manifest", () => {
   const plugins = marketplace["plugins"] as Record<string, unknown>[];
   const entry = plugins[0]!;
 
-  it("offers this repo's own plugin, from the repo root", () => {
+  it("offers this repo's own plugin, pinned to the release the CLI comes from", () => {
     expect(plugins).toHaveLength(1);
     expect(entry["name"]).toBe(manifest["name"]);
-    // "./" is the marketplace root, which is where .claude-plugin/plugin.json
-    // is. Anything else would have to be a directory that exists.
-    expect(entry["source"]).toBe("./");
+    // It was "./", the marketplace root — which is the default branch, while
+    // install.sh installs the CLI from a release tarball. So merging to main
+    // shipped plugin wiring to every new install ahead of any release: a
+    // /signposts:run naming `signpost publish` beside a v0.1.1 CLI that had
+    // no such command (19-value-to-a-user.md, open item 15). Pinned to the
+    // tag, the two halves are one release, and a version bump that forgets
+    // the pin fails here rather than at release.
+    const repository = (packageJson["repository"] as { url: string }).url;
+    const slug = /github\.com\/([^/]+\/[^/.]+)/.exec(repository)?.[1];
+    expect(entry["source"]).toEqual({
+      source: "github",
+      repo: slug,
+      ref: `v${packageJson["version"] as string}`,
+    });
   });
 
   it("declares the owner Claude Code requires", () => {
@@ -153,11 +164,11 @@ describe("the MCP server it registers", () => {
     expect(() => read(bin[server.command]!)).not.toThrow();
   });
 
-  it("passes a subcommand the CLI dispatches, and one that cannot spend tokens", () => {
+  it("passes a subcommand the CLI dispatches, and one that writes nothing on the reader's behalf", () => {
     const parsed = parseCommand(server.args);
 
     expect(parsed.name).toBe("mcp");
-    expect(spendsTokens("mcp")).toBe(false);
+    expect(setsUpRepo("mcp")).toBe(false);
   });
 
   it("tells the server which repository it is answering for", () => {
@@ -196,7 +207,7 @@ describe("what the published package carries", () => {
 });
 
 describe("the slash commands", () => {
-  it.each(["run", "status", "review"])("/signposts:%s declares a name and a description", (name) => {
+  it.each(["run", "status"])("/signposts:%s declares a name and a description", (name) => {
     const contents = read(path.join("commands", `${name}.md`));
     const [, frontmatter] = contents.split("---\n");
 

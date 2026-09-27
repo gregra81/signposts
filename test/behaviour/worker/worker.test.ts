@@ -111,7 +111,6 @@ describe("signpost worker", () => {
       const written = status();
       expect(written.phase).toBe("idle");
       expect(written.eligibleSessions).toBe(0);
-      expect(written.threadsWaiting).toBe(0);
       expect(written.lastError).toBeUndefined();
       // Held for the duration and no longer: a lock left behind silences every
       // future session start for LOCK_STALE_MINUTES.

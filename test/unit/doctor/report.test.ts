@@ -235,7 +235,7 @@ describe("buildDoctorReport", () => {
     expect(lines[4]).toContain("embedding model cache:");
     expect(lines[5]).toContain("database:");
     expect(lines[6]).toContain("session-start hook:");
-    expect(lines[7]).toContain("consent:");
+    expect(lines[7]).toContain("setup:");
     expect(lines[8]).toContain("status line:");
     // Added 2026-09-23 with the fact itself; the two below moved down one.
     expect(lines[9]).toContain("code:");
@@ -329,10 +329,10 @@ describe("buildDoctorReport", () => {
 // 19-value-to-a-user.md items 4 and 6.
 describe("the facts doctor learned to read", () => {
   it.each([
-    ["given", "consent: given"],
-    ["not-given", "consent: not given — run `signpost init`"],
-    ["unknown", "consent: unknown — needs an origin remote and a readable database to check"],
-  ] as const)("consent %s", (consent, expected) => {
+    ["given", "setup: done"],
+    ["not-given", "setup: not yet — the first run does it"],
+    ["unknown", "setup: unknown — needs an origin remote and a readable database to check"],
+  ] as const)("setup %s", (consent, expected) => {
     expect(buildDoctorReport({ ...BASE_FACTS, consent })[7]).toBe(expected);
   });
 
@@ -380,7 +380,6 @@ describe("blockers", () => {
     [{ git: { authorEmail: null, repo: "acme/api" } }, "no git author"],
     [{ git: { authorEmail: "greg@example.com", repo: null } }, "no origin remote"],
     [{ dbIntegrity: "corrupt" as const }, "database corrupt"],
-    [{ consent: "not-given" as const }, "no consent"],
   ])("%j blocks a run", (override, reason) => {
     const facts = { ...BASE_FACTS, ...override };
     expect(blockers(facts)).toEqual([reason]);
@@ -396,7 +395,7 @@ describe("blockers", () => {
         modelCache: "unavailable",
         dbIntegrity: "no-database",
         hook: "absent",
-        consent: "unknown",
+        consent: "not-given",
         statusLine: { state: "missing", scriptPath: "/gone" },
         lastError: "index rebuild exited 1",
       }),

@@ -83,15 +83,6 @@ export interface WorkerStatus {
    * something to run, not to report work done.
    */
   eligibleSessions: number;
-  /**
-   * Threads parked on `human_review`. Only the developer can answer these.
-   *
-   * Written by the worker's census and by `settle` (src/cli/with-run.ts), both
-   * from `pendingReviews` over the checkpoint database. `settle` writes it
-   * because the worker only runs when a session starts: without that, a review
-   * a run parked five minutes ago is invisible until the next `claude`.
-   */
-  threadsWaiting: number;
   /** Set when the worker rebuilt the search index this run. Absent when it was already current. */
   lastIndexedAt?: string;
   /**
@@ -137,13 +128,6 @@ export interface WorkerStatus {
    */
   judgedSessions?: Record<string, string>;
   /**
-   * When the soonest parked review is dropped, for the status line and the
-   * hook to warn inside REVIEW_EXPIRY_WARN_DAYS (19-value-to-a-user.md item 3).
-   * Part of the census, like `threadsWaiting`: retaken by whoever counts, never
-   * carried forward, and absent when nothing is waiting.
-   */
-  reviewExpiresAt?: string;
-  /**
    * Sessions committed to the signposts branch and not pushed: a run stops at a
    * local commit, and only `signpost publish` pushes (19-value-to-a-user.md,
    * open items 1 and 14). Counted from git by whoever last committed or
@@ -156,19 +140,16 @@ export interface WorkerStatus {
 export interface SnapshotInput {
   now: Date;
   eligibleSessions: number;
-  threadsWaiting: number;
   indexedAt?: Date | undefined;
   error?: string | undefined;
   /** Carried forward from the previous snapshot, never minted here. */
   lastRunFinishedAt?: string | undefined;
-  /** Likewise: a run may be halted on a review while the worker reindexes around it. */
+  /** Likewise: a run may be halted while the worker reindexes around it. */
   runProgress?: RunProgress | undefined;
   /** Likewise. */
   judgedSessions?: Record<string, string> | undefined;
   /** Likewise. */
   unpublishedSessions?: number | undefined;
-  /** The census's, like the counts above. */
-  reviewExpiresAt?: Date | undefined;
 }
 
 /**
@@ -198,13 +179,8 @@ export function runningStatus(
     phase: WORKER_PHASES.running,
     updatedAt: now.toISOString(),
     eligibleSessions: 0,
-    threadsWaiting: 0,
     ...runCommandFields({ lastRunFinishedAt, runProgress, judgedSessions, unpublishedSessions }),
   };
-}
-
-function expiryField(expiresAt: Date | undefined): Pick<WorkerStatus, "reviewExpiresAt"> {
-  return expiresAt === undefined ? {} : { reviewExpiresAt: expiresAt.toISOString() };
 }
 
 /**
@@ -240,7 +216,6 @@ export function unpublishedStatus(previous: WorkerStatus | undefined, sessions: 
     phase: WORKER_PHASES.idle,
     updatedAt: now.toISOString(),
     eligibleSessions: 0,
-    threadsWaiting: 0,
   };
   const counted = count(sessions);
   return counted === 0 ? rest : { ...rest, unpublishedSessions: counted };
@@ -262,10 +237,8 @@ export function finishedStatus(input: SnapshotInput): WorkerStatus {
     phase: WORKER_PHASES.idle,
     updatedAt: input.now.toISOString(),
     eligibleSessions: count(input.eligibleSessions),
-    threadsWaiting: count(input.threadsWaiting),
     ...(input.indexedAt === undefined ? {} : { lastIndexedAt: input.indexedAt.toISOString() }),
     ...(input.error === undefined ? {} : { lastError: input.error }),
-    ...expiryField(input.reviewExpiresAt),
     ...runCommandFields(input),
   };
 }
@@ -290,7 +263,6 @@ export function runFinishedStatus(
     phase: WORKER_PHASES.idle,
     updatedAt: finishedThrough.toISOString(),
     eligibleSessions: 0,
-    threadsWaiting: 0,
   };
   // The watermark moves only when nothing eligible is left, which is also the
   // moment the run stops being in flight — so the progress goes with it rather
@@ -324,9 +296,8 @@ function judgedAfter(
  * The previous snapshot with the run's progress advanced by one settled
  * session.
  *
- * `sessionsDone` counts what has finished, so a session that halted on a
- * review moves nothing but the clock: the halt is what keeps the line alive
- * while the developer answers it. `remaining` is what the caller still finds
+ * `sessionsDone` counts what has finished, so a session that halted moves
+ * nothing but the clock. `remaining` is what the caller still finds
  * eligible, which is the only denominator either side of this can know.
  *
  * Progress that has aged out is replaced rather than continued
@@ -342,7 +313,6 @@ export function runProgressStatus(
     remaining: number;
     sessionFinished: boolean;
     found: number;
-    threadsWaiting: number;
     /** `--first`: this session starts a run, so it inherits no progress. */
     freshRun: boolean;
     /**
@@ -350,15 +320,12 @@ export function runProgressStatus(
      * stop counting. Absent while the session is halted: nothing is judged yet.
      */
     judged?: { sessionId: string; lastActivityAt: Date };
-    /** The soonest parked review's expiry, retaken with `threadsWaiting`. */
-    reviewExpiresAt?: Date;
   },
 ): WorkerStatus {
   const base: WorkerStatus = previous ?? {
     phase: WORKER_PHASES.idle,
     updatedAt: input.now.toISOString(),
     eligibleSessions: 0,
-    threadsWaiting: 0,
   };
   const carried =
     !input.freshRun && progressIsLive(base.runProgress, input.now) ? base.runProgress : undefined;
@@ -371,23 +338,17 @@ export function runProgressStatus(
     // unparseable watermark is 0, which forgets nothing on its account.
     Math.max(new Date(base.lastRunFinishedAt ?? 0).getTime() || 0, input.now.getTime() - MAX_AGE_MS),
   );
-  const { judgedSessions: _previous, reviewExpiresAt: _retaken, ...rest } = base;
+  const { judgedSessions: _previous, ...rest } = base;
   return {
     ...rest,
     ...(judgedSessions === undefined ? {} : { judgedSessions }),
-    ...expiryField(input.reviewExpiresAt),
-    // Re-stamped, because this write is a snapshot: the two counts below are
+    // Re-stamped, because this write is a snapshot: the count below is
     // taken now, and leaving `updatedAt` at whatever the worker last wrote
     // would date fresh numbers by a census that happened minutes ago.
     updatedAt: input.now.toISOString(),
-    // The census, retaken. It used to be the worker's alone, which left the
-    // one number the developer needs — a review parked on them — written only
-    // when a SessionStart happened to wake a worker. A run has the same
-    // database open and knows the answer the moment it halts, so it says so.
-    // Both counts come from the same source the worker's census does, so this
-    // replaces that count with a fresher one rather than competing with it.
+    // The census, retaken: a run knows what is still eligible the moment it
+    // settles, fresher than the worker's last count.
     eligibleSessions: count(input.remaining),
-    threadsWaiting: count(input.threadsWaiting),
     runProgress: {
       sessionsDone,
       sessionsTotal: sessionsDone + count(input.remaining),

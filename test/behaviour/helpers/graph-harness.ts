@@ -361,7 +361,28 @@ export function graphState(overrides: Partial<ExtractionState> = {}): Extraction
     gated: { auto: [], needsHuman: [] },
     validationErrors: [],
     validateAttempts: 0,
-    humanDecisions: {},
     ...overrides,
   };
+}
+
+/**
+ * Answers every pending model call the way `model` would have answered it
+ * in-process, keyed by interrupt id — what the session does between two
+ * `resume`s. For tests that need a run to halt, now that a model call is the
+ * only thing a run halts on (19-value-to-a-user.md, "Fewer human steps").
+ */
+export async function scriptedReplies(
+  model: ScriptedModelProvider,
+  pending: readonly { id: string; request: { node: string; system: string; user: string; schema: unknown } }[],
+): Promise<Record<string, unknown>> {
+  const replies: Record<string, unknown> = {};
+  for (const { id, request } of pending) {
+    replies[id] = await model.structured({
+      node: request.node as NodeName,
+      system: request.system,
+      user: request.user,
+      schema: request.schema as JSONSchema,
+    });
+  }
+  return replies;
 }

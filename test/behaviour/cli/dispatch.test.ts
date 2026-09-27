@@ -47,7 +47,7 @@ describe("unknown/missing subcommand", () => {
     for (const flag of ["--session", "--content-hash", "--replies", "--first", "--verbose", "--help", "--version"]) {
       expect(help).toContain(flag);
     }
-    for (const command of ["init", "index", "doctor", "sessions", "run", "resume", "review"]) {
+    for (const command of ["init", "index", "doctor", "sessions", "run", "resume", "publish"]) {
       expect(help).toContain(command);
     }
     expect(stdio.writtenError()).toBe("");

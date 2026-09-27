@@ -7,7 +7,7 @@
 // Nothing in src/graph/ constructs one.
 
 import type { GutteredSession } from "../core/gutter/types.ts";
-import type { Candidate, NeighbourSignpost, Operation } from "../core/contracts/graph.ts";
+import type { Candidate, GatedOperations, NeighbourSignpost, Operation } from "../core/contracts/graph.ts";
 import type { PendingProposal } from "../core/graph/pending.ts";
 import type { ModelProvider } from "../core/model/types.ts";
 import type { Signpost } from "../core/signpost/schema.ts";
@@ -91,6 +91,12 @@ export interface CommitInput {
   repoRoot: string;
   sessionId: string;
   operations: readonly Operation[];
+  /**
+   * The operations the gate held back, with why. All of them are in
+   * `operations` too; these are the ones the pull request flags for a closer
+   * look, since nobody reviewed them in the session.
+   */
+  flagged: GatedOperations["needsHuman"];
 }
 
 /**

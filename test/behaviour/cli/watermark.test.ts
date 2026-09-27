@@ -17,11 +17,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import type { WorkerStatus } from "../../../src/core/worker/status.js";
-import { buildExtractionGraph } from "../../../src/graph/index.js";
+import { buildExtractionGraph, hostModel } from "../../../src/graph/index.js";
 import type {
   FinishedSession,
   OpenRun,
-  PendingReview,
   RunHandle,
   RunSession,
 } from "../../../src/cli/run-port.js";
@@ -87,11 +86,11 @@ describe("the watermark a finished run leaves for the hook", () => {
    * disappears from it once `finish` has recorded it, so `settle` can tell a
    * drained backlog from one it has only made a dent in.
    */
-  /** What `pendingReviews` reports — the checkpoint database's parked halts. */
-  let parkedReviews: PendingReview[] = [];
-
-  function seam(options: HarnessOptions, alsoWaiting: RunSession[] = []): OpenRun {
-    const ports = makeHarness(options);
+  function seam(options: HarnessOptions, alsoWaiting: RunSession[] = [], halts = false): OpenRun {
+    const harness = makeHarness(options);
+    // `halts`: the session answers the model calls, so the run stops at the
+    // first one — the only kind of halt a run has now.
+    const ports = halts ? { ...harness, model: hostModel } : harness;
     const checkpointer = new MemorySaver();
     const finished: FinishedSession[] = [];
     const handle: RunHandle = {
@@ -99,7 +98,6 @@ describe("the watermark a finished run leaves for the hook", () => {
       graph: buildExtractionGraph({ ports, checkpointer }),
       checkpointer,
       pendingIndex: ports.pendingIndex,
-      index: ports.index,
       eligible: () =>
         [SESSION, ...alsoWaiting].filter(
           (session) => !finished.some((done) => done.sessionId === session.sessionId),
@@ -108,7 +106,6 @@ describe("the watermark a finished run leaves for the hook", () => {
       skip: () => {},
       commitOutcome: () => null,
       syncCorpus: () => Promise.resolve({ failures: [] }),
-      pendingReviews: () => Promise.resolve(parkedReviews),
       close: () => {},
     };
     return () => Promise.resolve({ handle });
@@ -123,7 +120,6 @@ describe("the watermark a finished run leaves for the hook", () => {
   }
 
   beforeEach(() => {
-    parkedReviews = [];
     repoRoot = mkdtempSync(path.join(tmpdir(), "signposts-watermark-"));
     config = resolveConfig({
       repoRoot,
@@ -166,10 +162,10 @@ describe("the watermark a finished run leaves for the hook", () => {
     expect(looksEligible(transcript, nowMs, watermarkMs(status() ?? {}))).toBe(false);
   });
 
-  it("leaves the watermark alone while the session is still halted on a review", async () => {
-    await runCli(["run"], { config, openRun: seam(gated()), stdio: createFakeStdio() });
+  it("leaves the watermark alone while the session is still halted", async () => {
+    await runCli(["run"], { config, openRun: seam(gated(), [], true), stdio: createFakeStdio() });
 
-    // Nothing has been judged yet: the developer has not answered.
+    // Nothing has been judged yet: the halt has not been answered.
     expect(status()?.lastRunFinishedAt).toBeUndefined();
   });
 
@@ -199,11 +195,11 @@ describe("the watermark a finished run leaves for the hook", () => {
     expect(status()?.runProgress).toMatchObject({ sessionsDone: 1, sessionsTotal: 2, found: 1 });
   });
 
-  it("keeps the line alive while a session is halted on a review", async () => {
-    await runCli(["run"], { config, openRun: seam(gated()), stdio: createFakeStdio() });
+  it("keeps the line alive while a session is halted", async () => {
+    await runCli(["run"], { config, openRun: seam(gated(), [], true), stdio: createFakeStdio() });
 
     // Nothing has finished, so nothing is counted — but the stamp moves, which
-    // is what stops the bar ageing the run out while the developer answers.
+    // is what stops the bar ageing the run out between halts.
     expect(status()?.runProgress).toMatchObject({ sessionsDone: 0, sessionsTotal: 1, found: 0 });
   });
 
@@ -232,7 +228,6 @@ describe("the watermark a finished run leaves for the hook", () => {
         phase: "idle",
         updatedAt: new Date().toISOString(),
         eligibleSessions: 0,
-        threadsWaiting: 0,
         runProgress: {
           sessionsDone: 2,
           sessionsTotal: 3,
@@ -251,48 +246,6 @@ describe("the watermark a finished run leaves for the hook", () => {
     expect(status()?.runProgress).toMatchObject({ sessionsDone: 1, sessionsTotal: 2, found: 1 });
   });
 
-  // The reason `settle` writes this at all. The worker takes the census, and
-  // the worker runs only when a session starts — so a review parked a minute
-  // ago used to be invisible until the next `claude`, which is the one state
-  // the developer has to act on.
-  it("records a parked review without waiting for a worker to count it", async () => {
-    parkedReviews = [
-      {
-        threadId: "t-1",
-        sessionId: SESSION.sessionId,
-        contentHash: SESSION.contentHash,
-        interruptId: "i-1",
-        waitingSince: LAST_ACTIVITY,
-        expiresAt: new Date("2026-10-01T09:00:00Z"),
-        needsHuman: [],
-      },
-    ];
-
-    await runCli(["run"], { config, openRun: seam(gated()), stdio: createFakeStdio() });
-
-    expect(status()?.threadsWaiting).toBe(1);
-    // 19-value-to-a-user.md item 3: and when it will be dropped, so the status
-    // line and the hook can warn before it is.
-    expect(status()?.reviewExpiresAt).toBe("2026-10-01T09:00:00.000Z");
-  });
-
-  it("takes it back to zero when the last review is answered", async () => {
-    mkdirSync(path.dirname(config.paths.statuslineState), { recursive: true });
-    writeFileSync(
-      config.paths.statuslineState,
-      JSON.stringify({ phase: "idle", updatedAt: "2026-09-01T08:00:00.000Z", eligibleSessions: 0, threadsWaiting: 2 }),
-    );
-
-    await runCli(["run"], {
-      config,
-      openRun: seam({ script: AUTO, session: gutteredSession() }),
-      stdio: createFakeStdio(),
-    });
-
-    // Nothing else in the system would notice until a worker woke.
-    expect(status()?.threadsWaiting).toBe(0);
-  });
-
   it("keeps what only the worker can know", async () => {
     mkdirSync(path.dirname(config.paths.statuslineState), { recursive: true });
     writeFileSync(
@@ -301,7 +254,6 @@ describe("the watermark a finished run leaves for the hook", () => {
         phase: "idle",
         updatedAt: "2026-09-01T08:00:00.000Z",
         eligibleSessions: 1,
-        threadsWaiting: 3,
         lastIndexedAt: "2026-09-01T07:00:00.000Z",
         lastError: "index rebuild exited 1",
       }),

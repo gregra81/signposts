@@ -80,7 +80,6 @@ describe("what a run reports to whatever ran it", () => {
       graph: buildExtractionGraph({ ports, checkpointer }),
       checkpointer,
       pendingIndex: ports.pendingIndex,
-      index: ports.index,
       eligible: () => {
         eligibleCalls += 1;
         return [SESSION];
@@ -89,7 +88,6 @@ describe("what a run reports to whatever ran it", () => {
       skip: () => {},
       commitOutcome: () => null,
       syncCorpus: () => Promise.resolve({ failures: [] }),
-      pendingReviews: () => Promise.resolve([]),
       close: () => {},
     };
     return () => Promise.resolve({ handle });
@@ -173,15 +171,19 @@ describe("what a run reports to whatever ran it", () => {
     expect(JSON.parse(stdio.writtenOutput())).toEqual({ status: "nothing", publish: null });
   });
 
-  it("exits 5 when the run is halted on a review only a person can answer", async () => {
+  // Replaces "exits 5 when the run is halted on a review only a person can
+  // answer". The gate no longer halts: what it holds back is committed and
+  // flagged in the pull request (19-value-to-a-user.md, "Fewer human steps").
+  it("exits 0 and finishes when the gate held something back", async () => {
     const stdio = createFakeStdio();
 
     const exitCode = await runCli(["run"], { config, openRun: seam(gated()), stdio });
 
-    expect(exitCode).toBe(EXIT_CODES.awaitingHuman);
-    const output = JSON.parse(stdio.writtenOutput()) as { status: string; pending: { request: { kind: string } }[] };
-    expect(output.status).toBe("waiting");
-    expect(output.pending[0]?.request.kind).toBe("human_review");
+    expect(exitCode).toBe(EXIT_CODES.ok);
+    const output = JSON.parse(stdio.writtenOutput()) as { status: string; pending: unknown[]; proposed: string[] };
+    expect(output.status).toBe("finished");
+    expect(output.pending).toEqual([]);
+    expect(output.proposed.length).toBeGreaterThan(0);
   });
 
   it("still exits 1 when the run itself failed", async () => {

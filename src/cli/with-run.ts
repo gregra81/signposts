@@ -2,16 +2,14 @@
 // reporting a failure the way the caller can read, and the bookkeeping a run
 // leaves behind once it has moved.
 //
-// `run`/`resume` print JSON for the skill and `review` prints prose for a
-// person, so their output has nothing in common — but what happens around it
-// does, and getting that wrong is what these exist to prevent: a database
+// What happens around a command's output is shared, and getting that wrong is
+// what these exist to prevent: a database
 // handle left open, a throw escaping as a stack trace, a session that finished
 // without being recorded and is therefore extracted again tomorrow.
 
 import type { ExitCode } from "../app.ts";
 import type { ResolvedConfig } from "../core/config/resolve.ts";
 import { pendingProposals } from "../core/graph/pending.ts";
-import { soonestExpiry } from "../core/review/expiry.ts";
 import type { RunResult } from "../graph/index.ts";
 import { recordRunFinished, recordRunProgress, recordUnpublished } from "../io/worker/status-file.ts";
 import {
@@ -109,23 +107,16 @@ export interface SettleInput {
  * once it is done.
  *
  * The two are deliberately not the same moment. Proposals are indexed as soon
- * as they exist — including while the session sits at a review — because the
- * next session must retrieve against them: a review that takes three days
- * must not make a claim invisible for three days, and without this the run
- * produces two near-identical `add`s that no classifier ever compared
- * (06-review-and-pr.md, "Reindex within a run, not only at commit"). Being
- * recorded as finished is the opposite: it happens only when the session is,
- * since a finished session is one no later run picks up.
- *
- * `signpost review` settles the same way `resume` does. A review answered in
- * the terminal is the invocation that finishes the session as often as not,
- * and a session that reached `commit` without being recorded stays eligible —
- * so the next run extracts a transcript whose signposts are already in the PR.
+ * as they exist, because the next session must retrieve against them: without
+ * this the run produces two near-identical `add`s that no classifier ever
+ * compared (06-review-and-pr.md, "Reindex within a run, not only at commit").
+ * Being recorded as finished happens only when the session is, since a
+ * finished session is one no later run picks up.
  *
  * Finishing the last of them also moves the session watermark, which is the
  * only thing that ever stops the SessionStart hook announcing the same backlog
  * at every session start: the hook cannot open a database, so `run` and
- * `review` are what tell it a transcript has been judged.
+ * `resume` are what tell it a transcript has been judged.
  */
 export async function settle(input: SettleInput): Promise<void> {
   const { handle, session, result } = input;
@@ -135,22 +126,14 @@ export async function settle(input: SettleInput): Promise<void> {
   }
 
   // Progress before the early return, because the halt is most of a run's
-  // life: a session waiting on a review is the state the statusLine has to
-  // keep rendering, and the stamp it writes here is what stops that line
-  // ageing out while the developer is still answering (07, "Live progress").
-  //
-  // The census goes with it. `threadsWaiting` used to be the worker's alone,
-  // and the worker runs only when a session starts — so a review this halt
-  // parked a minute ago stayed invisible until the next `claude`, which is
-  // precisely the state the developer needs to see. The count comes from
-  // `pendingReviews`, the same source the worker's census uses.
+  // life, and the stamp written here is what stops the status line's progress
+  // ageing out between halts (07, "Live progress").
   if (result.pending.length > 0) {
     recordRunProgress(input.statusPath, {
       now: input.now,
       remaining: handle.eligible(input.now).length,
       sessionFinished: false,
       found: 0,
-      ...(await reviewCensus(handle, input.now)),
       freshRun: input.isFirst,
     });
     return;
@@ -193,20 +176,6 @@ export async function settleSkipped(input: Omit<SettleInput, "result"> & { reaso
   await recordJudged(input, 0);
 }
 
-/**
- * How many reviews are parked and when the soonest is dropped, from one read of
- * the checkpoint database. The second half is what lets the status line warn
- * before a review is lost rather than after (19-value-to-a-user.md item 3).
- */
-export async function reviewCensus(
-  handle: RunHandle,
-  now: Date,
-): Promise<{ threadsWaiting: number; reviewExpiresAt?: Date }> {
-  const reviews = await handle.pendingReviews(now);
-  const soonest = soonestExpiry(reviews.map((review) => review.expiresAt));
-  return { threadsWaiting: reviews.length, ...(soonest === undefined ? {} : { reviewExpiresAt: soonest }) };
-}
-
 /** What `settle` and `settleSkipped` both write once a session is judged. */
 async function recordJudged(input: Omit<SettleInput, "result">, found: number): Promise<void> {
   const { handle, session } = input;
@@ -229,10 +198,6 @@ async function recordJudged(input: Omit<SettleInput, "result">, found: number): 
     // alone, deliberately (../core/graph/pending.ts), so a session whose work
     // was two supersedes and a retire would report nothing found.
     found,
-    // Retaken here too, and this is the direction that matters: answering the
-    // last review is what takes the count back to zero, and nothing else in
-    // the system would notice until a worker woke.
-    ...(await reviewCensus(handle, input.now)),
     freshRun: input.isFirst,
     // What lets the hook stop counting this transcript now, rather than once
     // the watermark below can move — which a backlog of five judged two at a

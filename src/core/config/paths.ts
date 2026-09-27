@@ -13,6 +13,7 @@ import {
   DB_FILENAME,
   INDEX_FILENAME,
   LOCKFILE_FILENAME,
+  REPLIES_FILENAME,
   ENDED_DIRNAME,
   MODEL_CACHE_DIRNAME,
   SIGNPOSTS_DIRNAME,
@@ -34,6 +35,8 @@ export interface DerivedPaths {
   lockfile: string;
   /** The SessionEnd hook's markers — see ENDED_DIRNAME. */
   endedDir: string;
+  /** Where the skill writes a halt's answers — see REPLIES_FILENAME. */
+  repliesPath: string;
   /** Global — NOT under stateDir. Shared across every repo on the machine. */
   modelCacheDir: string;
   knowledgeDir: string;
@@ -86,6 +89,7 @@ export function derivePaths(
     statuslineState: path.join(stateDir, STATUSLINE_FILENAME),
     lockfile: path.join(stateDir, LOCKFILE_FILENAME),
     endedDir: path.join(stateDir, ENDED_DIRNAME),
+    repliesPath: path.join(stateDir, REPLIES_FILENAME),
     modelCacheDir: path.join(globalRoot, MODEL_CACHE_DIRNAME),
     knowledgeDir,
     indexFile: path.join(knowledgeDir, INDEX_FILENAME),

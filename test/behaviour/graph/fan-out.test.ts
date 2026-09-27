@@ -142,8 +142,12 @@ describe("the conditional fan-out", () => {
     expect(result.state.validated).toHaveLength(3);
   });
 
-  // 04's acceptance criterion.
-  it("never lets a contradicting candidate reach commit without a human", async () => {
+  // 04's acceptance criterion, restated with "Fewer human steps"
+  // (19-value-to-a-user.md): it read "never reaches commit without a human",
+  // and the run halted for an in-session review here. The human is the pull
+  // request's reviewer now, so it reaches commit flagged with the reason, and
+  // nothing merges without them.
+  it("never lets a contradicting candidate through unflagged", async () => {
     const existing = existingSignpost();
     const { ports, checkpointer, graph } = run(
       {
@@ -159,8 +163,8 @@ describe("the conditional fan-out", () => {
 
     expect(result.state.gated.auto).toEqual([]);
     expect(result.state.gated.needsHuman[0]?.reason).toBe("unresolved_contradiction");
-    // The run halted at human_review; nothing was committed.
-    expect(ports.commit.applied).toEqual([]);
+    expect(result.pending).toEqual([]);
+    expect(ports.commit.applied[0]?.flagged.map((item) => item.reason)).toContain("unresolved_contradiction");
   });
 
   it("skips the fan-out entirely when nothing survived the critic", async () => {

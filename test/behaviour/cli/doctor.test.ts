@@ -87,7 +87,7 @@ describe("signpost doctor", () => {
 
     expect(exitCode).toBe(0);
     expect(stdio.writtenOutput()).toContain("database: ok");
-    expect(stdio.writtenOutput()).toContain("consent: given");
+    expect(stdio.writtenOutput()).toContain("setup: done");
     expect(stdio.writtenOutput()).toContain("ready: nothing blocks");
   });
 
@@ -98,13 +98,15 @@ describe("signpost doctor", () => {
       execFileSync("git", ["config", "user.email", "dev@example.com"], { cwd: repoRoot });
     });
 
-    it("exits 1 when this repo has not consented, and says how to", async () => {
+    // Changed with "Fewer human steps" (19-value-to-a-user.md): this exited 1
+    // and sent the developer to `signpost init`. The first run sets the repo
+    // up now, so a repo nothing has run in is not blocked.
+    it("does not block a repo nothing has run in, and says the first run sets it up", async () => {
       const stdio = createFakeStdio();
-      const exitCode = await runCli(["doctor"], { config, stdio });
+      await runCli(["doctor"], { config, stdio });
 
-      expect(exitCode).toBe(1);
-      expect(stdio.writtenOutput()).toContain("consent: not given — run `signpost init`");
-      expect(stdio.writtenOutput()).toContain("blocked: no consent");
+      expect(stdio.writtenOutput()).toContain("setup: not yet — the first run does it");
+      expect(stdio.writtenOutput()).not.toContain("no consent");
     });
 
     it("reports the error the background worker left, which the status line sends people here for", async () => {

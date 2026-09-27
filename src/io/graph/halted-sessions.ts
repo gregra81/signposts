@@ -1,49 +1,31 @@
-// Which threads are parked on a review, found by reading the checkpoint
+// Which threads are halted and can be resumed, found by reading the checkpoint
 // database rather than by remembering anything.
 //
-// `signpost run` reports a halt to whoever invoked it and exits. Days later
-// the developer types `signpost review`, in a process that never saw that run
-// and holds no list of what it left behind. So the list is *derived*: every
-// thread in the checkpoint database, judged by the same rules a resume is
-// judged by, filtered to the ones halted on `human_review`.
-//
-// The judging is deliberately the same code `startRun` and `resumeRun` use
-// (decideCheckpoint). A thread this build cannot resume is not shown, because
-// showing it would invite a decision that `resumeRun` then refuses; a thread
-// past THREAD_EXPIRY_DAYS is dropped here and said so — by `signpost review`
-// only, see `dropExpired` — for the reason
-// 04-extraction-graph.md gives — its partition was computed against
-// neighbours, ids and a bootstrap flag the repo has long since moved past, so
-// there is nothing honest left to review.
+// `signpost run` reports a halt to whoever invoked it and exits, and the
+// `resume` that answers it may be a different process. So the list is
+// *derived*: every thread in the checkpoint database, judged by the same rules
+// a resume is judged by (decideCheckpoint), so a thread this build cannot
+// resume is never offered.
 
 import type {
   BaseCheckpointSaver,
   CheckpointTuple,
   LangGraphRunnableConfig,
 } from "@langchain/langgraph";
-import type { PendingReview } from "../../cli/run-port.ts";
-import { THREAD_EXPIRY_DAYS } from "../../core/config/constants.ts";
 import { decideCheckpoint } from "../../core/graph/state-version.ts";
-import { reviewExpiresAt } from "../../core/review/expiry.ts";
 import {
   pendingOnThread,
   threadConfigFor,
-  REVIEW_REQUEST_KIND,
   type ExtractionGraph,
   type PendingRequest,
-  type ReviewRequest,
 } from "../../graph/index.ts";
 
-export interface PendingReviewsInput {
+export interface HaltedSessionsInput {
   graph: ExtractionGraph;
   checkpointer: BaseCheckpointSaver;
   /** Only this repo's threads: the checkpoint file is per repo, but a stray one is not this repo's business. */
   repo: string;
   now: Date;
-  /** Where the drop of an expired thread is logged. */
-  warn: (message: string) => void;
-  /** See PendingReviewsOptions in ../../cli/run-port.ts. Off unless a person is reading. */
-  dropExpired?: boolean;
 }
 
 /** What a checkpoint carries about the session it belongs to. */
@@ -53,56 +35,7 @@ interface ThreadIdentity {
   contentHash: string;
 }
 
-export async function listPendingReviews(input: PendingReviewsInput): Promise<PendingReview[]> {
-  const reviews: PendingReview[] = [];
-
-  for await (const { threadId, identity, tuple, decision, pending } of haltedThreads(input)) {
-    // Whether it is holding a review is asked BEFORE the expiry is acted on.
-    // `decideCheckpoint` reads a version and a timestamp; it has no idea
-    // whether anyone is waiting. Nothing deletes a thread when its run reaches
-    // `commit`, so the database keeps the last checkpoint of every finished
-    // run — and judged on age alone, each of those printed "Dropping it" at a
-    // developer who was told their pending reviews had been thrown away.
-    const halts = pending.filter(isReview);
-    if (halts.length === 0) {
-      continue;
-    }
-
-    if (decision.action === "expired") {
-      if (input.dropExpired !== true) {
-        // Not listed — `resumeRun` would refuse it — and not deleted: whoever
-        // is reading this has nobody to tell. The developer's own `signpost
-        // review` drops it, in front of them, after the status line and the
-        // session-start notice have spent a week saying it was coming.
-        continue;
-      }
-      input.warn(
-        `Pending review for thread ${threadId} is ${decision.ageDays.toFixed(0)} days old ` +
-          `(expiry ${String(THREAD_EXPIRY_DAYS)} days). Dropping it.`,
-      );
-      await input.checkpointer.deleteThread(threadId);
-      continue;
-    }
-
-    for (const halt of halts) {
-      reviews.push({
-        threadId,
-        sessionId: identity.sessionId,
-        contentHash: identity.contentHash,
-        interruptId: halt.id,
-        waitingSince: new Date(tuple.checkpoint.ts),
-        expiresAt: reviewExpiresAt(new Date(tuple.checkpoint.ts)),
-        needsHuman: halt.request.needsHuman,
-      });
-    }
-  }
-
-  // Longest-waiting first: the one most likely to be forgotten is the one the
-  // developer is shown first.
-  return reviews.sort((left, right) => left.waitingSince.getTime() - right.waitingSince.getTime());
-}
-
-/** A session whose thread is halted and can be resumed — on a model call or on a review. */
+/** A session whose thread is halted on a model call and can be resumed. */
 export interface HaltedSession {
   sessionId: string;
   /** The hash the thread was built from, which is the one its halt reported. */
@@ -121,7 +54,7 @@ export interface HaltedSession {
  * it; nothing is dropped here either, since this is not a person reading.
  */
 export async function listHaltedSessions(
-  input: Omit<PendingReviewsInput, "warn" | "dropExpired">,
+  input: HaltedSessionsInput,
 ): Promise<HaltedSession[]> {
   const halted: HaltedSession[] = [];
   for await (const { identity, tuple, decision } of haltedThreads(input)) {
@@ -149,11 +82,10 @@ interface HaltedThread {
 /**
  * This repo's threads that are halted on anything, resumable or expired.
  *
- * Shared by the review listing and `resume`'s lookup, so the two cannot
- * disagree about which threads exist.
+ * What `resume`'s lookup walks.
  */
 async function* haltedThreads(
-  input: Pick<PendingReviewsInput, "graph" | "checkpointer" | "repo" | "now">,
+  input: HaltedSessionsInput,
 ): AsyncGenerator<HaltedThread> {
   for await (const tuple of newestPerThread(input.checkpointer)) {
     const threadId = tuple.config.configurable?.["thread_id"];
@@ -240,12 +172,6 @@ async function* newestPerThread(
     }
     before = { configurable: { checkpoint_id: last } };
   }
-}
-
-function isReview(
-  pending: PendingRequest,
-): pending is PendingRequest & { request: ReviewRequest } {
-  return pending.request.kind === REVIEW_REQUEST_KIND;
 }
 
 /**

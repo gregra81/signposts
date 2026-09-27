@@ -16,7 +16,7 @@
 // The check is on `version` and nothing else. Validating the whole payload
 // against graphStateSchema here would be worse than useless: a checkpoint
 // only carries the channels that have actually been written, so a thread
-// interrupted at `human_review` legitimately has no `resolutions` key, and a
+// interrupted at `extract` legitimately has no `resolutions` key, and a
 // full-shape parse would discard a healthy thread as malformed. The version
 // field IS the compatibility contract — that is what it is for.
 //

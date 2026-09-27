@@ -1,11 +1,12 @@
 // Starting and resuming one extraction run.
 //
-// A run halts whenever it needs something only the session outside it can
-// give: an answer from the model (src/graph/host-model.ts) or a decision from
-// a person (nodes/human-review.ts). Both are `interrupt()`s, both come back
-// here as pending requests, and both are answered the same way — by interrupt
-// id, through `resumeRun`. A run therefore proceeds in halts: start, answer
-// what came back, resume, repeat until nothing is pending.
+// A run halts whenever it needs an answer from the model, which only the
+// session outside it can give (src/graph/host-model.ts). Each is an
+// `interrupt()`, comes back here as a pending request, and is answered by
+// interrupt id through `resumeRun`. A run therefore proceeds in halts: start,
+// answer what came back, resume, repeat until nothing is pending. It used to
+// halt for a person's review as well, until that moved into the pull request
+// (19-value-to-a-user.md, "Fewer human steps").
 //
 // This is also where the thread id and the state version meet the
 // checkpointer. Both exist for the same reason: an answer may arrive three
@@ -36,7 +37,6 @@ import type { ExtractionGraph } from "./graph.ts";
 import type { GraphPorts } from "./ports.ts";
 import type { ExtractionState } from "./state.ts";
 import type { ModelRequest } from "./host-model.ts";
-import type { ReviewRequest } from "./nodes/human-review.ts";
 
 export interface RunInput extends ThreadIdParts {
   repoRoot: string;
@@ -52,7 +52,7 @@ export interface PendingRequest {
    * positional answer would hand one candidate's classification to another.
    */
   id: string;
-  request: ModelRequest | ReviewRequest;
+  request: ModelRequest;
 }
 
 /** One answer per pending request, keyed by `PendingRequest.id`. */
@@ -88,7 +88,7 @@ function pendingOf(state: ExtractionState): PendingRequest[] {
         "a run halted on an interrupt with no id, so there is no key to answer it under",
       );
     }
-    return { id: interrupted.id, request: interrupted.value as ModelRequest | ReviewRequest };
+    return { id: interrupted.id, request: interrupted.value as ModelRequest };
   });
 }
 
@@ -97,8 +97,7 @@ function pendingOf(state: ExtractionState): PendingRequest[] {
  *
  * An interrupt with no id throws here for the same reason it does in
  * `pendingOf`, and doubly so: this list is the allow-list a resume's keys are
- * checked against, and the list `signpost review` reads a halted thread's
- * outstanding review off (src/io/review/pending.ts). Dropping one silently
+ * checked against. Dropping one silently
  * would reject a caller answering the halt it was told about with "it is
  * waiting on nothing", pointing at the caller rather than at the malformed
  * checkpoint.
@@ -115,7 +114,7 @@ export async function pendingOnThread(
           "a thread is halted on an interrupt with no id, so there is no key to answer it under",
         );
       }
-      return { id: interrupted.id, request: interrupted.value as ModelRequest | ReviewRequest };
+      return { id: interrupted.id, request: interrupted.value as ModelRequest };
     }),
   );
 }
@@ -148,9 +147,9 @@ export function initialState(input: RunInput): Partial<ExtractionState> {
  * Runs the graph for one transcript, resuming an existing thread where the
  * checkpoint is one this build understands.
  *
- * A run that reaches `human_review` returns here with the interrupt pending;
+ * A run that reaches a model call returns here with the interrupt pending;
  * the state it returns is the halted state, and `resumeRun` continues it
- * later — possibly days later, from a different process.
+ * later, from a different process.
  */
 export async function startRun(
   graph: ExtractionGraph,
@@ -164,7 +163,7 @@ export async function startRun(
 
   if (decision.action === "expired") {
     console.warn(
-      `Checkpointed review for thread ${threadId} is ` +
+      `Checkpointed run for thread ${threadId} is ` +
         `${decision.ageDays.toFixed(0)} days old (expiry ${String(THREAD_EXPIRY_DAYS)} days). ` +
         "Dropping it and extracting again.",
     );
@@ -204,10 +203,9 @@ async function load(
 /**
  * Answers what a halted run asked for and lets it carry on.
  *
- * `replies` is keyed by `PendingRequest.id`; a model answer and a review
- * decision travel the same way, because to the graph they are the same thing —
- * a value an `interrupt()` returns. Answering only some of them is allowed and
- * ordinary: the run halts again on the rest.
+ * `replies` is keyed by `PendingRequest.id` — each is the value an
+ * `interrupt()` returns. Answering only some of them is allowed and ordinary:
+ * the run halts again on the rest.
  *
  * The thread id is rebuilt from the same three values that produced it, not
  * carried over from the run that halted — that is the property that makes a
@@ -221,14 +219,13 @@ async function load(
  *
  * A thread past THREAD_EXPIRY_DAYS throws here for the same reason, rather
  * than being silently dropped as it is in `startRun`: the caller is holding
- * answers to a review, and starting a fresh run behind their back would
- * pretend those answers were applied.
+ * answers to a halt, and starting a fresh run behind their back would pretend
+ * those answers were applied.
  *
- * A thread this build cannot resume throws rather than starting fresh. The
- * caller is holding decisions a person made against a partition from a shape
- * that no longer applies; re-running silently would discard their review, and
- * applying it to a rebuilt partition would attach their answers to operations
- * they never saw.
+ * A thread this build cannot resume throws rather than starting fresh, for
+ * the same reason: the answers were given to requests from a shape that no
+ * longer applies, and applying them to a rebuilt run would attach them to
+ * questions nobody asked.
  */
 export async function resumeRun(
   graph: ExtractionGraph,
@@ -244,7 +241,7 @@ export async function resumeRun(
     throw new Error(
       `resumeRun: thread ${threadId} expired ` +
         `(${decision.ageDays.toFixed(0)} days old, expiry ${String(THREAD_EXPIRY_DAYS)} days). ` +
-        "Re-run the extraction and review it again.",
+        "Re-run the extraction.",
     );
   }
   if (decision.action !== "resume") {
@@ -252,7 +249,7 @@ export async function resumeRun(
       `resumeRun: thread ${threadId} cannot be resumed by this build ` +
         `(state version ${String(STATE_VERSION)}, checkpoint ` +
         `${decision.action === "discard" ? String(decision.foundVersion) : "absent"}). ` +
-        "Re-run the extraction and review it again.",
+        "Re-run the extraction.",
     );
   }
 

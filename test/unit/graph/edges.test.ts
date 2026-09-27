@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { END } from "@langchain/langgraph";
-import { afterCritic, afterGate, afterGutter, afterValidate } from "../../../src/graph/graph.js";
+import { afterCritic, afterGutter, afterValidate } from "../../../src/graph/graph.js";
 import { NODE_IDS } from "../../../src/graph/node-ids.js";
 import {
   MAX_VALIDATE_ATTEMPTS,
@@ -25,6 +25,14 @@ describe("afterGutter", () => {
 
   it("ends the run on a transcript below it, without a model call", () => {
     expect(afterGutter(withTokens(MIN_GUTTERED_TOKENS - 1))).toBe(END);
+  });
+
+  it("ends the run on a transcript no human spoke in, however long", () => {
+    const noHuman = graphState({
+      gutterStats: { tokenEstimate: MIN_GUTTERED_TOKENS * 10, humanTurns: 0, redactionCount: 0 },
+    });
+
+    expect(afterGutter(noHuman)).toBe(END);
   });
 });
 
@@ -59,18 +67,3 @@ describe("afterValidate", () => {
   });
 });
 
-describe("afterGate", () => {
-  it("halts for a person when the gate held something back", () => {
-    const state = graphState({
-      gated: { auto: [], needsHuman: [{ operation: RETIRE, reason: "deletes_existing" }] },
-    });
-
-    expect(afterGate(state)).toBe(NODE_IDS.humanReview);
-  });
-
-  it("commits directly when the gate held nothing back", () => {
-    const state = graphState({ gated: { auto: [RETIRE], needsHuman: [] } });
-
-    expect(afterGate(state)).toBe(NODE_IDS.commit);
-  });
-});

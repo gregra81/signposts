@@ -4,7 +4,7 @@
 //   threadId = `${repo}:${sessionId}:${contentHash}`
 //
 // Every component is already on disk or derivable from it, which is the
-// whole point: a human may answer `human_review`'s interrupt three days
+// whole point: a session may answer a model call's interrupt three days
 // later, in a different process, and nothing holds this string in memory
 // across that gap. `signpost resume` recomputes it from the transcript it
 // finds rather than looking up something it remembered.

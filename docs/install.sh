@@ -12,10 +12,8 @@
 # by hand was two commands typed inside Claude Code that nothing verified, and
 # the CLI alone leaves a user with no hook, no commands and no read path.
 #
-# What it does not do is `signpost init`. That asks for consent on stdin, and
-# stdin here is the script itself coming down the pipe — a consent prompt that
-# cannot be answered is worse than one the user types deliberately, so the
-# install ends by telling them to run it.
+# Nothing to run in each repo afterwards: the first run sets a repo up, and
+# Claude offers that run once a session has gone quiet.
 #
 # Environment:
 #   SIGNPOSTS_VERSION       a release to pin, e.g. 0.1.0 or v0.1.0 (default: latest)
@@ -128,13 +126,13 @@ main() {
 
   cat <<'NEXT'
 
-signposts is installed. Next, in a repo you work in:
+signposts is installed. There is nothing to set up per repo: once a Claude Code
+session has gone quiet, the next one offers to turn it into a pull request of team
+knowledge, and a yes does the rest.
 
-  signpost init      asks once, then writes .signposts/, the CLAUDE.md pointer and the skill
-  signpost doctor    checks this machine if anything looks wrong
-
-Then ask Claude to run signposts. Restart any Claude Code session that was already
-open, so it picks the plugin up. The full picture: https://github.com/gregra81/signposts
+Restart any Claude Code session that was already open, so it picks the plugin up.
+`signpost doctor` checks this machine if anything looks wrong.
+The full picture: https://github.com/gregra81/signposts
 NEXT
 }
 

@@ -35,7 +35,21 @@ describe("commit", () => {
         repoRoot: "/repo",
         sessionId: "sess-1",
         operations: [REINFORCE],
+        flagged: [],
       },
     ]);
+  });
+
+  // The gated half used to wait for an in-session review. It is committed now,
+  // and handed over as `flagged` too, so the pull request can say why
+  // (19-value-to-a-user.md, "Fewer human steps").
+  it("commits what the gate held back as well, and flags it with the reason", async () => {
+    const ports = makeHarness({ script: {}, session: gutteredSession() });
+    const flagged = [{ operation: REINFORCE, reason: "bootstrap_run" as const }];
+
+    const update = await makeCommitNode(ports)(graphState({ gated: { auto: [], needsHuman: flagged } }));
+
+    expect(update.operations).toEqual([REINFORCE]);
+    expect(ports.commit.applied[0]?.flagged).toEqual(flagged);
   });
 });

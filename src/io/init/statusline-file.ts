@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { JSON_INDENT } from "../../core/config/constants.ts";
+import { allowRulesFor, planPermissions } from "../../core/init/permissions.ts";
 import {
   planStatusLine,
   type InheritedStatusLine,
@@ -137,4 +138,28 @@ export function installStatusLine(
     return null;
   }
   return { ...plan, file: path.join(CLAUDE_DIRNAME, SETTINGS_FILENAME) };
+}
+
+/**
+ * Adds the loop's allow rules to the same settings file, or returns null when
+ * it is one this must not touch. The rules added, empty when all were there.
+ * See src/core/init/permissions.ts.
+ */
+export function installPermissions(repoRoot: string, repliesPath: string): string[] | null {
+  const file = settingsPath(repoRoot);
+  const settings = readSettings(file);
+  if (settings === undefined) {
+    return null;
+  }
+  const plan = planPermissions(settings, allowRulesFor(repliesPath));
+  if (plan.added.length === 0) {
+    return [];
+  }
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(plan.settings, null, JSON_INDENT) + "\n", "utf8");
+  } catch {
+    return null;
+  }
+  return plan.added;
 }

@@ -42,6 +42,14 @@ export interface RunOutput {
   status: RunStatus;
   /** Non-empty exactly when `status` is "waiting": answer every one of these. */
   pending: PendingRequest[];
+  /**
+   * Where to write the answers to `pending`, present exactly when there are
+   * some: outside the checkout, and the one file setup allowed without a
+   * prompt (src/core/init/permissions.ts). Named here so the skill never has
+   * to choose a path, which is how a subagent once ended up writing reply
+   * files into the repo root (19-value-to-a-user.md, open item 17).
+   */
+  repliesPath?: string;
   /** What a finished session proposed, one line each. Empty while waiting. */
   proposed: string[];
   /**
