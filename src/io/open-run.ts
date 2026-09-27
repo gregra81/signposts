@@ -127,6 +127,7 @@ const openRunWith = async (
             idleHours: config.thresholds.idle_hours,
             maxAgeDays: config.thresholds.max_age_days,
           },
+          endedDir: config.paths.endedDir,
         }),
 
       pendingReviews: (now, options) => listPendingReviews({ graph, checkpointer, repo, now, warn, ...options }),

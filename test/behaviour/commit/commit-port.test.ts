@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeCommitPort } from "../../../src/io/commit/commit-port.js";
-import { publishBranch } from "../../../src/io/commit/publish.js";
+import { countUnpublished, publishBranch } from "../../../src/io/commit/publish.js";
 import type { CommitOutcome } from "../../../src/graph/ports.js";
 import type { PublishOutcome } from "../../../src/cli/run-port.js";
 import type { Forge } from "../../../src/io/forge/forge.js";
@@ -224,6 +224,21 @@ describe("the commit port", () => {
       expect(body).toContain("### Session `sess-2`");
       expect(body).toContain("Second claim");
     });
+  });
+
+  // 19-value-to-a-user.md, open item 14: what the status line's reminder counts.
+  it("counts one unpushed commit per session, and none once published", async () => {
+    expect(countUnpublished(repoRoot, worktreeDir)).toBe(0);
+
+    await commit("sess-1", [{ op: "add", signpost: signpost() }]);
+    await commit("sess-2", [{ op: "add", signpost: signpost({ id: "second", claim: "Second claim" }) }]);
+    expect(countUnpublished(repoRoot, worktreeDir)).toBe(2);
+
+    await publish();
+    expect(countUnpublished(repoRoot, worktreeDir)).toBe(0);
+
+    await commit("sess-3", [{ op: "reinforce", id: "staging-read-only", sessionId: "sess-3", author: AUTHOR }]);
+    expect(countUnpublished(repoRoot, worktreeDir)).toBe(1);
   });
 
   it("publishes nothing when every commit is already pushed", async () => {

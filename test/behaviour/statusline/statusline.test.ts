@@ -314,6 +314,34 @@ describe("progress during a run", () => {
     expect(render(f).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
   });
 
+  // 19-value-to-a-user.md, open item 14: a run pushes nothing, and after a
+  // "not now" to publishing this row is what remembers.
+  describe("commits nobody has published", () => {
+    const idle = { phase: "idle" as const, updatedAt: new Date().toISOString(), threadsWaiting: 0 };
+
+    it("says how many sessions are committed and not pushed, and what to run", () => {
+      const f = withStatus(fixture(), { ...idle, unpublishedSessions: 2 });
+
+      expect(render(f).stdout.trim()).toBe("🪧 signposts: 2 sessions not published — run `signpost publish`");
+    });
+
+    it("ranks above a failure and the backlog, and below a review and a run in flight", () => {
+      const quiet = withStatus(fixture(), {
+        ...idle,
+        unpublishedSessions: 1,
+        lastError: "index rebuild exited 1",
+        eligibleSessions: 3,
+      });
+      expect(render(quiet).stdout.trim()).toBe("🪧 signposts: 1 session not published — run `signpost publish`");
+
+      const reviewing = withStatus(fixture(), { ...idle, unpublishedSessions: 1, threadsWaiting: 1 });
+      expect(render(reviewing).stdout.trim()).toBe("🪧 signposts: 1 change needs your review");
+
+      const running = withStatus(fixture(), { ...progress(1, 1, 3, 2), unpublishedSessions: 1 });
+      expect(render(running).stdout.trim()).toBe("🪧 signposts: 1/3 sessions · 2 found");
+    });
+  });
+
   it("renders one row and no more", () => {
     const f = withStatus(fixture(), {
       ...progress(1, 2, 3, 4),

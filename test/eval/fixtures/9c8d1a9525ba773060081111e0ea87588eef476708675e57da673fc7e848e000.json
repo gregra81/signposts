@@ -1,0 +1,36 @@
+{
+  "node": "resolve",
+  "model": "claude-opus-5",
+  "system": "Two claims about the same repository contradict each other. Determine which is true.\n\nYou are working in the repository these claims are about. Read it before you answer — check whether\nthe configuration actually changed, and when. Do not adjudicate from the two claims alone when the\nfiles and the history are there to settle it.\n\nPossible outcomes:\n\nnew_wins        The new claim is correct; the existing one is stale. Something changed.\nexisting_wins   The existing claim still holds; the new one is mistaken or describes a special case.\nboth_scoped     Both are true under narrower scopes. Return the corrected scope for each.\n                This is common — different environments, access paths, or time periods.\nundecidable     The evidence does not settle it.\n\nundecidable is a legitimate answer, not a failure. A human will decide. Choosing it costs a review;\nguessing wrong silently corrupts the knowledge base. Prefer undecidable when genuinely uncertain.\n\nCite what you checked. If you read a file or a commit, say which and what it showed.\n\nDo not modify anything. Answering this is a read; whatever else you can do here, this is not the\nplace to do it.",
+  "user": "Repository: gregra81/signposts\n\nNew claim:\n{\"tempId\":\"c1\",\"claim\":\"A run must never automatically publish (push/open PR); it stops at a local commit in the worktree.\",\"category\":\"decision\",\"scope\":{\"repo\":\"gregra81/signposts\"},\"evidence\":\"A run now stops at a local commit in the worktree and pushes nothing... a run must never publish on its own any more.\",\"confidence\":0.85,\"hedged\":false}\n\nExisting claim:\n{\"id\":\"when-a-signposts-run-finishes-it-auto-pushes\",\"claim\":\"When a signposts run finishes, it auto-pushes the branch and opens a PR without any confirmation step, by design.\",\"category\":\"decision\",\"scope\":{\"repo\":\"gregra81/signposts\",\"paths\":[]},\"evidence\":\"\\\"When a run finishes, signposts pushes the branch and opens the PR on its own, with no confirmation step. That is on purpose: the PR is the review, so asking first would be a second review of the same thing.\\\"\",\"confidence\":0.8,\"provenance\":{\"session_ids\":[\"a3f1c2d4-5b6e-4f70-8a91-0c2d3e4f5a61\"],\"authors\":[\"eval@signposts.local\"],\"first_seen\":\"2026-08-31T00:00:00.000Z\",\"last_reinforced\":\"2026-08-31T00:00:00.000Z\"},\"status\":\"active\"}",
+  "value": {
+    "tempId": "c1",
+    "outcome": "new_wins",
+    "reasoning": "Auto-publish was deliberately removed. src/io/commit/publish.ts's header comment says push+PR \"used to be the tail of every run's commit, which meant a successful run ended with a PR ... nobody had asked for (19-value-to-a-user.md, open item 1). The run now stops at a local commit (./commit-port.ts) and this is the step the developer says yes to.\" Publishing is now its own CLI command (src/cli/commands/publish.ts); src/cli/commands/run.ts imports only countUnpublished from publish.ts and its comment at line 351 says \"pushing and the pull request are `signpost publish`'s, and so is that code.\" src/cli/commands/review.ts:97 prints \"Committed to <branch>, not pushed. Run `signpost publish`...\". README.md:96-98 and 125-128 state a run commits locally and \"The push and the pull request are a separate step, `signpost publish`ā€¦ it runs only when you say yes.\" The existing claim describes the superseded behaviour.",
+    "evidenceChecked": [
+      "src/io/commit/publish.ts (lines 1-100) — header documents the removal of auto-publish; publishBranch is only reachable via makePublish",
+      "src/cli/commands/publish.ts — dedicated `signpost publish` command",
+      "src/cli/commands/run.ts:25,302,351 — run only counts unpublished commits; comment assigns push/PR to publish",
+      "src/cli/commands/review.ts:91,97 — 'Committed to <branch>, not pushed. Run `signpost publish`'",
+      "README.md:93-98, 122-128, 172-174 — run stops at a local commit; publish is a separate, opt-in step"
+    ],
+    "newScope": {
+      "repo": "gregra81/signposts",
+      "paths": [
+        "src/io/commit/publish.ts",
+        "src/cli/commands/publish.ts",
+        "src/cli/commands/run.ts",
+        "src/cli/commands/review.ts",
+        "README.md"
+      ]
+    }
+  },
+  "usage": {
+    "inputTokens": 8,
+    "outputTokens": 1815,
+    "cacheReadTokens": 29802,
+    "cacheCreationTokens": 15783,
+    "model": "claude-opus-5",
+    "costUsd": 0.21814600000000003
+  }
+}

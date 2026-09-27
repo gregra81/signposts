@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  ENDED_IDLE_HOURS,
+  ENDED_MARKER_SLACK_MINUTES,
   IDLE_HOURS,
   INDEX_CONTEXT_MAX_BYTES,
   LOCK_STALE_MINUTES,
@@ -30,6 +32,7 @@ import {
   lockIsHeld,
   looksEligible,
   noticeFor,
+  recordSessionEnd,
   reviewExpiresInDays,
   watermarkMs,
 } from "../../../hooks/session-start.ts";
@@ -163,6 +166,7 @@ describe("the second copy of what src/ already knows", () => {
       expect(mine.dbPath).toBe(theirs.dbPath);
       expect(mine.statuslineState).toBe(theirs.statuslineState);
       expect(mine.lockfile).toBe(theirs.lockfile);
+      expect(mine.endedDir).toBe(theirs.endedDir);
       expect(mine.knowledgeDir).toBe(theirs.knowledgeDir);
       expect(mine.transcriptRoot).toBe(theirs.transcriptRoot);
     }
@@ -179,6 +183,21 @@ describe("the second copy of what src/ already knows", () => {
     const maxAgeHours = MAX_AGE_DAYS * 24;
     expect(looksEligible(at(maxAgeHours), NOW, 0)).toBe(true);
     expect(looksEligible(at(maxAgeHours + 0.001), NOW, 0)).toBe(false);
+  });
+
+  it("shortens the wait for an ended session by the same ENDED_IDLE_HOURS and slack", () => {
+    const endedAt = (hoursAgo: number, markerOffsetMs = 0) => ({
+      lastActivityMs: NOW - hoursAgo * HOUR,
+      startedMs: NOW - hoursAgo * HOUR,
+      endedMs: NOW - hoursAgo * HOUR + markerOffsetMs,
+    });
+    expect(looksEligible(endedAt(ENDED_IDLE_HOURS), NOW, 0)).toBe(true);
+    expect(looksEligible(endedAt(ENDED_IDLE_HOURS - 0.001), NOW, 0)).toBe(false);
+
+    const slack = ENDED_MARKER_SLACK_MINUTES * 60_000;
+    expect(looksEligible(endedAt(ENDED_IDLE_HOURS, -slack), NOW, 0)).toBe(true);
+    expect(looksEligible(endedAt(ENDED_IDLE_HOURS, -slack - 1), NOW, 0)).toBe(false);
+    expect(looksEligible({ ...endedAt(ENDED_IDLE_HOURS), endedMs: null }, NOW, 0)).toBe(false);
   });
 
   it("expires a lock at the same LOCK_STALE_MINUTES", () => {
@@ -375,5 +394,49 @@ describe("the corpus, carried into the session", () => {
     };
     expect(output.systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
     expect(output.hookSpecificOutput.additionalContext).toMatch(/^the index\n\nsignposts has 1 session/);
+  });
+});
+
+// 19-value-to-a-user.md, open item 5. The SessionEnd half of the bundle.
+describe("recordSessionEnd", () => {
+  function repo(initialised: boolean): { repoRoot: string; homeDir: string } {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "signposts-hook-end-")));
+    const repoRoot = path.join(root, "checkout");
+    mkdirSync(repoRoot, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: repoRoot });
+    if (initialised) {
+      mkdirSync(path.join(repoRoot, ".signposts"));
+    }
+    return { repoRoot, homeDir: path.join(root, "home") };
+  }
+
+  it("leaves an empty marker named for the session, in the state directory the app reads", () => {
+    const { repoRoot, homeDir } = repo(true);
+
+    expect(recordSessionEnd({ session_id: "0b1c-2d3e", cwd: repoRoot }, {}, homeDir)).toBe(true);
+
+    const marker = path.join(deriveAppPaths(repoRoot, homeDir).endedDir, "0b1c-2d3e");
+    expect(existsSync(marker)).toBe(true);
+    expect(statSync(marker).size).toBe(0);
+  });
+
+  it("finds the repo from CLAUDE_PROJECT_DIR before the cwd it was given", () => {
+    const { repoRoot, homeDir } = repo(true);
+
+    expect(recordSessionEnd({ session_id: "s1", cwd: "/" }, { CLAUDE_PROJECT_DIR: repoRoot }, homeDir)).toBe(true);
+  });
+
+  it("writes nothing for a repo that has not consented", () => {
+    const { repoRoot, homeDir } = repo(false);
+
+    expect(recordSessionEnd({ session_id: "s1", cwd: repoRoot }, {}, homeDir)).toBe(false);
+    expect(existsSync(path.join(homeDir, ".signposts"))).toBe(false);
+  });
+
+  it("refuses a session id that is not a plain file name", () => {
+    const { repoRoot, homeDir } = repo(true);
+
+    expect(recordSessionEnd({ session_id: "../escape", cwd: repoRoot }, {}, homeDir)).toBe(false);
+    expect(recordSessionEnd({ cwd: repoRoot }, {}, homeDir)).toBe(false);
   });
 });

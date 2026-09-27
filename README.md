@@ -114,8 +114,10 @@ worker. Sessions pile onto the branch that is still open; a merge starts the nex
 **Only knowledge you couldn't get from reading the code.** If it's inferable from the source, it
 doesn't belong here — that's the entire point of the tool.
 
-**Sessions have to sit idle 24+ hours first.** Claude Code sessions are resumable, so "ended"
-isn't really final until enough time has passed.
+**Sessions have to sit idle 24+ hours first,** or one hour when you ended them. Claude Code
+sessions are resumable, so a quiet session isn't really finished until enough time has passed. A
+session you exited or cleared is marked by a `SessionEnd` hook, and it only waits the hour. If you
+resume it after all, the new activity cancels the mark and the full day applies again.
 
 **Your working tree is never touched.** A run commits through a second worktree, so proposals
 appear on a branch while you carry on with whatever you were doing.

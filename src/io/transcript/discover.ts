@@ -40,6 +40,12 @@ export interface DiscoverInput {
    * makes `idle_hours` mean anything (19-value-to-a-user.md, open items).
    */
   thresholds?: EligibilityThresholds;
+  /**
+   * Where the SessionEnd hook leaves a marker per ended session (ENDED_DIRNAME
+   * under the state directory). Omitted, no session counts as ended and every
+   * one waits the full idle window.
+   */
+  endedDir?: string;
 }
 
 /** Eligible sessions, oldest activity first — the order a run should process them in. */
@@ -78,6 +84,7 @@ export function discoverSessions(input: DiscoverInput): DiscoveredSession[] {
         inGitRepo: true,
         isSidechain: false,
         processedKeys: input.processedKeys,
+        ...endedAt(input.endedDir, sessionId),
       },
       input.now,
       input.thresholds,
@@ -88,4 +95,18 @@ export function discoverSessions(input: DiscoverInput): DiscoveredSession[] {
   }
 
   return found.sort((a, b) => a.lastActivityAt.getTime() - b.lastActivityAt.getTime());
+}
+
+/** The SessionEnd hook's marker for this session, as `endedAt`, or nothing when there is none. */
+function endedAt(endedDir: string | undefined, sessionId: string): { endedAt?: Date } {
+  if (endedDir === undefined) {
+    return {};
+  }
+  try {
+    return { endedAt: statSync(path.join(endedDir, sessionId)).mtime };
+  } catch {
+    // No marker: the session never ended as far as Claude Code told us, or it
+    // ended before the hook was installed. Either way the full window applies.
+    return {};
+  }
 }

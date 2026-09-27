@@ -100,8 +100,8 @@ const HELP = `${USAGE}
                --session <id>        which session (default: the oldest eligible)
                --first               first session of a run: clears what the last run left pending
   resume     answer a halt and continue to the next (JSON)
-               --session <id>        the session the halt reported
-               --content-hash <hash> the contentHash the halt reported
+               --session <id>        the session the halt reported (default: the only halted one)
+               --content-hash <hash> the contentHash the halt reported (default: the halted thread's own)
                --replies <path|->    answers keyed by pending id; - reads stdin
   review     answer pending reviews yourself, at a terminal
   publish    push what the runs committed and open or update the pull request (JSON)

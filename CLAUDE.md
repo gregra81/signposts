@@ -159,7 +159,9 @@ signpost publish                                   # push the branch, open or up
 ```
 
 `--first` clears what the previous run left pending, so it belongs on the first session of a run
-and nowhere else. The skill runs the loop in a subagent (a session's prompts are thousands of
+and nowhere else. `resume` can leave out `--content-hash`, and `--session` too when only one thread
+is halted: it reads the hash off the halted thread in the checkpoint database, never off the
+transcript, which may have grown since the halt. The skill still passes both. The skill runs the loop in a subagent (a session's prompts are thousands of
 tokens) and brings a `human_review` halt back to the main session, because only the developer can
 answer it.
 
@@ -184,7 +186,12 @@ what you just wrote.
 
 `hooks/session-start.ts` is a standalone bundle that imports nothing from `src/` (the third lint
 rule) and ships pre-compiled by `pnpm build:hooks`, because type-stripping is parse work paid on
-every session start. It checks three conditions with `stat` calls only — eligible transcripts,
+every session start. The same bundle is the `SessionEnd` hook: run with `--session-end`, it leaves
+an empty marker per session under `STATE_DIR/ended-sessions`, and eligibility waits
+`ENDED_IDLE_HOURS` instead of a day for a session whose marker is no older than its last write. It
+is one bundle rather than two because a second file's shipped `.js` could not import a `.ts`
+sibling from inside `node_modules`, and a third copy of the state-directory rule is how the two
+processes stop agreeing. It checks three conditions with `stat` calls only — eligible transcripts,
 threads waiting, a stale index — takes the run lock, spawns `signpost worker --adopt-lock`
 detached, prints one `systemMessage` and exits. Measured, not asserted: `node scripts/measure-hook.mjs`
 prints the distribution against `HOOK_BUDGET_MS`, and it sits around 23ms against a 50ms budget, of
@@ -223,10 +230,12 @@ the `.ts` stays out. A developer never runs the build; an end user gets the outp
 It reads `status.json` and nothing else — no database, no git subprocess — because it runs on every
 assistant message and on a one-second `refreshInterval`.
 
-It renders one of five things, each true at the moment it renders: a review parked on the developer,
-a run in flight, the worker reindexing, a failure nobody was told about, and last the backlog — in
-that order, because a review is the only one of them asking for anything and the backlog asks for
-nothing.
+It renders one of six things, each true at the moment it renders: a review parked on the developer,
+a run in flight, sessions committed and not published, the worker reindexing, a failure nobody was
+told about, and last the backlog — in that order. A review and unpublished commits are the two that
+wait on the developer. A run commits as it goes, so the unpublished count sits below its progress,
+and the backlog asks for nothing. The unpublished count is git's: `settle` and `publish` ask it and
+write `unpublishedSessions`, and the worker carries the field through like the watermark.
 
 The backlog row reverses an earlier rule that the bar say nothing when idle, on the grounds that the
 hook names the backlog once per session start and a permanent row repeating it is noise. What that

@@ -21,6 +21,7 @@ import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import { renderPendingList, type ReviewItem } from "../../core/review/render.ts";
 import { resumeRun } from "../../graph/index.ts";
 import { promptForReview } from "../../io/review/prompt.ts";
+import { countUnpublished } from "../../io/commit/publish.ts";
 import type { OpenRun, PendingReview, RunHandle } from "../run-port.ts";
 import { fail, namedSession, settle, withRun } from "../with-run.ts";
 
@@ -161,6 +162,7 @@ async function apply(
     session: namedSession(handle, review.sessionId, review.contentHash, now),
     result,
     statusPath: input.config.paths.statuslineState,
+    countUnpublished: () => countUnpublished(input.repoRoot, input.config.paths.worktreeDir),
     now,
     // `review` answers a halt, so it continues a run rather than opening one.
     isFirst: false,

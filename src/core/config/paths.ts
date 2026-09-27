@@ -13,6 +13,7 @@ import {
   DB_FILENAME,
   INDEX_FILENAME,
   LOCKFILE_FILENAME,
+  ENDED_DIRNAME,
   MODEL_CACHE_DIRNAME,
   SIGNPOSTS_DIRNAME,
   CLAUDE_CONFIG_ROOT,
@@ -31,6 +32,8 @@ export interface DerivedPaths {
   checkpointPath: string;
   statuslineState: string;
   lockfile: string;
+  /** The SessionEnd hook's markers — see ENDED_DIRNAME. */
+  endedDir: string;
   /** Global — NOT under stateDir. Shared across every repo on the machine. */
   modelCacheDir: string;
   knowledgeDir: string;
@@ -82,6 +85,7 @@ export function derivePaths(
     checkpointPath: path.join(stateDir, CHECKPOINT_FILENAME),
     statuslineState: path.join(stateDir, STATUSLINE_FILENAME),
     lockfile: path.join(stateDir, LOCKFILE_FILENAME),
+    endedDir: path.join(stateDir, ENDED_DIRNAME),
     modelCacheDir: path.join(globalRoot, MODEL_CACHE_DIRNAME),
     knowledgeDir,
     indexFile: path.join(knowledgeDir, INDEX_FILENAME),

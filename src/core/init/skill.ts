@@ -116,10 +116,13 @@ Rejected operations are dropped; nothing merges without a decision on each.
 
 ## What to tell the user at the end
 
-Which sessions ran and what was proposed, then ask whether to publish it: push
-the branch and open the pull request, or add to it when \`commit.pr\` names one.
-**Ask, and wait for the answer.** The run committed locally and nothing has left
-this machine; publishing is the developer's call, not yours.
+Which sessions ran and what was proposed. If none of them committed anything
+(every \`commit\` was null), say so and stop: there is nothing to publish.
+
+Otherwise ask whether to publish it: push the branch and open the pull request, or
+add to it when \`commit.pr\` names one. **Ask, and wait for the answer.** The run
+committed locally and nothing has left this machine; publishing is the
+developer's call, not yours.
 
 On yes, run \`signpost publish\` and report the pull request it names. \`status:
 "nothing"\` means no run committed anything since the last publish. Exit \`4\` is

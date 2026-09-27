@@ -143,6 +143,14 @@ export interface WorkerStatus {
    * carried forward, and absent when nothing is waiting.
    */
   reviewExpiresAt?: string;
+  /**
+   * Sessions committed to the signposts branch and not pushed: a run stops at a
+   * local commit, and only `signpost publish` pushes (19-value-to-a-user.md,
+   * open items 1 and 14). Counted from git by whoever last committed or
+   * published — `settle` and `publish` — and absent at zero. The worker carries
+   * it forward untouched, like the run commands' other fields.
+   */
+  unpublishedSessions?: number;
 }
 
 export interface SnapshotInput {
@@ -157,6 +165,8 @@ export interface SnapshotInput {
   runProgress?: RunProgress | undefined;
   /** Likewise. */
   judgedSessions?: Record<string, string> | undefined;
+  /** Likewise. */
+  unpublishedSessions?: number | undefined;
   /** The census's, like the counts above. */
   reviewExpiresAt?: Date | undefined;
 }
@@ -182,13 +192,14 @@ export function runningStatus(
   lastRunFinishedAt?: string,
   runProgress?: RunProgress,
   judgedSessions?: Record<string, string>,
+  unpublishedSessions?: number,
 ): WorkerStatus {
   return {
     phase: WORKER_PHASES.running,
     updatedAt: now.toISOString(),
     eligibleSessions: 0,
     threadsWaiting: 0,
-    ...runCommandFields({ lastRunFinishedAt, runProgress, judgedSessions }),
+    ...runCommandFields({ lastRunFinishedAt, runProgress, judgedSessions, unpublishedSessions }),
   };
 }
 
@@ -208,13 +219,31 @@ function runCommandFields(
     lastRunFinishedAt?: string | undefined;
     runProgress?: RunProgress | undefined;
     judgedSessions?: Record<string, string> | undefined;
+    unpublishedSessions?: number | undefined;
   },
-): Pick<WorkerStatus, "lastRunFinishedAt" | "runProgress" | "judgedSessions"> {
+): Pick<WorkerStatus, "lastRunFinishedAt" | "runProgress" | "judgedSessions" | "unpublishedSessions"> {
   return {
     ...(carried.lastRunFinishedAt === undefined ? {} : { lastRunFinishedAt: carried.lastRunFinishedAt }),
     ...(carried.runProgress === undefined ? {} : { runProgress: carried.runProgress }),
     ...(carried.judgedSessions === undefined ? {} : { judgedSessions: carried.judgedSessions }),
+    ...(carried.unpublishedSessions === undefined ? {} : { unpublishedSessions: carried.unpublishedSessions }),
   };
+}
+
+/**
+ * The previous snapshot with the unpublished count set to what git says now.
+ * Zero removes the field, so a published branch leaves nothing behind. Like
+ * `runFinishedStatus`, it counts nothing of the worker's, so `updatedAt` stays.
+ */
+export function unpublishedStatus(previous: WorkerStatus | undefined, sessions: number, now: Date): WorkerStatus {
+  const { unpublishedSessions: _stale, ...rest } = previous ?? {
+    phase: WORKER_PHASES.idle,
+    updatedAt: now.toISOString(),
+    eligibleSessions: 0,
+    threadsWaiting: 0,
+  };
+  const counted = count(sessions);
+  return counted === 0 ? rest : { ...rest, unpublishedSessions: counted };
 }
 
 /**

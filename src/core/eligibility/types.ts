@@ -8,6 +8,8 @@ export type Session = {
   startedAt: Date;
   inGitRepo: boolean;
   isSidechain: boolean;
+  /** When Claude Code said this session ended, from the SessionEnd hook's marker. Absent when it never did. */
+  endedAt?: Date;
   /** Compound `${sessionId}:${contentHash}` keys already completed. */
   processedKeys: ReadonlySet<string>;
 };

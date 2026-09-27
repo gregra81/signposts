@@ -2,9 +2,10 @@
 // metadata in, decision out. Size and content gates live elsewhere (they
 // need transcript/gutter output, not session metadata).
 
-import { IDLE_HOURS, MAX_AGE_DAYS } from "../config/constants.ts";
+import { ENDED_IDLE_HOURS, ENDED_MARKER_SLACK_MINUTES, IDLE_HOURS, MAX_AGE_DAYS } from "../config/constants.ts";
 import type { Session } from "./types.ts";
 
+const MS_PER_MINUTE = 60_000;
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 86_400_000;
 
@@ -36,10 +37,27 @@ export function isEligible(
 ): boolean {
   const nowMs = now.getTime();
 
-  const idle = nowMs - session.lastActivityAt.getTime() >= thresholds.idleHours * MS_PER_HOUR;
+  const idle = nowMs - session.lastActivityAt.getTime() >= idleHoursFor(session, thresholds) * MS_PER_HOUR;
   const notTooOld = nowMs - session.startedAt.getTime() <= thresholds.maxAgeDays * MS_PER_DAY;
   const key = `${session.sessionId}:${session.contentHash}`;
   const notProcessed = !session.processedKeys.has(key);
 
   return idle && notTooOld && session.inGitRepo && !session.isSidechain && notProcessed;
+}
+
+/**
+ * How long this session has to have been quiet.
+ *
+ * A day, unless Claude Code said the session ended and nothing has been
+ * written to it since — then ENDED_IDLE_HOURS, or the configured window when
+ * that is shorter still (19-value-to-a-user.md, open item 5). A session
+ * resumed after its end has activity past the marker, so the marker stops
+ * counting and the full window applies again.
+ */
+function idleHoursFor(session: Session, thresholds: EligibilityThresholds): number {
+  const endedMs = session.endedAt?.getTime();
+  const ended =
+    endedMs !== undefined &&
+    endedMs >= session.lastActivityAt.getTime() - ENDED_MARKER_SLACK_MINUTES * MS_PER_MINUTE;
+  return ended ? Math.min(ENDED_IDLE_HOURS, thresholds.idleHours) : thresholds.idleHours;
 }

@@ -56,35 +56,14 @@ interface ThreadIdentity {
 export async function listPendingReviews(input: PendingReviewsInput): Promise<PendingReview[]> {
   const reviews: PendingReview[] = [];
 
-  for await (const tuple of newestPerThread(input.checkpointer)) {
-    const threadId = tuple.config.configurable?.["thread_id"];
-    if (typeof threadId !== "string") {
-      continue;
-    }
-
-    // Whose thread it is, before anything is judged or deleted. The checkpoint
-    // file is this repo's, but a thread that is not this repo's business is
-    // not this listing's to drop either.
-    const identity = identify(tuple.checkpoint.channel_values);
-    if (identity === undefined || identity.repo !== input.repo) {
-      continue;
-    }
-
-    const decision = decideCheckpoint(tuple.checkpoint.channel_values, {
-      checkpointedAt: tuple.checkpoint.ts,
-      now: input.now,
-    });
-    if (decision.action !== "resume" && decision.action !== "expired") {
-      continue;
-    }
-
+  for await (const { threadId, identity, tuple, decision, pending } of haltedThreads(input)) {
     // Whether it is holding a review is asked BEFORE the expiry is acted on.
     // `decideCheckpoint` reads a version and a timestamp; it has no idea
     // whether anyone is waiting. Nothing deletes a thread when its run reaches
     // `commit`, so the database keeps the last checkpoint of every finished
     // run — and judged on age alone, each of those printed "Dropping it" at a
     // developer who was told their pending reviews had been thrown away.
-    const halts = (await pendingOnThread(input.graph, threadConfigFor(threadId))).filter(isReview);
+    const halts = pending.filter(isReview);
     if (halts.length === 0) {
       continue;
     }
@@ -121,6 +100,89 @@ export async function listPendingReviews(input: PendingReviewsInput): Promise<Pe
   // Longest-waiting first: the one most likely to be forgotten is the one the
   // developer is shown first.
   return reviews.sort((left, right) => left.waitingSince.getTime() - right.waitingSince.getTime());
+}
+
+/** A session whose thread is halted and can be resumed — on a model call or on a review. */
+export interface HaltedSession {
+  sessionId: string;
+  /** The hash the thread was built from, which is the one its halt reported. */
+  contentHash: string;
+  waitingSince: Date;
+}
+
+/**
+ * Every session in this repo whose thread is halted and this build can resume,
+ * longest-waiting first.
+ *
+ * What lets `resume` go without `--content-hash` (19-value-to-a-user.md, open
+ * item 2). The hash is on the thread, and it is the one the halt reported: the
+ * transcript may have grown since, and hashing it again would name a different
+ * thread. An expired thread is not one of these, because `resumeRun` refuses
+ * it; nothing is dropped here either, since this is not a person reading.
+ */
+export async function listHaltedSessions(
+  input: Omit<PendingReviewsInput, "warn" | "dropExpired">,
+): Promise<HaltedSession[]> {
+  const halted: HaltedSession[] = [];
+  for await (const { identity, tuple, decision } of haltedThreads(input)) {
+    if (decision.action !== "resume") {
+      continue;
+    }
+    halted.push({
+      sessionId: identity.sessionId,
+      contentHash: identity.contentHash,
+      waitingSince: new Date(tuple.checkpoint.ts),
+    });
+  }
+  return halted.sort((left, right) => left.waitingSince.getTime() - right.waitingSince.getTime());
+}
+
+/** One of this repo's threads with something pending, and how `decideCheckpoint` judged it. */
+interface HaltedThread {
+  threadId: string;
+  identity: ThreadIdentity;
+  tuple: CheckpointTuple;
+  decision: ReturnType<typeof decideCheckpoint>;
+  pending: PendingRequest[];
+}
+
+/**
+ * This repo's threads that are halted on anything, resumable or expired.
+ *
+ * Shared by the review listing and `resume`'s lookup, so the two cannot
+ * disagree about which threads exist.
+ */
+async function* haltedThreads(
+  input: Pick<PendingReviewsInput, "graph" | "checkpointer" | "repo" | "now">,
+): AsyncGenerator<HaltedThread> {
+  for await (const tuple of newestPerThread(input.checkpointer)) {
+    const threadId = tuple.config.configurable?.["thread_id"];
+    if (typeof threadId !== "string") {
+      continue;
+    }
+
+    // Whose thread it is, before anything is judged or deleted. The checkpoint
+    // file is this repo's, but a thread that is not this repo's business is
+    // not this listing's to drop either.
+    const identity = identify(tuple.checkpoint.channel_values);
+    if (identity === undefined || identity.repo !== input.repo) {
+      continue;
+    }
+
+    const decision = decideCheckpoint(tuple.checkpoint.channel_values, {
+      checkpointedAt: tuple.checkpoint.ts,
+      now: input.now,
+    });
+    if (decision.action !== "resume" && decision.action !== "expired") {
+      continue;
+    }
+
+    const pending = await pendingOnThread(input.graph, threadConfigFor(threadId));
+    if (pending.length === 0) {
+      continue;
+    }
+    yield { threadId, identity, tuple, decision, pending };
+  }
 }
 
 /** How many checkpoints one query pulls back. See `newestPerThread`. */
