@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "signposts",
-      "source": { "source": "github", "repo": "gregra81/signposts", "ref": "v0.1.1" },
+      "source": { "source": "github", "repo": "gregra81/signposts", "ref": "v0.1.2" },
       "description": "Turns the corrections in your idle Claude Code sessions into reviewed team knowledge in your repo, and searches it back out again.",
       "homepage": "https://gregra81.github.io/signposts/",
       "repository": "https://github.com/gregra81/signposts",
