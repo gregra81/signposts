@@ -92,6 +92,38 @@ describe("prSection", () => {
     expect(prSection("sess-1", [ADD])).toContain("| op | signpost | claim | why |");
   });
 
+  // The gated half of a session, reviewed here rather than inside the session
+  // (19-value-to-a-user.md, "Fewer human steps"), so the reason travels too.
+  it("lists what the gate held back under the table, each with why", () => {
+    const section = prSection("sess-1", [ADD, SUPERSEDE], [
+      { operation: SUPERSEDE, reason: "unresolved_contradiction" },
+      { operation: ADD, reason: "bootstrap_run" },
+    ]);
+
+    expect(section.endsWith(
+      "\n**Look closely at:**\n\n" +
+        "- `supersede staging-read-only` — it contradicts what is recorded and nothing could settle which is right\n" +
+        "- `add staging-read-only` — this repo's first run, so everything is flagged\n",
+    )).toBe(true);
+  });
+
+  it.each([
+    ["low_confidence", "the model was not confident"],
+    ["edits_existing", "it changes a signpost you already have"],
+    ["deletes_existing", "it removes a signpost you already have"],
+  ] as const)("says %s in words", (reason, words) => {
+    expect(prSection("sess-1", [REINFORCE], [{ operation: REINFORCE, reason }])).toContain(
+      `- \`reinforce staging-read-only\` — ${words}\n`,
+    );
+  });
+
+  it("adds nothing under the table when nothing was held back", () => {
+    const section = prSection("sess-1", [ADD], []);
+
+    expect(section).not.toContain("Look closely");
+    expect(section.endsWith("|\n")).toBe(true);
+  });
+
   it("headings name the session", () => {
     expect(prSection("sess-7", [ADD])).toContain("### Session `sess-7`");
   });

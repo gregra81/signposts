@@ -155,7 +155,7 @@ const REASONS: Readonly<Record<SearchUnavailable, string>> = {
   [SEARCH_UNAVAILABLE.no_index]:
     `No search index has been built in this checkout yet — expected on a fresh clone, and not an error. ${REBUILD}`,
   [SEARCH_UNAVAILABLE.not_indexed]:
-    `This repo has a signposts database but no search index yet: \`signpost init\` creates the one and not the other. ${REBUILD}`,
+    `This repo has a signposts database but no search index yet: setting the repo up creates the one and not the other. ${REBUILD}`,
   [SEARCH_UNAVAILABLE.unreadable]:
     `The search index could not be read at the schema this build expects. ${REBUILD}`,
   [SEARCH_UNAVAILABLE.no_match]:

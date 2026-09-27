@@ -40,7 +40,6 @@ const THRESHOLDS = [
   { module: "src/core/doctor", break: 95 },
   { module: "src/core/errors", break: 95 },
   { module: "src/core/prompts", break: 95 },
-  { module: "src/core/review", break: 95 },
   // What the MCP tool answers in each state it can be in. A surviving mutant
   // here is a diagnostic that names the wrong cause, or an empty result that
   // arrives with no explanation at all — which reads to the model asking as

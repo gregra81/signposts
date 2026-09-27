@@ -1,8 +1,12 @@
-// Decision logic for `signpost init` (15-spec.md user stories 60/70, R3):
-// whether a first-run consent prompt is needed, what a typed answer means,
-// what exit code a decision produces, and whether the CLAUDE.md pointer
-// still needs appending. All pure — persistence and prompting are the
-// caller's job (src/cli/commands/init.ts, src/io/init/*).
+// Decision logic for setting a repo up (15-spec.md user stories 60/70, R3):
+// whether it has been set up, and what the CLAUDE.md pointer becomes. All
+// pure — persistence is the caller's job (src/cli/initialise.ts,
+// src/io/commit/commit-port.ts, src/io/init/*).
+//
+// There used to be a consent prompt here, typed at `signpost init`. It went
+// because nobody types a setup command for a tool they have not seen work:
+// saying yes to the session's offer to run is the consent now, and the first
+// run sets the repo up (19-value-to-a-user.md, "Fewer human steps").
 
 /**
  * Block from 03-memory-model.md "The CLAUDE.md pointer", appended once on first run.
@@ -25,43 +29,12 @@ infer from the code.
 `;
 
 /**
- * What a token-spending command says when this repo has never consented.
- *
- * Consent is a gate, not a paragraph in the README (15-spec.md story 70), and
- * it has to hold on the manual path too: `run` and `resume` are typed by hand
- * as often as they are driven by the skill, and neither goes anywhere near
- * `init`. They refuse rather than prompt because they are answered by a
- * subagent through one JSON object per invocation — a question asked there is
- * a question asked of nobody, which is the same reason `review` refuses a
- * pipe.
- */
-export const CONSENT_REQUIRED_MESSAGE =
-  "this repo has not consented to signposts running. Run `signpost init` — it says what the " +
-  "tool does, what it costs and where its output goes, and asks once.";
-
-/** An already-consented repo's `init` re-run is a no-op — no prompt, nothing written. */
-export function needsConsentPrompt(hasConsented: boolean): boolean {
-  return !hasConsented;
-}
-
-/**
  * Whether this repo already has consent on file. Both inputs are needed:
  * a db file can exist without a consented row (e.g. only bootstrap ran),
  * and there's no row at all to check when the db file was never created.
  */
 export function isConsented(dbFileExists: boolean, rowConsented: boolean): boolean {
   return dbFileExists && rowConsented;
-}
-
-/** y/yes (any case, surrounding whitespace ignored) is acceptance; everything else is a decline. */
-export function parseConsentAnswer(raw: string): boolean {
-  const normalized = raw.trim().toLowerCase();
-  return normalized === "y" || normalized === "yes";
-}
-
-/** Consenting exits 0 and persists; declining exits 1 and persists nothing (R3). */
-export function consentExitCode(accepted: boolean): 0 | 1 {
-  return accepted ? 0 : 1;
 }
 
 export interface ClaudeMdUpdate {

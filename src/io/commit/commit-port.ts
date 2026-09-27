@@ -26,8 +26,10 @@ import path from "node:path";
 import type { Forge, ForgeBranch } from "../forge/forge.ts";
 import type { CommitInput, CommitOutcome, CommitPort } from "../../graph/ports.ts";
 import { describeError } from "../../core/errors/format-zod-error.ts";
-import { INDEX_FILENAME, SIGNPOSTS_DIRNAME } from "../../core/config/constants.ts";
+import { CONVENTIONS_FILENAME, INDEX_FILENAME, SIGNPOSTS_DIRNAME } from "../../core/config/constants.ts";
 import { branchPrefix, pickBranch } from "../../core/git/branch.ts";
+import { ensureClaudeMdPointer } from "../../core/init/policy.ts";
+import { readClaudeMd, writeClaudeMd } from "../init/claude-md.ts";
 import { sessionCommitMessage } from "../../core/pr/body.ts";
 import { applyOperations, signpostPath } from "../../core/signpost/apply-operations.ts";
 import { parseSignpost, serialiseSignpost } from "../../core/signpost/codec.ts";
@@ -110,8 +112,8 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
       const written = writeCorpus(knowledgeDir, applied.corpus, applied.changed);
       const committed = commitAll({
         worktreeDir: input.worktreeDir,
-        paths: written,
-        message: sessionCommitMessage(operations.sessionId, operations.operations),
+        paths: [...written, ...writePointer(input.worktreeDir)],
+        message: sessionCommitMessage(operations.sessionId, operations.operations, operations.flagged),
       });
       if (!committed.ok) {
         throw new Error(`signposts: could not commit to ${branch}: ${committed.output}`);
@@ -182,6 +184,24 @@ function readCorpus(knowledgeDir: string): Signpost[] {
       throw new Error(`signposts: ${file.path} on the signposts branch does not parse: ${detail}`);
     }
   });
+}
+
+/**
+ * Appends the CLAUDE.md pointer on the branch when the base does not carry it
+ * yet, and returns the path to commit — empty when nothing changed.
+ *
+ * Here rather than in `init`, so the pointer reaches the team in the same pull
+ * request as the first signposts it points at. `init` used to write it into
+ * the developer's working tree, which left them a file to commit by hand
+ * before anything had happened (19-value-to-a-user.md, "Fewer human steps").
+ */
+function writePointer(worktreeDir: string): string[] {
+  const { content, changed } = ensureClaudeMdPointer(readClaudeMd(worktreeDir));
+  if (!changed) {
+    return [];
+  }
+  writeClaudeMd(worktreeDir, content);
+  return [CONVENTIONS_FILENAME];
 }
 
 /** Writes the changed signposts and the regenerated index. Returns paths relative to the worktree. */

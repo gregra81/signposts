@@ -8,7 +8,6 @@
 
 import { describe, expect, it } from "vitest";
 import { hostModel, isModelRequest, MODEL_REQUEST_KIND } from "../../../src/graph/host-model.js";
-import { REVIEW_REQUEST_KIND } from "../../../src/graph/nodes/human-review.js";
 
 describe("isModelRequest", () => {
   it("accepts a model request", () => {
@@ -17,8 +16,8 @@ describe("isModelRequest", () => {
     ).toBe(true);
   });
 
-  it("rejects a review request", () => {
-    expect(isModelRequest({ kind: REVIEW_REQUEST_KIND, repo: "acme/api", needsHuman: [] })).toBe(false);
+  it("rejects a request of another kind", () => {
+    expect(isModelRequest({ kind: "human_review", repo: "acme/api", needsHuman: [] })).toBe(false);
   });
 
   it.each([

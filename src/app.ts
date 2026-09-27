@@ -24,14 +24,13 @@
 
 import type { ResolvedConfig } from "./core/config/resolve.ts";
 import type { ExitCode } from "./core/cli/exit-codes.ts";
-import { parseCommand, spendsTokens } from "./core/cli/dispatch.ts";
+import { parseCommand, setsUpRepo } from "./core/cli/dispatch.ts";
 import { EXIT_CODES } from "./core/cli/exit-codes.ts";
-import { hasConsent } from "./cli/consent.ts";
+import { ensureSetUp } from "./cli/setup.ts";
 import { runInit, type PrefetchModel } from "./cli/commands/init.ts";
 import { runIndex } from "./cli/commands/index.ts";
 import { runDoctor } from "./cli/commands/doctor.ts";
 import { runExtraction, runResume, runSessionsList } from "./cli/commands/run.ts";
-import { runReview } from "./cli/commands/review.ts";
 import { runPublish } from "./cli/commands/publish.ts";
 import { runWorker } from "./cli/commands/worker.ts";
 import { runMcp } from "./cli/commands/mcp.ts";
@@ -43,14 +42,6 @@ export interface Stdio {
   input: NodeJS.ReadableStream;
   output: NodeJS.WritableStream;
   error: NodeJS.WritableStream;
-  /**
-   * Whether a person is at the other end of `input`. Read from the real
-   * process here and nowhere below (R7), because `review` refuses to run
-   * without one — a review answered by a pipe was answered by nobody.
-   * Defaults to false: a caller that assembles its own streams is not a
-   * terminal unless it says so.
-   */
-  interactive?: boolean;
 }
 
 export interface CreateAppInput {
@@ -86,13 +77,13 @@ export interface App {
 // would invite someone to run the background process by hand expecting it to
 // distil their sessions, which it cannot do (see cli/commands/worker.ts).
 // `mcp` typed at a terminal is a server talking JSON-RPC to a keyboard.
-const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|review|publish> [--verbose]\n";
+const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|publish> [--verbose]\n";
 
 // What `--help` prints. The one-line USAGE above named no flag at all, so the
 // only way to learn `--content-hash` was to read the skill or the source
 // (19-value-to-a-user.md item 5).
 const HELP = `${USAGE}
-  init       consent, create .signposts/, and install the skill and status line
+  init       set this repo up now (the first run does it anyway)
   index      rebuild the search index from the signposts on disk
   doctor     check this machine and repo; exits 1 if something blocks a run
   sessions   list transcripts eligible for a run (JSON)
@@ -103,7 +94,6 @@ const HELP = `${USAGE}
                --session <id>        the session the halt reported (default: the only halted one)
                --content-hash <hash> the contentHash the halt reported (default: the halted thread's own)
                --replies <path|->    answers keyed by pending id; - reads stdin
-  review     answer pending reviews yourself, at a terminal
   publish    push what the runs committed and open or update the pull request (JSON)
 
   --verbose  narrate sessions, run and resume on stderr; stdout stays one JSON object
@@ -116,7 +106,6 @@ function defaultStdio(): Stdio {
     input: process.stdin,
     output: process.stdout,
     error: process.stderr,
-    interactive: process.stdin.isTTY === true,
   };
 }
 
@@ -155,11 +144,21 @@ export function createApp({ config, openRun, publish, stdio, version, prefetchMo
         verbose: command.options.verbose,
       };
 
-      // Consent gates every command that can spend tokens, whichever path it
-      // was typed on (./cli/consent.ts). `init` is exempt: it is the command
-      // that asks.
-      if (spendsTokens(command.name) && !hasConsent({ config, repoRoot, stderr: io.error })) {
-        return EXIT_CODES.failure;
+      // The commands the skill drives set the repo up the first time through
+      // (./cli/setup.ts), so nobody has to type `init` first. The model comes
+      // down with it, as `init` would have fetched it: the run needs it for
+      // retrieval anyway, and the search server needs it afterwards.
+      if (setsUpRepo(command.name)) {
+        const say = (line: string): void => {
+          io.error.write(`signposts: ${line}\n`);
+        };
+        const setup = ensureSetUp({ config, repoRoot, say, fail: say });
+        if (setup === "failed") {
+          return EXIT_CODES.failure;
+        }
+        if (setup === "set-up") {
+          await prefetchModel?.(config, say);
+        }
       }
 
       switch (command.name) {
@@ -197,14 +196,6 @@ export function createApp({ config, openRun, publish, stdio, version, prefetchMo
             return EXIT_CODES.failure;
           }
           return runPublish({ config, repoRoot, publish, stdout: io.output, stderr: io.error });
-        case "review":
-          return runReview({
-            config,
-            repoRoot,
-            openRun,
-            stdio: io,
-            interactive: io.interactive === true,
-          });
       }
     },
   };

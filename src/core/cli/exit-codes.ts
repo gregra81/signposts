@@ -1,11 +1,11 @@
 // The exit codes the CLI returns, transcribed from 12-wire-contracts.md's
 // "Exit codes" table.
 //
-// Two of them are deliberately not failures, and 15-spec.md story 77 is why:
+// One of them is deliberately not a failure, and 15-spec.md story 77 is why:
 // a caller that treats non-zero as fatal — a hook, a CI step, a skill reading
-// `$?` — would otherwise report a false alarm for the two outcomes signposts
-// expects to have. `PR_CREATION_FAILED` says the expensive part is done and
-// safe on a branch; `AWAITING_HUMAN` says a person still has to answer.
+// `$?` — would otherwise report a false alarm for an outcome signposts expects
+// to have. `PR_CREATION_FAILED` says the expensive part is done and safe on a
+// branch. `AWAITING_HUMAN` (5) went with the in-session review.
 //
 // Codes 2 (no credentials) and 3 (not a git repo) are in that table and are
 // not emitted yet: everything that would use them currently reports through
@@ -25,8 +25,6 @@ export const EXIT_CODES = {
    * reached). The command that finishes the job by hand is on stderr.
    */
   prCreationFailed: 4,
-  /** Halted on `human_review`. Not a failure — see the module comment. */
-  awaitingHuman: 5,
 } as const;
 
 export type ExitCode = (typeof EXIT_CODES)[keyof typeof EXIT_CODES];

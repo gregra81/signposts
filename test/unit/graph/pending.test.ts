@@ -61,11 +61,11 @@ describe("pendingProposals", () => {
     expect(pendingProposals(gated({ auto: [operation] }))).toEqual([]);
   });
 
-  // A person may sit on a gated operation for days. Leaving it out would make
-  // the claim invisible to every later session in the run, which is the
-  // duplicate this exists to prevent. It goes in under the other state: what a
-  // later session derives from it has to wait for the same person.
-  it("separates what a human has yet to approve from what auto-published", () => {
+  // Changed with "Fewer human steps" (19-value-to-a-user.md): a gated
+  // operation was held in an in-session review and indexed as
+  // `awaiting_review`. It is committed with the rest now, flagged in the pull
+  // request, so both halves are in the branch and both are `in_pr`.
+  it("indexes the gated half as in the pull request too", () => {
     const held: Operation = { op: "add", signpost: signpost("etl-window") };
     const partition = gated({
       auto: [ADD],
@@ -74,7 +74,7 @@ describe("pendingProposals", () => {
 
     expect(pendingProposals(partition)).toEqual([
       { signpost: signpost("staging-read-only"), state: "in_pr" },
-      { signpost: signpost("etl-window"), state: "awaiting_review" },
+      { signpost: signpost("etl-window"), state: "in_pr" },
     ]);
   });
 

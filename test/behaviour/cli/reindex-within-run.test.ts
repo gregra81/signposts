@@ -10,9 +10,8 @@
 //
 // The property lives at this level rather than around the graph because this
 // is where the loop lives now — the skill drives `run` and `resume`, one
-// session at a time, and a session may sit at a review between the two. What
-// it proposed has to be visible to the next session anyway: a review that
-// takes three days must not make a claim invisible for three days.
+// session at a time, and what one session proposed has to be visible to the
+// next before either has been published.
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
@@ -21,7 +20,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { projectDirName } from "../../../src/core/transcript/project-dir.js";
-import { operationKey } from "../../../src/core/graph/decisions.js";
 import { EXIT_CODES } from "../../../src/core/cli/exit-codes.js";
 import { runCli } from "../helpers/run-cli.js";
 import { giveConsent } from "../helpers/consent.js";
@@ -146,9 +144,7 @@ describe("two sessions in one run", () => {
     });
     config = { ...config, paths: { ...config.paths, modelCacheDir: testModelCache() } };
 
-    // `run` and `resume` refuse to spend tokens before this repo has
-    // consented (src/cli/consent.ts) — the developer these tests stand in for
-    // answered that once, in `init`.
+    // Set up as the first run would have left it (src/cli/setup.ts).
     giveConsent(config, repoRoot);
   });
 
@@ -160,21 +156,13 @@ describe("two sessions in one run", () => {
     const stdio = createFakeStdio();
     const exitCode = await runCli(argv, { config, stdio });
     const output = JSON.parse(stdio.writtenOutput()) as RunOutput;
-    // Two of the codes here are not failures (12-wire-contracts.md, "Exit
-    // codes"), and this test is about what the second session retrieves, not
-    // about which of them it got. So the expectation is derived from what the
-    // invocation actually did: a halt only a person can answer is
-    // `awaitingHuman`, and the push this setup deliberately breaks leaves the
-    // commit on a branch with no pull request — `prCreationFailed`.
-    // `sessions` prints a listing, which has no `pending` at all.
-    const awaitingHuman = (output.pending ?? []).some(
-      (pending) => !isModelRequest(pending.request),
-    );
-    const expected = awaitingHuman
-      ? EXIT_CODES.awaitingHuman
-      : stdio.writtenError().includes("could not push")
-        ? EXIT_CODES.prCreationFailed
-        : EXIT_CODES.ok;
+    // One code here is not a failure (12-wire-contracts.md, "Exit codes"), and
+    // this test is about what the second session retrieves, not about which
+    // code it got: the push this setup deliberately breaks leaves the commit on
+    // a branch with no pull request — `prCreationFailed`.
+    const expected = stdio.writtenError().includes("could not push")
+      ? EXIT_CODES.prCreationFailed
+      : EXIT_CODES.ok;
     expect(exitCode, stdio.writtenError()).toBe(expected);
     return output;
   }
@@ -201,7 +189,7 @@ describe("two sessions in one run", () => {
   /**
    * Runs one session to completion, answering as the skill would: one
    * candidate, kept by the critic, classified against whatever neighbours
-   * were retrieved, and every gated operation accepted.
+   * were retrieved.
    */
   async function runSession(
     session: { id: string; contentHash: string },
@@ -225,14 +213,7 @@ describe("two sessions in one run", () => {
   function replyAs(claim: string): (request: PendingRequest) => unknown {
     return (pending) => {
       if (!isModelRequest(pending.request)) {
-        // A review: accept everything it is holding.
-        const request = pending.request as { needsHuman: { operation: unknown }[] };
-        return Object.fromEntries(
-          request.needsHuman.map(({ operation }) => [
-            operationKey(operation as Parameters<typeof operationKey>[0]),
-            { decision: "accept", decidedAt: "2026-09-06" },
-          ]),
-        );
+        throw new Error(`a run halted on something other than a model call: ${JSON.stringify(pending.request)}`);
       }
 
       switch (pending.request.node) {

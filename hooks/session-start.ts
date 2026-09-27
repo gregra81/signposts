@@ -80,7 +80,6 @@ const ENDED_IDLE_HOURS = 1;
 /** How far before a transcript's last write its end marker still counts. */
 const ENDED_MARKER_SLACK_MINUTES = 1;
 const MAX_AGE_DAYS = 90;
-const REVIEW_EXPIRY_WARN_DAYS = 7;
 /** Past this, Claude gets a pointer to index.md rather than its content. */
 const INDEX_CONTEXT_MAX_BYTES = 8_000;
 /** Older lock -> assume dead worker, take over. */
@@ -260,25 +259,12 @@ export interface WorkerState {
   /** ISO timestamp of the last run that *finished*. The session watermark — see the header. */
   lastRunFinishedAt?: string;
   /**
-   * Threads parked on `human_review`.
-   *
-   * Named for what is true of them rather than for the wake condition
-   * 07-triggering-and-ux.md calls "resumable threads": the worker cannot
-   * resume one. Answering a halt means answering a model call or a review,
-   * and both need the Claude Code session the worker does not have. The count
-   * earns its place by driving the notice — the developer is the one who can
-   * act on it.
-   */
-  threadsWaiting?: number;
-  /**
    * Session id to the last activity it was judged at — the transcript's mtime
    * then. Written by the run commands for every session they finish or skip,
    * so a run that judged two of five stops the hook counting those two before
    * the watermark can move (19-value-to-a-user.md item 2).
    */
   judgedSessions?: Record<string, string>;
-  /** When the soonest parked review is dropped (19-value-to-a-user.md item 3). */
-  reviewExpiresAt?: string;
 }
 
 export function readWorkerState(statuslineState: string): WorkerState {
@@ -399,12 +385,6 @@ export function countEligibleSessions(
     }
   }
   return count;
-}
-
-/** Condition 2. Only the worker knows this; the hook reads what it last wrote. */
-export function countThreadsWaiting(state: WorkerState): number {
-  const threads = state.threadsWaiting;
-  return typeof threads === "number" && Number.isFinite(threads) && threads > 0 ? Math.floor(threads) : 0;
 }
 
 /**
@@ -586,54 +566,26 @@ function releaseLock(lockfile: string): void {
 
 export interface WakeReasons {
   sessions: number;
-  threads: number;
   staleIndex: boolean;
-  /** Days before the soonest parked review is dropped, when that is inside the warning window. */
-  reviewExpiresInDays?: number;
-}
-
-/**
- * Days left before the soonest parked review is dropped, rounded up, or
- * undefined outside REVIEW_EXPIRY_WARN_DAYS or when nothing says. Transcribed
- * from src/core/review/expiry.ts's `daysLeftToWarn`.
- */
-export function reviewExpiresInDays(state: WorkerState, nowMs: number): number | undefined {
-  const expiresMs = typeof state.reviewExpiresAt === "string" ? Date.parse(state.reviewExpiresAt) : Number.NaN;
-  if (Number.isNaN(expiresMs)) {
-    return undefined;
-  }
-  const days = Math.max(0, Math.ceil((expiresMs - nowMs) / MS_PER_DAY));
-  return days <= REVIEW_EXPIRY_WARN_DAYS ? days : undefined;
 }
 
 export function anyWork(reasons: WakeReasons): boolean {
-  return reasons.sessions > 0 || reasons.threads > 0 || reasons.staleIndex;
+  return reasons.sessions > 0 || reasons.staleIndex;
 }
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-/** The verb has to agree with the count too: "1 change needs", "2 changes need". */
-function agrees(count: number, verb: string): string {
-  return count === 1 ? `${verb}s` : verb;
-}
-
 /**
  * The notice, split by who does the work and by what they would have to type.
  *
- * Only the index is rebuilt in the background. Sessions and parked threads
- * both need a model call answered, and those are answered by the Claude Code
- * session (src/graph/host-model.ts) — so the worker counts them and the
- * developer acts on them. Saying "distilling 3 sessions in the background"
- * when nothing is distilling them is the kind of claim that gets a tool
- * uninstalled the week someone checks.
- *
- * The two waiting cases are separate clauses because they are separate
- * commands: a backlog of transcripts is `signpost run`, a parked review is
- * `signpost review`, and one message naming both actions is more useful than
- * two notices or a vague one. The wording follows 07-triggering-and-ux.md's
- * worked example, "2 changes need your review — run `signpost review`".
+ * Only the index is rebuilt in the background. Sessions need model calls
+ * answered, and those are answered by the Claude Code session
+ * (src/graph/host-model.ts) — so the worker counts them and the developer
+ * starts them. Saying "distilling 3 sessions in the background" when nothing
+ * is distilling them is the kind of claim that gets a tool uninstalled the
+ * week someone checks.
  */
 /**
  * What Claude is told, as distinct from what the developer is shown.
@@ -656,7 +608,14 @@ function agrees(count: number, verb: string): string {
  * (19-value-to-a-user.md, "Follow-up: when the offer arrives";
  * `node scripts/measure-offer.mjs` re-runs it).
  *
- * Only the two developer-facing conditions produce it. A stale index is the
+ * The yes is the only answer a run asks for, so the offer says what it
+ * covers: the run, and the pull request it opens with what it finds. That
+ * used to be a second question at the end of the run, and the in-session
+ * review a third (19-value-to-a-user.md, "Fewer human steps"). The clause was
+ * added after the offer's timing was measured; `measure-offer.mjs` has not
+ * been re-run on it.
+ *
+ * Only the developer-facing condition produces it. A stale index is the
  * worker's job and needs nobody's permission, and an offer to do work that is
  * already happening is noise in a context window the developer is paying for.
  */
@@ -667,11 +626,6 @@ export function contextFor(reasons: WakeReasons): string | null {
       `${plural(reasons.sessions, "session")} of this repo's history ready to distil into team knowledge (\`signpost run\`)`,
     );
   }
-  if (reasons.threads > 0) {
-    waiting.push(
-      `${plural(reasons.threads, "proposed change")} parked for the developer's review (\`signpost review\`)`,
-    );
-  }
   if (waiting.length === 0) {
     return null;
   }
@@ -679,9 +633,10 @@ export function contextFor(reasons: WakeReasons): string | null {
   return (
     `signposts has ${waiting.join(", and ")}. ` +
     "Ask the developer about this before anything else in this session: before your first tool call " +
-    "and before starting what they asked for. Put it in one sentence, then end your turn and wait for " +
-    "their answer — a run spends this session's tokens, so it is theirs to start. On a yes, drive it " +
-    "with the signposts skill. On a no, drop it and do not raise it again this session."
+    "and before starting what they asked for. Put it in one sentence that says a run opens a pull " +
+    "request with what it finds, then end your turn and wait for their answer — a run spends this " +
+    "session's tokens, so it is theirs to start. On a yes, drive it with the signposts skill and do " +
+    "not ask again before the pull request. On a no, drop it and do not raise it again this session."
   );
 }
 
@@ -760,13 +715,6 @@ export function noticeFor(reasons: WakeReasons): string {
   if (reasons.sessions > 0) {
     parts.push(`${plural(reasons.sessions, "session")} ready — run \`signpost run\``);
   }
-  if (reasons.threads > 0) {
-    const expiry =
-      reasons.reviewExpiresInDays === undefined ? "" : ` (expires in ${plural(reasons.reviewExpiresInDays, "day")})`;
-    parts.push(
-      `${plural(reasons.threads, "change")} ${agrees(reasons.threads, "need")} your review — run \`signpost review\`${expiry}`,
-    );
-  }
   return NOTICE_PREFIX + parts.join("; ");
 }
 
@@ -827,8 +775,10 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9-]+$/;
  * waits ENDED_IDLE_HOURS instead of a day, as long as nothing was written to
  * the transcript after it.
  *
- * Nothing for a repo that has not consented (no `.signposts/`), for the reason
- * `main` gives. Returns whether a marker was written.
+ * Written in every repo, run in or not: a marker is an empty file, not a
+ * database, and a repo's first offer should wait the hour rather than the day
+ * too (19-value-to-a-user.md, "Fewer human steps"). Returns whether a marker
+ * was written.
  */
 export function recordSessionEnd(
   input: { session_id?: unknown; cwd?: unknown },
@@ -845,9 +795,6 @@ export function recordSessionEnd(
     return false;
   }
   const paths = derivePaths(repoRoot, homeDir, env[CONFIG_DIR_ENV_VAR]);
-  if (!exists(paths.knowledgeDir)) {
-    return false;
-  }
   mkdirSync(paths.endedDir, { recursive: true });
   writeFileSync(path.join(paths.endedDir, sessionId), "");
   return true;
@@ -867,19 +814,30 @@ function main(): void {
 
   const paths = derivePaths(repoRoot, homedir(), process.env[CONFIG_DIR_ENV_VAR]);
 
-  // Cheapest exit first: a repo where `init` never ran has no `.signposts/`,
-  // and the hook must not create state — let alone a database — for a repo
-  // that has not consented (R3).
-  if (!exists(paths.knowledgeDir)) {
-    return;
-  }
+  // A repo with neither a corpus nor a database — nothing has run in it and
+  // nobody has merged a signpost into it — gets the offer and nothing else. It
+  // used to get nothing until someone typed `signpost init`, which is a step
+  // nobody takes for a tool they have not seen work; the first run sets the
+  // repo up now, and saying yes to this offer is what starts it
+  // (19-value-to-a-user.md, "Fewer human steps"). No worker and no lock: the
+  // worker opens a database, and a repo nobody has opted into gets none (R3).
+  // A corpus counts as opted in: a teammate's cold clone with `.signposts/`
+  // still gets its index built in the background, free and local.
+  const initialised = exists(paths.dbPath) || exists(paths.knowledgeDir);
 
   // The corpus goes in whether or not a worker is woken: it is what the
   // session needs, and the wake is the tool's own business.
-  const output = hookOutput(wake(paths, repoRoot), indexContext(paths.indexFile));
+  const reasons = initialised ? wake(paths, repoRoot) : offerOnly(paths);
+  const output = hookOutput(reasons, indexContext(paths.indexFile));
   if (output !== null) {
     process.stdout.write(JSON.stringify(output) + "\n");
   }
+}
+
+/** For a repo with no database: the eligible sessions to offer, counted with `stat` alone, or null. */
+function offerOnly(paths: HookPaths): WakeReasons | null {
+  const sessions = countEligibleSessions(paths, Date.now(), 0, undefined);
+  return sessions > 0 ? { sessions, staleIndex: false } : null;
 }
 
 /** Spawns the worker when there is work for it, and says why; null when it did not. */
@@ -892,13 +850,8 @@ function wake(paths: HookPaths, repoRoot: string): WakeReasons | null {
   const state = readWorkerState(paths.statuslineState);
   const reasons: WakeReasons = {
     sessions: countEligibleSessions(paths, nowMs, watermarkMs(state), judgedSessions(state)),
-    threads: countThreadsWaiting(state),
     staleIndex: indexIsStale(paths),
   };
-  const expiresIn = reviewExpiresInDays(state, nowMs);
-  if (expiresIn !== undefined) {
-    reasons.reviewExpiresInDays = expiresIn;
-  }
   if (!anyWork(reasons)) {
     return null;
   }
@@ -928,12 +881,29 @@ function wake(paths: HookPaths, repoRoot: string): WakeReasons | null {
 }
 
 /**
- * `bin/signpost.js` is imported by nothing; this file is imported by its own
- * tests, which must not spawn a worker on import. Node sets `argv[1]` to the
- * script it was told to run, so comparing it to this module's own path is
- * what distinguishes "run as the hook" from "imported for its functions".
+ * Whether this file is the script Node was told to run, rather than a module a
+ * test imported for its functions (which must not spawn a worker on import).
+ *
+ * Compared through `realpathSync`, both sides. An installed copy is run
+ * through the symlink npm puts on PATH — `…/bin/signpost-session-start` —
+ * while `import.meta.url` is the file it points at, so a plain `path.resolve`
+ * never matched: every installed hook since v0.1.0 exited 0 having done
+ * nothing. The offer, the worker and the SessionEnd marker all hang off this
+ * line, and the tests spawned the file by its real path, where it matched
+ * (19-value-to-a-user.md, "Fewer human steps", found in the live walkthrough).
  */
-if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+export function isEntryPoint(argv1: string | undefined, moduleUrl: string): boolean {
+  if (argv1 === undefined) {
+    return false;
+  }
+  try {
+    return realpathSync(argv1) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint(process.argv[1], import.meta.url)) {
   try {
     main();
   } catch {

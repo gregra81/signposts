@@ -131,9 +131,7 @@ describe("the run loop", () => {
     });
     config = { ...config, paths: { ...config.paths, modelCacheDir: testModelCache() } };
 
-    // `run` and `resume` refuse to spend tokens before this repo has
-    // consented (src/cli/consent.ts) — the developer these tests stand in for
-    // answered that once, in `init`.
+    // Set up as the first run would have left it (src/cli/setup.ts).
     giveConsent(config, repoRoot);
   });
 

@@ -1,8 +1,7 @@
 // The ModelProvider the graph runs against: the Claude Code session that
 // started the run.
 //
-// A model call is an `interrupt()`, exactly like `human_review`. The run
-// halts, the request is checkpointed with the thread, and the process may
+// A model call is an `interrupt()`. The run halts, the request is checkpointed with the thread, and the process may
 // exit; the host answers it and resumes the thread by interrupt id. Nothing
 // here holds a credential or opens a socket, because nothing here talks to an
 // API — the reasoning happens in the session, and signposts supplies the

@@ -15,7 +15,6 @@ import {
   INDEX_CONTEXT_MAX_BYTES,
   LOCK_STALE_MINUTES,
   MAX_AGE_DAYS,
-  REVIEW_EXPIRY_WARN_DAYS,
 } from "../../../src/core/config/constants.ts";
 import { derivePaths as deriveAppPaths } from "../../../src/core/config/paths.ts";
 import { generateIndexDoc } from "../../../src/core/signpost/index-doc.ts";
@@ -23,7 +22,6 @@ import type { Signpost } from "../../../src/core/signpost/schema.ts";
 import {
   alreadyJudged,
   anyWork,
-  countThreadsWaiting,
   derivePaths,
   findRepoRoot,
   hookOutput,
@@ -33,7 +31,6 @@ import {
   looksEligible,
   noticeFor,
   recordSessionEnd,
-  reviewExpiresInDays,
   watermarkMs,
 } from "../../../hooks/session-start.ts";
 
@@ -93,55 +90,38 @@ describe("watermarkMs", () => {
   });
 });
 
-describe("countThreadsWaiting", () => {
-  it("reads the count the worker wrote", () => {
-    expect(countThreadsWaiting({ threadsWaiting: 3 })).toBe(3);
-  });
-
-  it("is 0 when the field is absent, negative, or not a number", () => {
-    expect(countThreadsWaiting({})).toBe(0);
-    expect(countThreadsWaiting({ threadsWaiting: -1 })).toBe(0);
-    expect(countThreadsWaiting({ threadsWaiting: Number.NaN })).toBe(0);
-    expect(countThreadsWaiting({ threadsWaiting: "2" as unknown as number })).toBe(0);
-  });
-});
-
 describe("anyWork", () => {
-  it("is false only when all three conditions are quiet", () => {
-    expect(anyWork({ sessions: 0, threads: 0, staleIndex: false })).toBe(false);
-    expect(anyWork({ sessions: 1, threads: 0, staleIndex: false })).toBe(true);
-    expect(anyWork({ sessions: 0, threads: 1, staleIndex: false })).toBe(true);
-    expect(anyWork({ sessions: 0, threads: 0, staleIndex: true })).toBe(true);
+  it("is false only when both conditions are quiet", () => {
+    expect(anyWork({ sessions: 0, staleIndex: false })).toBe(false);
+    expect(anyWork({ sessions: 1, staleIndex: false })).toBe(true);
+    expect(anyWork({ sessions: 0, staleIndex: true })).toBe(true);
   });
 });
 
 describe("noticeFor", () => {
-  // Only the index is rebuilt in the background. Sessions and threads need a
-  // model call answered, and the worker has no session to answer it — so the
+  // Only the index is rebuilt in the background. Sessions need model calls
+  // answered, and the worker has no session to answer it — so the
   // notice hands those to the developer rather than claiming them.
   it("claims the background only for the index", () => {
-    expect(noticeFor({ sessions: 0, threads: 0, staleIndex: true })).toBe(
+    expect(noticeFor({ sessions: 0, staleIndex: true })).toBe(
       "🪧 signposts: rebuilding the search index in the background",
     );
   });
 
-  it("names the command for each thing that is waiting", () => {
-    expect(noticeFor({ sessions: 3, threads: 0, staleIndex: false })).toBe(
+  it("names the command for what is waiting", () => {
+    expect(noticeFor({ sessions: 3, staleIndex: false })).toBe(
       "🪧 signposts: 3 sessions ready — run `signpost run`",
-    );
-    expect(noticeFor({ sessions: 0, threads: 2, staleIndex: false })).toBe(
-      "🪧 signposts: 2 changes need your review — run `signpost review`",
     );
   });
 
   it("singularises a count of one", () => {
-    expect(noticeFor({ sessions: 1, threads: 1, staleIndex: false })).toBe(
-      "🪧 signposts: 1 session ready — run `signpost run`; 1 change needs your review — run `signpost review`",
+    expect(noticeFor({ sessions: 1, staleIndex: false })).toBe(
+      "🪧 signposts: 1 session ready — run `signpost run`",
     );
   });
 
   it("separates what it is doing from what the developer must do", () => {
-    expect(noticeFor({ sessions: 2, threads: 0, staleIndex: true })).toBe(
+    expect(noticeFor({ sessions: 2, staleIndex: true })).toBe(
       "🪧 signposts: rebuilding the search index in the background; 2 sessions ready — run `signpost run`",
     );
   });
@@ -289,35 +269,6 @@ describe("alreadyJudged", () => {
   });
 });
 
-// 19-value-to-a-user.md item 3.
-describe("a review close to its expiry, in the session-start notice", () => {
-  it("says how long is left", () => {
-    expect(noticeFor({ sessions: 0, threads: 2, staleIndex: false, reviewExpiresInDays: 3 })).toBe(
-      "🪧 signposts: 2 changes need your review — run `signpost review` (expires in 3 days)",
-    );
-    expect(noticeFor({ sessions: 0, threads: 1, staleIndex: false, reviewExpiresInDays: 1 })).toBe(
-      "🪧 signposts: 1 change needs your review — run `signpost review` (expires in 1 day)",
-    );
-  });
-
-  it("reads the days left off the status file, only inside the warning window", () => {
-    expect(reviewExpiresInDays({ reviewExpiresAt: new Date(NOW + 3 * DAY - 1).toISOString() }, NOW)).toBe(3);
-    expect(reviewExpiresInDays({ reviewExpiresAt: new Date(NOW + 30 * DAY).toISOString() }, NOW)).toBeUndefined();
-    expect(reviewExpiresInDays({}, NOW)).toBeUndefined();
-    expect(reviewExpiresInDays({ reviewExpiresAt: "soon" }, NOW)).toBeUndefined();
-  });
-
-  it("transcribes the warning window from 13-constants.md", () => {
-    // Just inside and just outside REVIEW_EXPIRY_WARN_DAYS.
-    expect(reviewExpiresInDays({ reviewExpiresAt: new Date(NOW + REVIEW_EXPIRY_WARN_DAYS * DAY).toISOString() }, NOW)).toBe(
-      REVIEW_EXPIRY_WARN_DAYS,
-    );
-    expect(
-      reviewExpiresInDays({ reviewExpiresAt: new Date(NOW + REVIEW_EXPIRY_WARN_DAYS * DAY + 1).toISOString() }, NOW),
-    ).toBeUndefined();
-  });
-});
-
 // 19-value-to-a-user.md, Phase 5.
 describe("the corpus, carried into the session", () => {
   const signpost: Signpost = {
@@ -379,7 +330,7 @@ describe("the corpus, carried into the session", () => {
   // followed in 4 of 18 headless runs (19-value-to-a-user.md, "Follow-up:
   // when the offer arrives").
   it("makes the offer's boundary the first tool call and the end of the turn", () => {
-    const output = hookOutput({ sessions: 2, threads: 0, staleIndex: false }) as {
+    const output = hookOutput({ sessions: 2, staleIndex: false }) as {
       hookSpecificOutput: { additionalContext: string };
     };
 
@@ -387,8 +338,19 @@ describe("the corpus, carried into the session", () => {
     expect(output.hookSpecificOutput.additionalContext).toContain("end your turn");
   });
 
+  // The yes is the only answer a run asks for, so the offer says it covers the
+  // pull request, and tells Claude not to ask again before it.
+  it("says the run opens a pull request, and that the yes covers it", () => {
+    const output = hookOutput({ sessions: 2, staleIndex: false }) as {
+      hookSpecificOutput: { additionalContext: string };
+    };
+
+    expect(output.hookSpecificOutput.additionalContext).toContain("a run opens a pull request");
+    expect(output.hookSpecificOutput.additionalContext).toContain("do not ask again before the pull request");
+  });
+
   it("puts the corpus ahead of the run offer when both are due", () => {
-    const output = hookOutput({ sessions: 1, threads: 0, staleIndex: false }, "the index") as {
+    const output = hookOutput({ sessions: 1, staleIndex: false }, "the index") as {
       systemMessage: string;
       hookSpecificOutput: { additionalContext: string };
     };
@@ -426,11 +388,14 @@ describe("recordSessionEnd", () => {
     expect(recordSessionEnd({ session_id: "s1", cwd: "/" }, { CLAUDE_PROJECT_DIR: repoRoot }, homeDir)).toBe(true);
   });
 
-  it("writes nothing for a repo that has not consented", () => {
+  // Changed with "Fewer human steps" (19-value-to-a-user.md): it used to write
+  // nothing until `init` had run. A repo is set up by its first run now, and
+  // that first offer should wait the hour too.
+  it("writes a marker in a repo nothing has run in yet", () => {
     const { repoRoot, homeDir } = repo(false);
 
-    expect(recordSessionEnd({ session_id: "s1", cwd: repoRoot }, {}, homeDir)).toBe(false);
-    expect(existsSync(path.join(homeDir, ".signposts"))).toBe(false);
+    expect(recordSessionEnd({ session_id: "s1", cwd: repoRoot }, {}, homeDir)).toBe(true);
+    expect(existsSync(path.join(deriveAppPaths(repoRoot, homeDir).endedDir, "s1"))).toBe(true);
   });
 
   it("refuses a session id that is not a plain file name", () => {

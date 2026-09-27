@@ -2,14 +2,11 @@
 // session in the same run is processed (06-review-and-pr.md, "Reindex within
 // a run, not only at commit").
 //
-// Both halves of the gate's partition count, and they are kept apart rather
-// than merged into one list. `auto` has already been written into the branch
-// by this session's `commit`, so an operation a later session derives from it
-// may auto-publish too — both land in the same pull request. `needsHuman` has
-// not: a person is holding it and may reject it, so anything derived from it
-// waits for the same person (../gate/partition.ts's `pending_neighbour`).
-// That distinction is the difference between a reindex that stops duplicates
-// and one that launders an unreviewed claim into the branch.
+// Both halves of the gate's partition count, and both are `in_pr`: this
+// session's `commit` has written all of it into the branch, the gated half
+// flagged in the pull request. They used to differ — the gated half was held
+// in an in-session review and marked `awaiting_review` — until that review
+// moved into the pull request (19-value-to-a-user.md, "Fewer human steps").
 //
 // Only `add` yields a proposal, and every other operation is deliberately
 // absent.
@@ -42,19 +39,16 @@ import type { Signpost } from "../signpost/schema.ts";
 
 export interface PendingProposal {
   signpost: Signpost;
-  /** Whether a person is still holding it — see the module comment. */
+  /** Always `in_pr` now — see the module comment. */
   state: PendingState;
 }
 
 /** The signposts this session proposed, in gate order — auto first, then gated. */
 export function pendingProposals(gated: GatedOperations): PendingProposal[] {
-  return [
-    ...added(gated.auto, PENDING_STATES.in_pr),
-    ...added(
-      gated.needsHuman.map(({ operation }) => operation),
-      PENDING_STATES.awaiting_review,
-    ),
-  ];
+  return added(
+    [...gated.auto, ...gated.needsHuman.map(({ operation }) => operation)],
+    PENDING_STATES.in_pr,
+  );
 }
 
 function added(operations: readonly Operation[], state: PendingState): PendingProposal[] {

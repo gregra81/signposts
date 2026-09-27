@@ -1,14 +1,14 @@
 // The topology of 04-extraction-graph.md, wired.
 //
-// Eleven nodes, and four things a linear pipeline cannot express — which is the
+// Ten nodes, and four things a linear pipeline cannot express — which is the
 // entire case for using a graph here rather than three chained LLM calls:
 //
 //   1. a reflection loop     critic -> extract, bounded at MAX_EXTRACT_ATTEMPTS
 //   2. a self-correction loop validate -> extract, bounded at MAX_VALIDATE_ATTEMPTS
 //   3. a conditional fan-out  one classify task per candidate, each routed on
 //                             its own classification
-//   4. a long-lived interrupt human_review may stay halted for days, in a
-//                             process that has exited
+//   4. a long-lived interrupt every model call halts the run, which resumes in
+//                             another process once the session answers
 //
 // Both loops fail open: on exhaustion the offending candidate is dropped and
 // the run continues. Neither can fail the run, and neither can spin.
@@ -36,7 +36,6 @@ import { makeResolveConflictNode } from "./nodes/resolve-conflict.ts";
 import { makeValidateNode } from "./nodes/validate.ts";
 import { makeRecheckNeighboursNode } from "./nodes/recheck-neighbours.ts";
 import { makeConfidenceGateNode } from "./nodes/confidence-gate.ts";
-import { humanReviewNode } from "./nodes/human-review.ts";
 import { makeCommitNode } from "./nodes/commit.ts";
 import type { GraphPorts } from "./ports.ts";
 
@@ -45,9 +44,16 @@ import type { GraphPorts } from "./ports.ts";
 // nodes and src/core/graph/ already made; none of them makes a new one.
 // ---------------------------------------------------------------------------
 
-/** Node 1's early exit: a transcript too small to be worth a model call. */
+/**
+ * Node 1's early exit: a transcript too small to be worth a model call, or one
+ * in which no human spoke. `extract` captures only what exists because a human
+ * said it, so a session with no human turn — a headless `claude -p` run, whose
+ * prompts carry no `origin` — can yield nothing, and asking a model to confirm
+ * that is a call spent on a known answer (19-value-to-a-user.md, open item 19).
+ */
 export function afterGutter(state: ExtractionState): typeof NODE_IDS.extract | typeof END {
-  return state.gutterStats.tokenEstimate >= MIN_GUTTERED_TOKENS ? NODE_IDS.extract : END;
+  const { tokenEstimate, humanTurns } = state.gutterStats;
+  return tokenEstimate >= MIN_GUTTERED_TOKENS && humanTurns > 0 ? NODE_IDS.extract : END;
 }
 
 /**
@@ -78,13 +84,6 @@ export function afterValidate(
   return route === "retry-extract" ? NODE_IDS.extract : NODE_IDS.recheckNeighbours;
 }
 
-/** Node 9 is entered only if the gate actually produced something for a person. */
-export function afterGate(
-  state: ExtractionState,
-): typeof NODE_IDS.humanReview | typeof NODE_IDS.commit {
-  return state.gated.needsHuman.length > 0 ? NODE_IDS.humanReview : NODE_IDS.commit;
-}
-
 // ---------------------------------------------------------------------------
 // Topology
 // ---------------------------------------------------------------------------
@@ -93,7 +92,7 @@ export interface BuildGraphOptions {
   ports: GraphPorts;
   /**
    * Any BaseCheckpointSaver. SqliteSaver in production, MemorySaver in tests
-   * only — without one, `human_review`'s interrupt has nowhere to halt.
+   * only — without one, a model call's interrupt has nowhere to halt.
    */
   checkpointer: BaseCheckpointSaver;
 }
@@ -122,7 +121,6 @@ export function buildExtractionGraph({ ports, checkpointer }: BuildGraphOptions)
       ends: [NODE_IDS.classify, NODE_IDS.confidenceGate],
     })
     .addNode(NODE_IDS.confidenceGate, makeConfidenceGateNode(ports))
-    .addNode(NODE_IDS.humanReview, humanReviewNode)
     .addNode(NODE_IDS.commit, makeCommitNode(ports))
 
     .addEdge(START, NODE_IDS.gutter)
@@ -143,11 +141,13 @@ export function buildExtractionGraph({ ports, checkpointer }: BuildGraphOptions)
       NODE_IDS.extract,
       NODE_IDS.recheckNeighbours,
     ])
-    .addConditionalEdges(NODE_IDS.confidenceGate, afterGate, [
-      NODE_IDS.humanReview,
-      NODE_IDS.commit,
-    ])
-    .addEdge(NODE_IDS.humanReview, NODE_IDS.commit)
+    // No halt between the gate and `commit`. There used to be one, a
+    // `human_review` interrupt for whatever the gate held back, and on a
+    // repo's first run the gate holds back everything — so a new user's first
+    // run always stopped on a review. The gated operations are committed and
+    // flagged in the pull request instead, which is where a person reviews
+    // them (19-value-to-a-user.md, "Fewer human steps").
+    .addEdge(NODE_IDS.confidenceGate, NODE_IDS.commit)
     .addEdge(NODE_IDS.commit, END);
 
   return builder.compile({ checkpointer });

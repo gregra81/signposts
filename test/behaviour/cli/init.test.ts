@@ -1,7 +1,7 @@
 // Behaviour tests for `signpost init` (R3, R8) at the CLI seam: real fs,
 // real SQLite, a temp $HOME and a temp git repo, driven through runCli.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -15,7 +15,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
-import { CLAUDE_MD_POINTER } from "../../../src/core/init/policy.js";
 import { deriveOwnerRepo } from "../../../src/core/git/owner-repo.js";
 import { getOriginUrl } from "../../../src/io/git/remote-origin.js";
 import { openDb } from "../../../src/io/db/migrate.js";
@@ -58,14 +57,20 @@ describe("signpost init", () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  it("fresh init: creates .signposts/, appends the CLAUDE.md pointer, persists consent on accept", async () => {
-    const stdio = createFakeStdio("y");
+  // Changed with "Fewer human steps" (19-value-to-a-user.md): init asked for
+  // consent, then created `.signposts/`, the CLAUDE.md pointer and the skill in
+  // the checkout. It asks nothing now and writes nothing the team shares: the
+  // pointer rides in the first signposts commit and the skill in the plugin.
+  it("sets the repo up without asking, and writes nothing into the checkout the team shares", async () => {
+    const stdio = createFakeStdio();
 
     const exitCode = await runCli(["init"], { config, stdio });
 
     expect(exitCode).toBe(0);
-    expect(existsSync(config.paths.knowledgeDir)).toBe(true);
-    expect(readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8")).toBe(CLAUDE_MD_POINTER);
+    expect(stdio.writtenOutput()).not.toContain("Continue?");
+    expect(existsSync(config.paths.knowledgeDir)).toBe(false);
+    expect(existsSync(path.join(repoRoot, "CLAUDE.md"))).toBe(false);
+    expect(existsSync(path.join(repoRoot, ".claude", "skills"))).toBe(false);
 
     const db = openDb(config.paths.dbPath);
     try {
@@ -75,37 +80,15 @@ describe("signpost init", () => {
     }
   });
 
-  // 15-spec.md story 70 asks for three things before the first run — what it
-  // does, roughly what it costs, where the output goes — because a prompt
-  // that says only "continue?" is the README paragraph the story rejects.
-  it("the prompt says what it does, what it costs and where the output goes", async () => {
-    const stdio = createFakeStdio("y");
 
-    await runCli(["init"], { config, stdio });
-
-    const prompt = stdio.writtenOutput();
-    expect(prompt).toContain("transcripts");
-    expect(prompt).toContain("quota");
-    expect(prompt).toContain("pull request");
-    expect(prompt).toContain("asked once");
-  });
-
-  it("re-running init on an already-consented repo is a no-op reporting already-initialised", async () => {
-    await runCli(["init"], {
-      config,
-     
-      stdio: createFakeStdio("y"),
-    });
+  it("re-running init is harmless, and says the repo is ready", async () => {
+    await runCli(["init"], { config, stdio: createFakeStdio() });
 
     const secondStdio = createFakeStdio();
-    const exitCode = await runCli(["init"], {
-      config,
-     
-      stdio: secondStdio,
-    });
+    const exitCode = await runCli(["init"], { config, stdio: secondStdio });
 
     expect(exitCode).toBe(0);
-    expect(secondStdio.writtenOutput()).toContain("already initialised");
+    expect(secondStdio.writtenOutput()).toContain("ready");
   });
 
   // 07-triggering-and-ux.md's second visibility surface. `init` installs it,
@@ -113,7 +96,7 @@ describe("signpost init", () => {
   // this machine, and a status line is a personal preference — neither belongs
   // in a file the team shares.
   it("installs the status line, into the settings file that is not committed", async () => {
-    await runCli(["init"], { config, stdio: createFakeStdio("y") });
+    await runCli(["init"], { config, stdio: createFakeStdio() });
 
     const settings = JSON.parse(
       readFileSync(path.join(repoRoot, ".claude", "settings.local.json"), "utf8"),
@@ -121,6 +104,41 @@ describe("signpost init", () => {
     expect(settings.statusLine.type).toBe("command");
     expect(settings.statusLine.command).toContain("statusline/statusline.js");
     expect(existsSync(path.join(repoRoot, ".claude", "settings.json"))).toBe(false);
+  });
+
+  // 19-value-to-a-user.md, open item 18: the cold walkthrough found init's
+  // three paths untracked, one of them machine-local, and nothing said which.
+  describe("what init leaves in the working tree", () => {
+    const isIgnored = (relative: string) =>
+      spawnSync("git", ["check-ignore", "-q", "--", relative], { cwd: repoRoot }).status === 0;
+
+    // Claude Code adds `**/.claude/settings.local.json` to the global excludes
+    // file the first time it writes one, so on a developer's machine the file
+    // is often ignored already and these would pass without init doing a
+    // thing. A repo-level excludesFile shadows the global one.
+    beforeEach(() => {
+      execFileSync("git", ["config", "core.excludesFile", "/dev/null"], { cwd: repoRoot });
+    });
+
+    it("keeps the settings file with this machine's install path out of git", async () => {
+      await runCli(["init"], { config, stdio: createFakeStdio() });
+
+      expect(isIgnored(".claude/settings.local.json")).toBe(true);
+      // Through the repo's own exclude list, not the team's .gitignore.
+      expect(existsSync(path.join(repoRoot, ".gitignore"))).toBe(false);
+    });
+
+    it("does not add the exclude twice", async () => {
+      await runCli(["init"], { config, stdio: createFakeStdio() });
+      await runCli(["init"], { config, stdio: createFakeStdio() });
+
+      const exclude = readFileSync(path.join(repoRoot, ".git", "info", "exclude"), "utf8");
+      expect(exclude.split(".claude/settings.local.json").length - 1).toBe(1);
+    });
+
+
+
+
   });
 
   // The status line is somewhere the developer may already live. Claude Code
@@ -134,7 +152,7 @@ describe("signpost init", () => {
         permissions: { allow: ["Bash"] },
       }),
     );
-    const stdio = createFakeStdio("y");
+    const stdio = createFakeStdio();
 
     await runCli(["init"], { config, stdio });
 
@@ -145,7 +163,10 @@ describe("signpost init", () => {
       `node '${statuslineScriptPath()}' --wrap '~/bin/mystatus.sh'`,
     );
     expect(settings.statusLine.padding).toBe(2);
-    expect(settings.permissions).toEqual({ allow: ["Bash"] });
+    // Theirs kept, ours appended: the loop's two rules (src/core/init/permissions.ts).
+    expect(settings.permissions).toEqual({
+      allow: ["Bash", "Bash(signpost *)", `Edit(/${config.paths.repliesPath})`],
+    });
     // Said out loud: a tool that edits a settings file in silence is one the
     // developer discovers when their own status line looks different.
     expect(stdio.writtenOutput()).toContain("~/bin/mystatus.sh");
@@ -186,7 +207,7 @@ describe("signpost init", () => {
       }),
     );
 
-    await runCli(["init"], { config, stdio: createFakeStdio("y") });
+    await runCli(["init"], { config, stdio: createFakeStdio() });
 
     const settings = JSON.parse(
       readFileSync(path.join(repoRoot, ".claude", "settings.local.json"), "utf8"),
@@ -204,49 +225,30 @@ describe("signpost init", () => {
     const settingsFile = path.join(repoRoot, ".claude", "settings.local.json");
     writeFileSync(settingsFile, "{ half an edit");
 
-    const exitCode = await runCli(["init"], { config, stdio: createFakeStdio("y") });
+    const exitCode = await runCli(["init"], { config, stdio: createFakeStdio() });
 
     expect(exitCode).toBe(0);
     expect(readFileSync(settingsFile, "utf8")).toBe("{ half an edit");
   });
 
-  it("declining consent exits 1 and persists no state", async () => {
-    const stdio = createFakeStdio("n");
 
-    const exitCode = await runCli(["init"], { config, stdio });
-
-    expect(exitCode).toBe(1);
-    expect(existsSync(config.paths.knowledgeDir)).toBe(false);
-    expect(existsSync(path.join(repoRoot, "CLAUDE.md"))).toBe(false);
-    // Assert before opening the db — openDb() creates/migrates the file, so
-    // opening it here first would make this assertion vacuous.
-    expect(existsSync(config.paths.dbPath)).toBe(false);
-  });
-
-  it("empty stdin (EOF, non-interactive) is treated as decline, not a hang", async () => {
+  // It used to read a consent answer, and a closed stdin was a decline.
+  it("never reads stdin: a closed one neither hangs nor declines", async () => {
     const stdio = createEofStdio();
 
     const exitCode = await runCli(["init"], { config, stdio });
 
-    expect(exitCode).toBe(1);
-    expect(existsSync(config.paths.dbPath)).toBe(false);
+    expect(exitCode).toBe(0);
+    expect(existsSync(config.paths.dbPath)).toBe(true);
   });
 
-  it("running init twice, accepting both times, is idempotent — the CLAUDE.md pointer is written once", async () => {
-    await runCli(["init"], {
-      config,
-     
-      stdio: createFakeStdio("y"),
-    });
-    const exitCode = await runCli(["init"], {
-      config,
-     
-      stdio: createFakeStdio("y"),
-    });
+  it("running init twice adds the allow rules once", async () => {
+    await runCli(["init"], { config, stdio: createFakeStdio() });
+    const exitCode = await runCli(["init"], { config, stdio: createFakeStdio() });
 
     expect(exitCode).toBe(0);
-    const content = readFileSync(path.join(repoRoot, "CLAUDE.md"), "utf8");
-    expect(content).toBe(CLAUDE_MD_POINTER);
+    const settings = JSON.parse(readFileSync(path.join(repoRoot, ".claude", "settings.local.json"), "utf8"));
+    expect(settings.permissions.allow).toEqual(["Bash(signpost *)", `Edit(/${config.paths.repliesPath})`]);
   });
 
   // 05-retrieval.md: "Prefetch happens at `signpost init`". Before it did,
@@ -269,7 +271,7 @@ describe("signpost init", () => {
 
     it("fetches it once consent is recorded, and says so", async () => {
       const { calls, prefetchModel } = recordingPrefetch();
-      const stdio = createFakeStdio("y");
+      const stdio = createFakeStdio();
 
       const exitCode = await runCli(["init"], { config, stdio, prefetchModel });
 
@@ -278,16 +280,9 @@ describe("signpost init", () => {
       expect(stdio.writtenOutput()).toContain("signposts: model fetched\n");
     });
 
-    it("fetches nothing when consent is declined", async () => {
-      const { calls, prefetchModel } = recordingPrefetch();
-
-      await runCli(["init"], { config, stdio: createFakeStdio("n"), prefetchModel });
-
-      expect(calls).toEqual([]);
-    });
 
     it("fetches it again on an already-initialised repo, which is the path an upgrade takes", async () => {
-      await runCli(["init"], { config, stdio: createFakeStdio("y") });
+      await runCli(["init"], { config, stdio: createFakeStdio() });
       const { calls, prefetchModel } = recordingPrefetch();
 
       const exitCode = await runCli(["init"], { config, stdio: createFakeStdio(), prefetchModel });

@@ -22,7 +22,6 @@ describe("runningStatus", () => {
       phase: "running",
       updatedAt: "2026-09-09T12:00:00.000Z",
       eligibleSessions: 0,
-      threadsWaiting: 0,
     });
   });
 
@@ -37,16 +36,15 @@ describe("runningStatus", () => {
 
 describe("finishedStatus", () => {
   it("records the census and the time", () => {
-    expect(finishedStatus({ now: NOW, eligibleSessions: 3, threadsWaiting: 2 })).toEqual({
+    expect(finishedStatus({ now: NOW, eligibleSessions: 3})).toEqual({
       phase: "idle",
       updatedAt: "2026-09-09T12:00:00.000Z",
       eligibleSessions: 3,
-      threadsWaiting: 2,
     });
   });
 
   it("omits lastIndexedAt when the index was already current", () => {
-    expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 })).not.toHaveProperty(
+    expect(finishedStatus({ now: NOW, eligibleSessions: 0})).not.toHaveProperty(
       "lastIndexedAt",
     );
   });
@@ -55,7 +53,6 @@ describe("finishedStatus", () => {
     const status = finishedStatus({
       now: NOW,
       eligibleSessions: 0,
-      threadsWaiting: 0,
       indexedAt: new Date("2026-09-09T11:59:00.000Z"),
     });
     expect(status.lastIndexedAt).toBe("2026-09-09T11:59:00.000Z");
@@ -65,10 +62,10 @@ describe("finishedStatus", () => {
   // place a failure is ever visible.
   it("carries the error when there was one, and omits it otherwise", () => {
     expect(
-      finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0, error: "no origin remote" })
+      finishedStatus({ now: NOW, eligibleSessions: 0, error: "no origin remote" })
         .lastError,
     ).toBe("no origin remote");
-    expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 })).not.toHaveProperty(
+    expect(finishedStatus({ now: NOW, eligibleSessions: 0})).not.toHaveProperty(
       "lastError",
     );
   });
@@ -78,9 +75,8 @@ describe("finishedStatus", () => {
     [Number.NaN, 0],
     [2.7, 2],
   ])("normalises a count of %s to %s", (given, expected) => {
-    expect(finishedStatus({ now: NOW, eligibleSessions: given, threadsWaiting: given })).toMatchObject({
+    expect(finishedStatus({ now: NOW, eligibleSessions: given})).toMatchObject({
       eligibleSessions: expected,
-      threadsWaiting: expected,
     });
   });
 
@@ -88,7 +84,7 @@ describe("finishedStatus", () => {
   // seen. The worker processes no sessions, so writing it here would silence
   // the hook about a backlog nobody has touched.
   it("never mints the session watermark", () => {
-    expect(finishedStatus({ now: NOW, eligibleSessions: 5, threadsWaiting: 0 })).not.toHaveProperty(
+    expect(finishedStatus({ now: NOW, eligibleSessions: 5})).not.toHaveProperty(
       "lastRunFinishedAt",
     );
   });
@@ -101,7 +97,6 @@ describe("finishedStatus", () => {
       finishedStatus({
         now: NOW,
         eligibleSessions: 5,
-        threadsWaiting: 0,
         lastRunFinishedAt: WATERMARK,
       }).lastRunFinishedAt,
     ).toBe(WATERMARK);
@@ -109,7 +104,7 @@ describe("finishedStatus", () => {
 });
 
 describe("runFinishedStatus", () => {
-  const CENSUS = finishedStatus({ now: NOW, eligibleSessions: 4, threadsWaiting: 2 });
+  const CENSUS = finishedStatus({ now: NOW, eligibleSessions: 4});
 
   it("stamps the watermark at the activity it finished through, not at the clock", () => {
     expect(runFinishedStatus(CENSUS, FINISHED_THROUGH).lastRunFinishedAt).toBe(WATERMARK);
@@ -122,7 +117,6 @@ describe("runFinishedStatus", () => {
       phase: "idle",
       updatedAt: NOW.toISOString(),
       eligibleSessions: 4,
-      threadsWaiting: 2,
     });
   });
 
@@ -139,13 +133,12 @@ describe("runFinishedStatus", () => {
       phase: "idle",
       updatedAt: WATERMARK,
       eligibleSessions: 0,
-      threadsWaiting: 0,
       lastRunFinishedAt: WATERMARK,
     });
   });
 });
 
-// A run halted on a review can sit for days, and a reindex is free to happen
+// A run halted between two resumes can sit for a while, and a reindex is free to happen
 // around it. Both of the worker's writes replace the file whole, so a run the
 // statusLine is rendering has to survive them — exactly as the watermark does.
 describe("the worker carries a run's progress across its own writes", () => {
@@ -168,7 +161,6 @@ describe("the worker carries a run's progress across its own writes", () => {
     const status = finishedStatus({
       now: NOW,
       eligibleSessions: 0,
-      threadsWaiting: 0,
       runProgress: PROGRESS,
     });
 
@@ -177,7 +169,7 @@ describe("the worker carries a run's progress across its own writes", () => {
 
   it("omits it from a census taken between runs", () => {
     expect(
-      finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 }),
+      finishedStatus({ now: NOW, eligibleSessions: 0}),
     ).not.toHaveProperty("runProgress");
   });
 });
@@ -191,7 +183,6 @@ describe("runFinishedStatus and the run's progress", () => {
       phase: "idle" as const,
       updatedAt: "2026-09-09T11:59:00.000Z",
       eligibleSessions: 0,
-      threadsWaiting: 0,
       runProgress: {
         sessionsDone: 3,
         sessionsTotal: 3,
@@ -209,7 +200,6 @@ describe("runProgressStatus", () => {
     phase: "idle" as const,
     updatedAt,
     eligibleSessions: 0,
-    threadsWaiting: 0,
     runProgress: { sessionsDone: 1, sessionsTotal: 3, found: 2, updatedAt },
   });
 
@@ -219,7 +209,6 @@ describe("runProgressStatus", () => {
       remaining: 3,
       sessionFinished: false,
       found: 0,
-      threadsWaiting: 0,
       freshRun: false,
     });
 
@@ -236,7 +225,7 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 1,
       sessionFinished: true,
-      found: 4, threadsWaiting: 0, freshRun: false }
+      found: 4, freshRun: false }
     );
 
     expect(status.runProgress).toEqual({
@@ -255,7 +244,7 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 2,
       sessionFinished: false,
-      found: 9, threadsWaiting: 0, freshRun: false }
+      found: 9, freshRun: false }
     );
 
     expect(status.runProgress).toEqual({
@@ -273,7 +262,7 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 2,
       sessionFinished: true,
-      found: 1, threadsWaiting: 0, freshRun: false }
+      found: 1, freshRun: false }
     );
 
     expect(status.runProgress).toEqual({
@@ -284,15 +273,10 @@ describe("runProgressStatus", () => {
     });
   });
 
-  // Changed contract. `threadsWaiting` used to be the worker's alone and was
-  // carried through here; a run now retakes the census from the same source
-  // the worker uses, because the worker runs only at session start and a
-  // review parked mid-run was invisible until the next one.
   it("retakes the census, and carries the worker's own fields through", () => {
     const previous = {
       ...live("2026-09-09T11:59:00.000Z"),
       eligibleSessions: 4,
-      threadsWaiting: 1,
       lastIndexedAt: "2026-09-09T10:00:00.000Z",
       lastError: "index rebuild exited 1",
       lastRunFinishedAt: WATERMARK,
@@ -301,11 +285,10 @@ describe("runProgressStatus", () => {
       now: NOW,
       remaining: 0,
       sessionFinished: true,
-      found: 0, threadsWaiting: 0, freshRun: false }
+      found: 0, freshRun: false }
     );
 
     expect(status.eligibleSessions).toBe(0);
-    expect(status.threadsWaiting).toBe(0);
     // Only the worker can know these two, so they survive untouched.
     expect(status.lastIndexedAt).toBe("2026-09-09T10:00:00.000Z");
     expect(status.lastError).toBe("index rebuild exited 1");
@@ -321,7 +304,6 @@ describe("runProgressStatus", () => {
       remaining: 2,
       sessionFinished: true,
       found: 1,
-      threadsWaiting: 0,
       freshRun: true,
     });
 
@@ -340,7 +322,6 @@ describe("runProgressStatus", () => {
       remaining: 1,
       sessionFinished: false,
       found: 0,
-      threadsWaiting: 0,
       freshRun: false,
     });
 
@@ -353,7 +334,6 @@ describe("runProgressStatus", () => {
       remaining: -3,
       sessionFinished: true,
       found: 2.7,
-      threadsWaiting: 0,
       freshRun: false,
     });
 
@@ -399,7 +379,6 @@ describe("judgedSessions", () => {
     remaining: 1,
     sessionFinished: true,
     found: 0,
-    threadsWaiting: 0,
     freshRun: false,
     judged: { sessionId, lastActivityAt },
   });
@@ -438,7 +417,6 @@ describe("judgedSessions", () => {
       phase: "idle" as const,
       updatedAt: WATERMARK,
       eligibleSessions: 0,
-      threadsWaiting: 0,
       lastRunFinishedAt: WATERMARK,
       judgedSessions: { "at-watermark": WATERMARK, "before-watermark": "2026-09-09T11:00:00.000Z" },
     };
@@ -467,7 +445,6 @@ describe("judgedSessions", () => {
       phase: "idle" as const,
       updatedAt: WATERMARK,
       eligibleSessions: 0,
-      threadsWaiting: 0,
       judgedSessions: {
         covered: FINISHED_THROUGH.toISOString(),
         newer: "2026-09-09T11:45:00.000Z",
@@ -484,7 +461,6 @@ describe("judgedSessions", () => {
       phase: "idle" as const,
       updatedAt: WATERMARK,
       eligibleSessions: 0,
-      threadsWaiting: 0,
       judgedSessions: { covered: FINISHED_THROUGH.toISOString() },
     };
 
@@ -495,53 +471,17 @@ describe("judgedSessions", () => {
     const judged = { "sess-a": WATERMARK };
     expect(runningStatus(NOW, undefined, undefined, judged).judgedSessions).toEqual(judged);
     expect(
-      finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0, judgedSessions: judged }).judgedSessions,
+      finishedStatus({ now: NOW, eligibleSessions: 0, judgedSessions: judged }).judgedSessions,
     ).toEqual(judged);
     expect(runningStatus(NOW)).not.toHaveProperty("judgedSessions");
-    expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 })).not.toHaveProperty("judgedSessions");
-  });
-});
-
-// 19-value-to-a-user.md item 3: the soonest a parked review expires, for the
-// status line and the hook to warn before it goes.
-describe("reviewExpiresAt", () => {
-  const EXPIRES = new Date("2026-09-12T12:00:00.000Z");
-
-  it("is written with the census the run takes", () => {
-    const status = runProgressStatus(undefined, {
-      now: NOW,
-      remaining: 0,
-      sessionFinished: false,
-      found: 0,
-      threadsWaiting: 1,
-      freshRun: false,
-      reviewExpiresAt: EXPIRES,
-    });
-    expect(status.reviewExpiresAt).toBe(EXPIRES.toISOString());
-  });
-
-  it("is retaken rather than carried: no review waiting, no expiry", () => {
-    const previous = runProgressStatus(undefined, {
-      now: NOW, remaining: 0, sessionFinished: false, found: 0, threadsWaiting: 1, freshRun: false, reviewExpiresAt: EXPIRES,
-    });
-    const answered = runProgressStatus(previous, {
-      now: NOW, remaining: 0, sessionFinished: true, found: 0, threadsWaiting: 0, freshRun: false,
-    });
-    expect(answered).not.toHaveProperty("reviewExpiresAt");
-  });
-
-  it("is written with the census the worker takes", () => {
-    expect(
-      finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 1, reviewExpiresAt: EXPIRES }).reviewExpiresAt,
-    ).toBe(EXPIRES.toISOString());
-    expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0 })).not.toHaveProperty("reviewExpiresAt");
+    expect(finishedStatus({ now: NOW, eligibleSessions: 0})).not.toHaveProperty("judgedSessions");
   });
 });
 
 // 19-value-to-a-user.md, open item 14: how many sessions sit committed and
 // unpushed, for the status line's reminder.
 describe("unpublishedStatus", () => {
-  const previous = finishedStatus({ now: NOW, eligibleSessions: 2, threadsWaiting: 1, lastRunFinishedAt: WATERMARK });
+  const previous = finishedStatus({ now: NOW, eligibleSessions: 2, lastRunFinishedAt: WATERMARK });
 
   it("sets the count and leaves the rest of the file alone", () => {
     expect(unpublishedStatus(previous, 2, NOW)).toEqual({ ...previous, unpublishedSessions: 2 });
@@ -561,14 +501,13 @@ describe("unpublishedStatus", () => {
       phase: "idle",
       updatedAt: NOW.toISOString(),
       eligibleSessions: 0,
-      threadsWaiting: 0,
       unpublishedSessions: 1,
     });
   });
 
   it("is carried through both of the worker's writes", () => {
     expect(runningStatus(NOW, undefined, undefined, undefined, 2).unpublishedSessions).toBe(2);
-    expect(finishedStatus({ now: NOW, eligibleSessions: 0, threadsWaiting: 0, unpublishedSessions: 2 }).unpublishedSessions).toBe(2);
+    expect(finishedStatus({ now: NOW, eligibleSessions: 0, unpublishedSessions: 2 }).unpublishedSessions).toBe(2);
     expect(runningStatus(NOW)).not.toHaveProperty("unpublishedSessions");
   });
 });

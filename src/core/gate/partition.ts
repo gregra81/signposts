@@ -34,27 +34,18 @@ export interface PartitionInput {
    * never reaches `commit` without a human decision."
    */
   unresolvedContradictions: ReadonlySet<string>;
-  /**
-   * tempIds whose classification named a neighbour a person is still holding —
-   * proposed by an earlier session in this same run and gated for review.
-   * Their operations inherit that review (06-review-and-pr.md). A proposal
-   * that auto-published is not one of them: it is already in the branch.
-   */
-  pendingNeighbourTargets: ReadonlySet<string>;
 }
 
 export function partitionOperations({
   built,
   isBootstrap,
   unresolvedContradictions,
-  pendingNeighbourTargets,
 }: PartitionInput): GatedOperations {
   const auto: Operation[] = [];
   const needsHuman: { operation: Operation; reason: GateReason }[] = [];
 
   for (const candidate of built) {
     const unresolved = unresolvedContradictions.has(candidate.tempId);
-    const targetsPending = pendingNeighbourTargets.has(candidate.tempId);
 
     // Judged as one package, not operation by operation. `both_scoped` emits a
     // `refine` of the old signpost plus an `add` of the new one, and the two
@@ -69,7 +60,6 @@ export function partitionOperations({
           confidence: candidate.confidence,
           isBootstrap,
           unresolved,
-          targetsPending,
         }),
       )
       .find((reason) => reason !== undefined);
@@ -91,8 +81,6 @@ interface HoldInput {
   confidence: number;
   isBootstrap: boolean;
   unresolved: boolean;
-  /** The classification named a neighbour this run proposed and nobody has approved. */
-  targetsPending: boolean;
 }
 
 /**
@@ -101,21 +89,10 @@ interface HoldInput {
  * An unresolved contradiction bypasses the confidence test entirely: a
  * high-confidence claim that contradicts recorded knowledge is exactly the
  * case that must not auto-publish.
- *
- * A pending target bypasses it for a related reason. `reinforce` is
- * provenance-only and gate() sends it straight to `auto`, which is right when
- * it names a signpost that exists on disk or is already in the branch. Against
- * a proposal a person is still holding it is not: they may reject it, and the
- * reinforce would then have auto-published a reference to a signpost that
- * never existed. Whatever they decide about the proposal, they should be
- * deciding about this too.
  */
 function holdReason(operation: Operation, input: HoldInput): GateReason | undefined {
   if (input.unresolved) {
     return GATE_REASONS.unresolved_contradiction;
-  }
-  if (input.targetsPending) {
-    return GATE_REASONS.pending_neighbour;
   }
   if (gate(operation, input.confidence, input.isBootstrap) === "auto") {
     return undefined;

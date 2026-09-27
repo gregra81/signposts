@@ -42,7 +42,6 @@ import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { finishedStatus, runningStatus } from "../../core/worker/status.ts";
 import { takeLock } from "../../io/worker/lock.ts";
 import { readStatus, writeStatus } from "../../io/worker/status-file.ts";
-import { reviewCensus } from "../with-run.ts";
 import type { OpenRun } from "../run-port.ts";
 import { runIndex } from "./index.ts";
 
@@ -91,8 +90,6 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
   let indexedAt: Date | undefined;
   let error: string | undefined;
   let eligibleSessions = 0;
-  let threadsWaiting = 0;
-  let reviewExpiresAt: Date | undefined;
 
   try {
     // `rebuildIndex` consults `shouldReindex` itself and returns without
@@ -109,8 +106,6 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
 
     const counts = await census(input);
     eligibleSessions = counts.eligibleSessions;
-    threadsWaiting = counts.threadsWaiting;
-    reviewExpiresAt = counts.reviewExpiresAt;
     if (counts.reason !== undefined) {
       error = counts.reason;
     }
@@ -119,7 +114,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
   } finally {
     // Re-read rather than reuse what was read at the top. A rebuild loads an
     // ONNX pipeline and embeds the corpus, so minutes can pass here, and only
-    // the worker takes `paths.lockfile` — `run`, `resume` and `review` write
+    // the worker takes `paths.lockfile` — `run` and `resume` write
     // this file throughout. Carrying the opening read forward would put back a
     // `runProgress` that a run has since cleared, leaving the bar reporting a
     // finished run's count until it ages out.
@@ -129,8 +124,6 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
       finishedStatus({
         now: input.now(),
         eligibleSessions,
-        threadsWaiting,
-        reviewExpiresAt,
         indexedAt,
         error,
         lastRunFinishedAt: current?.lastRunFinishedAt,
@@ -149,44 +142,34 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
 
 interface Census {
   eligibleSessions: number;
-  threadsWaiting: number;
-  reviewExpiresAt?: Date;
   /** Why the census is zeroes rather than counted, when it could not be taken. */
   reason?: string;
 }
 
 /**
- * What is waiting for a person, counted once so the hook does not have to.
+ * What is waiting to be run, counted once so the hook does not have to.
  *
- * Both numbers come off the same RunHandle the run commands use, which is
- * what keeps them honest: `eligible` applies the real eligibility gate
- * including the processed-keys check the hook can only approximate, and
- * `pendingReviews` judges checkpoints with the same `decideCheckpoint` a
- * resume would, so a thread this build could not resume is not counted as
- * though someone could answer it.
+ * Off the same RunHandle the run commands use, which is what keeps it honest:
+ * `eligible` applies the real eligibility gate, including the processed-keys
+ * check the hook can only approximate.
  */
 async function census(input: WorkerInput): Promise<Census> {
   const opened = await input.openRun({
     config: input.config,
     repoRoot: input.repoRoot,
     warn: () => {
-      // Nothing here has anyone to tell, and since the census stopped dropping
-      // expired threads (19-value-to-a-user.md item 3) nothing here warns either.
+      // Nothing here has anyone to tell.
     },
   });
   if ("reason" in opened) {
     // No GitHub origin, or no `git config user.email`. Not this process's
     // problem to report — `doctor` is the command that explains it.
-    return { eligibleSessions: 0, threadsWaiting: 0, reason: opened.reason };
+    return { eligibleSessions: 0, reason: opened.reason };
   }
 
   const handle = opened.handle;
   try {
-    const now = input.now();
-    return {
-      eligibleSessions: handle.eligible(now).length,
-      ...(await reviewCensus(handle, now)),
-    };
+    return { eligibleSessions: handle.eligible(input.now()).length };
   } finally {
     handle.close();
   }

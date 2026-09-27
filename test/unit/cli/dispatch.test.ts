@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCommand, spendsTokens } from "../../../src/core/cli/dispatch.js";
+import { parseCommand, setsUpRepo } from "../../../src/core/cli/dispatch.js";
 
 const NO_OPTIONS = { isFirst: false, adoptLock: false, verbose: false };
 
@@ -107,17 +107,17 @@ describe("--verbose", () => {
   });
 });
 
-describe("spendsTokens", () => {
-  // The consent gate hangs off this (src/cli/consent.ts): a command listed
-  // here cannot run before the repo has consented, and one left out runs
-  // freely. Both halves are asserted, because a wrong answer either bills a
-  // developer who was never asked or blocks a reader who never had to be.
-  it.each(["run", "resume", "review"] as const)("%s reaches a model call", (command) => {
-    expect(spendsTokens(command)).toBe(true);
+describe("setsUpRepo", () => {
+  // Replaces `spendsTokens`, which gated the same commands on a consent
+  // typed at `init`. The skill's commands set the repo up themselves now
+  // (src/cli/setup.ts); the free read path still writes nothing on a reader's
+  // behalf (19-value-to-a-user.md, "Fewer human steps").
+  it.each(["sessions", "run", "resume"] as const)("%s sets the repo up", (command) => {
+    expect(setsUpRepo(command)).toBe(true);
   });
 
-  it.each(["sessions", "index", "worker", "init", "doctor", "mcp"] as const)("%s is local and free", (command) => {
-    expect(spendsTokens(command)).toBe(false);
+  it.each(["index", "worker", "init", "doctor", "mcp", "publish"] as const)("%s does not", (command) => {
+    expect(setsUpRepo(command)).toBe(false);
   });
 });
 

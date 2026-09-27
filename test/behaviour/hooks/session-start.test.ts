@@ -17,6 +17,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -114,8 +115,8 @@ function writeWorkerState(f: Fixture, state: Record<string, unknown>): Fixture {
   return f;
 }
 
-function runHook(f: Fixture, extraEnv: Record<string, string> = {}) {
-  return spawnSync(process.execPath, [HOOK], {
+function runHook(f: Fixture, extraEnv: Record<string, string> = {}, script = HOOK) {
+  return spawnSync(process.execPath, [script], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -154,6 +155,24 @@ async function waitUntil(done: () => boolean, attempts = 600, intervalMs = 100):
   }
 }
 
+// How an installed copy runs: npm puts a symlink on PATH, and Claude Code runs
+// that. The entry-point check compared the symlink's path with the file's own,
+// so every installed hook exited 0 having done nothing, while every test here
+// passed by spawning the file directly (found in the live walkthrough,
+// 19-value-to-a-user.md "Fewer human steps").
+describe("run through the symlink npm installs", () => {
+  it("does its work, not just exit 0", () => {
+    const f = withTranscript(withCurrentIndex(fixture()), "yesterday", IDLE_HOURS + 1);
+    const link = path.join(f.home, "signpost-session-start");
+    symlinkSync(HOOK, link);
+
+    const result = runHook(f, {}, link);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout).systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
+  });
+});
+
 describe("silence when there is nothing to do", () => {
   it("emits nothing in a repo where init never ran", () => {
     const f = fixture();
@@ -163,6 +182,18 @@ describe("silence when there is nothing to do", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("");
     // R3: no state, and above all no database, before consent.
+    expect(existsSync(f.stateDir)).toBe(false);
+  });
+
+  // 19-value-to-a-user.md, "Fewer human steps": nobody types `init` any
+  // more, so a repo nothing has run in gets the offer — and still no state,
+  // no worker and no database, until the developer says yes.
+  it("offers a run in a repo nothing has run in, and writes nothing", () => {
+    const f = withTranscript(fixture(), "old", IDLE_HOURS + 1);
+    rmSync(path.join(f.repoRoot, ".signposts"), { recursive: true });
+    const result = runHook(f);
+
+    expect(JSON.parse(result.stdout).systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
     expect(existsSync(f.stateDir)).toBe(false);
   });
 
@@ -231,20 +262,6 @@ describe("the three wake conditions", () => {
 
     const started = runHook(f);
     expect(JSON.parse(started.stdout).systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
-    expect(await workerLines(f, 1)).toHaveLength(1);
-  });
-
-  it("wakes on a resumable thread the worker recorded", async () => {
-    const f = withCurrentIndex(fixture());
-    writeWorkerState(f, { threadsWaiting: 2 });
-
-    expect(JSON.parse(runHook(f).stdout)).toEqual({
-      systemMessage: "🪧 signposts: 2 changes need your review — run `signpost review`",
-      hookSpecificOutput: {
-        hookEventName: "SessionStart",
-        additionalContext: expect.stringContaining("2 proposed changes parked"),
-      },
-    });
     expect(await workerLines(f, 1)).toHaveLength(1);
   });
 

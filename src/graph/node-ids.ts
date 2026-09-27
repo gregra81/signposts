@@ -1,5 +1,6 @@
-// The eleven node ids of 04-extraction-graph.md, in one place so a typo in an
-// edge cannot silently create a twelfth node.
+// The ten node ids of 04-extraction-graph.md, in one place so a typo in an
+// edge cannot silently create an eleventh node. There were eleven until
+// `human_review` went (19-value-to-a-user.md, "Fewer human steps").
 //
 // The four LLM nodes' ids match NodeName (src/core/model/types.ts) where the
 // names coincide, but they are not the same vocabulary: NodeName is what the
@@ -16,7 +17,6 @@ export const NODE_IDS = {
   validate: "validate",
   recheckNeighbours: "recheck_neighbours",
   confidenceGate: "confidence_gate",
-  humanReview: "human_review",
   commit: "commit",
 } as const;
 

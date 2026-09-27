@@ -7,9 +7,6 @@
 // The three run commands take options rather than positional arguments: they
 // are driven by a skill, and a named flag survives being reordered by
 // whatever assembles the command line.
-//
-// `review` takes none: it is typed by a person, and everything it acts on it
-// finds for itself in the checkpoint database.
 
 // `worker` and `mcp` are dispatched but not typed by a person: the SessionStart
 // hook spawns the first (hooks/session-start.ts) and the plugin manifest
@@ -24,7 +21,6 @@ const KNOWN_COMMANDS = [
   "sessions",
   "run",
   "resume",
-  "review",
   "publish",
   "worker",
   "mcp",
@@ -32,16 +28,18 @@ const KNOWN_COMMANDS = [
 export type KnownCommand = (typeof KNOWN_COMMANDS)[number];
 
 /**
- * The commands that can reach a model call, and therefore may not run before
- * this repo has consented (15-spec.md story 70, src/cli/consent.ts).
+ * The commands the skill drives, which set the repo up the first time one
+ * runs (src/cli/setup.ts). The developer's yes to the session's offer is the
+ * consent; a separate `init` was a step nobody took (19-value-to-a-user.md,
+ * "Fewer human steps").
  *
- * `sessions`, `index`, `worker` and `mcp` are not among them on purpose:
- * listing transcripts, building the index, taking the census and searching it
- * are local and free, and 05-retrieval.md is explicit that a reader who never
- * runs an extraction is never asked for anything.
+ * `index`, `worker` and `mcp` are not among them on purpose: building the
+ * index, taking the census and searching it are local and free, and
+ * 05-retrieval.md is explicit that a reader who never runs an extraction has
+ * nothing written on their behalf.
  */
-export function spendsTokens(command: KnownCommand): boolean {
-  return command === "run" || command === "resume" || command === "review";
+export function setsUpRepo(command: KnownCommand): boolean {
+  return command === "sessions" || command === "run" || command === "resume";
 }
 
 /** Options the run commands accept; absent for the others. */

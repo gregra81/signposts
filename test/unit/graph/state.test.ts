@@ -68,7 +68,6 @@ describe("channel defaults", () => {
     expect(state.neighbours).toEqual({});
     expect(state.classifications).toEqual({});
     expect(state.resolutions).toEqual({});
-    expect(state.humanDecisions).toEqual({});
   });
 });
 

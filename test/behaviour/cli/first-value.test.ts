@@ -1,26 +1,26 @@
 // Manual steps to first value (19-value-to-a-user.md, Phase 4's exit test).
 //
-// One fresh repository, walked the way a new user walks it: `init`, a session
-// start that fires the hook, the worker it wakes, the run loop the skill
-// drives, the developer's own `signpost review`, and the commit that lands on a
-// branch with a pull request. Every link of that chain has tests of its own;
-// nothing walked more than one link before this.
+// One fresh repository, walked the way a new user walks it: a session start
+// that fires the hook in a repo nothing has run in, the run loop the skill
+// drives, and the `publish` it ends with — a pull request. Every link of that
+// chain has tests of its own; nothing walked more than one link before this.
 //
 // What it measures is the one DevEx number available without a person: how
 // many times a human has to answer something before the first signpost is in a
-// pull request. Each is counted from what the system actually asked — the
-// consent prompt `init` printed, the hook's instruction to offer the run and
-// wait, every operation a review halt put in front of a person — never from
-// what the test decided to type. Model calls are counted apart, because the
-// Claude Code session answers those, not the developer.
+// pull request. Each is counted from what the system actually asked, never
+// from what the test decided to type. Model calls are counted apart, because
+// the Claude Code session answers those, not the developer.
+//
+// It was four: `init`'s consent prompt, the offer, a review of every operation
+// the bootstrap run gated, and the yes to publishing. It is one now — the
+// offer — because the first run sets the repo up, the gated operations are
+// flagged in the pull request instead of asked about, and the yes to the run
+// covers the pull request (19-value-to-a-user.md, "Fewer human steps").
 //
 // If the human count goes up, a change added a question. If it goes down,
 // something got easier, and the assertion should move with it on purpose.
 //
-// Real throughout except two seams: the forge is FakeForge (no GitHub), and the
-// worker the hook spawns is a no-op script — the real worker then runs
-// in-process with `--adopt-lock`, as the spawned one would, so its effect on
-// the state file is the real one.
+// Real throughout except one seam: the forge is FakeForge (no GitHub).
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
@@ -30,13 +30,12 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
 import { projectDirName } from "../../../src/core/transcript/project-dir.js";
-import type { WorkerStatus } from "../../../src/core/worker/status.js";
 import type { RunOutput } from "../../../src/cli/protocol.js";
 import { isModelRequest, type PendingRequest } from "../../../src/graph/index.js";
 import { FakeForge } from "../../../src/io/forge/fake-forge.js";
 import { makeOpenRun } from "../../../src/io/open-run.js";
 import { makePublish } from "../../../src/io/commit/publish.js";
-import { createFakeStdio, createScriptedStdio } from "../helpers/fake-stdio.js";
+import { createFakeStdio } from "../helpers/fake-stdio.js";
 import { runCli } from "../helpers/run-cli.js";
 import { testLocalModelPath, testModelCache } from "../../support/model-cache.js";
 
@@ -45,8 +44,6 @@ const HOOK = path.join(ROOT, "hooks", "session-start.js");
 const SESSION_ID = "01J9FIRSTVALUE";
 const ORIGIN_URL = "git@github.com:acme/api.git";
 
-/** What `init` prints when it asks (src/io/init/consent-prompt.ts). */
-const CONSENT_QUESTION = "Continue? [y/N]";
 /** What the hook tells the model to do with a ready session (hooks/session-start.ts, `contextFor`). */
 const OFFER_AND_WAIT = "before your first tool call";
 
@@ -71,7 +68,7 @@ function transcript(): string {
 /** How the Claude Code session answers a model call, the way the skill tells it to. */
 function answerModelCall(pending: PendingRequest): unknown {
   if (!isModelRequest(pending.request)) {
-    throw new Error("a review is the developer's to answer, not the session's");
+    throw new Error(`a run halted on something other than a model call: ${JSON.stringify(pending.request)}`);
   }
   switch (pending.request.node) {
     case "extract":
@@ -153,21 +150,15 @@ describe("manual steps to first value", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("takes four answers from a person to get one signpost into a pull request", async () => {
+  it("takes one answer from a person to get one signpost into a pull request", async () => {
     const openRun = makeOpenRun(() => forge);
     const publish = makePublish(() => forge);
     let humanAnswers = 0;
     let modelAnswers = 0;
 
-    // 1. init — asks for consent once.
-    const init = createFakeStdio("y");
-    expect(await runCli(["init"], { config, openRun, stdio: init }), init.writtenError()).toBe(0);
-    humanAnswers += init.writtenOutput().split(CONSENT_QUESTION).length - 1;
-
-    // 2. A session starts. The hook announces the session and tells the model
-    //    to offer the run and wait: the developer answers that offer.
-    const noop = path.join(root, "worker.js");
-    writeFileSync(noop, "");
+    // 1. A session starts in a repo nothing has run in. The hook announces the
+    //    session and tells the model to offer the run and wait: the developer
+    //    answers that offer. It spawns no worker — there is no database yet.
     const hook = spawnSync(process.execPath, [HOOK], {
       encoding: "utf8",
       env: {
@@ -175,7 +166,6 @@ describe("manual steps to first value", () => {
         HOME: homeDir,
         CLAUDE_PROJECT_DIR: repoRoot,
         CLAUDE_CONFIG_DIR: path.join(homeDir, ".claude"),
-        SIGNPOSTS_WORKER: noop,
       },
     });
     expect(hook.status, hook.stderr).toBe(0);
@@ -186,13 +176,8 @@ describe("manual steps to first value", () => {
     expect(notice.systemMessage).toContain("1 session ready");
     humanAnswers += notice.hookSpecificOutput?.additionalContext.includes(OFFER_AND_WAIT) === true ? 1 : 0;
 
-    // 3. The worker the hook woke: reindexes and takes the census.
-    expect(await runCli(["worker", "--adopt-lock"], { config, openRun, stdio: createFakeStdio() })).toBe(0);
-    const census = JSON.parse(readFileSync(config.paths.statuslineState, "utf8")) as WorkerStatus;
-    expect(census.eligibleSessions).toBe(1);
-
-    // 4. The run loop, as the skill drives it: model calls answered by the
-    //    session, a review halt handed back to the developer.
+    // 2. The run loop, as the skill drives it. `sessions` sets the repo up on
+    //    the way through; every halt is a model call the session answers.
     const listed = createFakeStdio();
     await runCli(["sessions"], { config, openRun, stdio: listed });
     const [session] = (JSON.parse(listed.writtenOutput()) as { sessions: { sessionId: string }[] }).sessions;
@@ -201,57 +186,45 @@ describe("manual steps to first value", () => {
     const started = createFakeStdio();
     await runCli(["run", "--session", SESSION_ID, "--first"], { config, openRun, stdio: started });
     let output = JSON.parse(started.writtenOutput()) as RunOutput;
-    const repliesPath = path.join(root, "replies.json");
 
-    while (output.status === "waiting" && output.pending.every((pending) => isModelRequest(pending.request))) {
+    while (output.status === "waiting") {
       modelAnswers += output.pending.length;
       const replies = Object.fromEntries(output.pending.map((pending) => [pending.id, answerModelCall(pending)]));
-      writeFileSync(repliesPath, JSON.stringify({ replies }), "utf8");
+      // Where the output says, which setup allowed without a prompt.
+      expect(output.repliesPath).toBe(config.paths.repliesPath);
+      writeFileSync(output.repliesPath!, JSON.stringify({ replies }), "utf8");
       const resumed = createFakeStdio();
       await runCli(
-        ["resume", "--session", SESSION_ID, "--content-hash", output.contentHash, "--replies", repliesPath],
+        ["resume", "--session", SESSION_ID, "--content-hash", output.contentHash, "--replies", output.repliesPath!],
         { config, openRun, stdio: resumed },
       );
       output = JSON.parse(resumed.writtenOutput()) as RunOutput;
     }
 
-    // The first run in a repo sends everything to a person (06-review-and-pr.md,
-    // "The bootstrap run"), so this is where the loop stops for one.
-    expect(output.status).toBe("waiting");
-    const operationsToDecide = output.pending
-      .filter((pending) => !isModelRequest(pending.request))
-      .reduce((sum, pending) => sum + (pending.request as { needsHuman: unknown[] }).needsHuman.length, 0);
-    humanAnswers += operationsToDecide;
-
-    // 5. The developer answers it at their own terminal, and it commits —
-    //    locally, and nowhere else yet.
-    const review = createScriptedStdio(Array.from({ length: operationsToDecide }, () => "a"));
-    expect(await runCli(["review"], { config, openRun, stdio: review }), review.writtenError()).toBe(0);
+    // The first run in a repo gates everything (06-review-and-pr.md, "The
+    // bootstrap run"). It no longer stops for it: the run finishes and commits.
+    expect(output.status).toBe("finished");
+    expect(output.commit).not.toBeNull();
     expect(forge.openPrCalls).toEqual([]);
-    // What the status line reminds the developer of until they publish
-    // (19-value-to-a-user.md, open item 14).
-    const unpublished = () =>
-      (JSON.parse(readFileSync(config.paths.statuslineState, "utf8")) as WorkerStatus).unpublishedSessions;
-    expect(unpublished()).toBe(1);
 
-    // 6. The developer is shown what was committed and says yes to publishing
-    //    it. Before this step a run opened the pull request on its own, and the
-    //    first thing a developer saw after a successful run was a PR nobody
-    //    asked for (19-value-to-a-user.md, open item 1). This answer is the
-    //    price of that, and the count below includes it.
+    // 3. The skill publishes on the same yes.
     const published = createFakeStdio();
     expect(await runCli(["publish"], { config, openRun, publish, stdio: published }), published.writtenError()).toBe(0);
-    humanAnswers += 1;
-    expect(unpublished()).toBeUndefined();
 
-    // First value: one signpost, committed, on a branch with a pull request.
+    // First value: one signpost on a branch with a pull request, the CLAUDE.md
+    // pointer riding with it, and the bootstrap gate's flag in the body.
     expect(forge.openPrCalls).toHaveLength(1);
-    const branch = forge.openPrCalls[0]!.branch;
-    const files = execFileSync("git", ["ls-tree", "-r", "--name-only", branch], { cwd: remote, encoding: "utf8" });
-    expect(files.split("\n").filter((file) => file.startsWith(".signposts/") && file.endsWith(".md") && !file.endsWith("index.md"))).toHaveLength(1);
+    const { branch, body } = forge.openPrCalls[0]!;
+    const files = execFileSync("git", ["ls-tree", "-r", "--name-only", branch], { cwd: remote, encoding: "utf8" }).split("\n");
+    expect(files.filter((file) => file.startsWith(".signposts/") && file.endsWith(".md") && !file.endsWith("index.md"))).toHaveLength(1);
+    expect(files).toContain("CLAUDE.md");
+    expect(body).toContain("this repo's first run, so everything is flagged");
 
-    // The number this test exists for. Consent, the offer, one decision, and
-    // the yes to publishing it.
-    expect({ humanAnswers, modelAnswers }).toEqual({ humanAnswers: 4, modelAnswers: 3 });
+    // And the developer's checkout was never touched: nothing to commit by hand.
+    const status = execFileSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
+    expect(status.split("\n").filter((line) => line !== "" && !line.endsWith(".claude/"))).toEqual([]);
+
+    // The number this test exists for: the offer, and nothing else.
+    expect({ humanAnswers, modelAnswers }).toEqual({ humanAnswers: 1, modelAnswers: 3 });
   }, 120_000);
 });

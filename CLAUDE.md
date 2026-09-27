@@ -16,9 +16,9 @@ the environment (R7). Tests pass fakes into the same seams.
 
 A run's resources — a database handle, a checkpointer, an embedder that loads an ONNX pipeline —
 live for one invocation, so `openRun` is a function rather than a built object: `doctor` has to
-run in a repo with no database, and `init` must not create one before consent.
+run in a repo with no database, and `index` must not create one for a reader who never ran anything.
 
-The extraction graph is a LangGraph state machine in `src/graph/`, eleven nodes, four of which call a
+The extraction graph is a LangGraph state machine in `src/graph/`, ten nodes, four of which call a
 model: `extract`, `critic`, `classify`, `resolve_conflict`.
 
 ## Who answers the model calls
@@ -29,9 +29,12 @@ halts the run and comes back from `startRun`/`resumeRun` as a pending request ca
 both turns and the JSON Schema for the reply. The session answers it and resumes the thread by
 interrupt id.
 
-`human_review` halts the same way and is answered the same way; `kind` on the payload
-(`MODEL_REQUEST_KIND`, `REVIEW_REQUEST_KIND`) is what tells the two apart. Answer by interrupt id,
-never positionally — `classify` fans out, so several tasks can be halted at once.
+A model call is the only thing a run halts on. There used to be a second halt, `human_review`, for
+whatever the confidence gate held back; on a repo's first run the gate holds back everything, so
+every new user's first run stopped on it. The gated operations are committed now and listed in the
+pull request under "Look closely at", with the reason, and the PR is the review
+(19-value-to-a-user.md, "Fewer human steps"). Answer by interrupt id, never positionally —
+`classify` fans out, so several tasks can be halted at once.
 
 The reply crosses a process boundary and is validated on arrival: `src/graph/llm.ts` parses it with
 the same zod schema the request went out with, and a reply that does not satisfy it throws.
@@ -141,15 +144,29 @@ keyed on `(node, system, user)` and treats a miss as an error.
 ## How it is used
 
 `curl -fsSL https://gregra81.github.io/signposts/install.sh | bash` (docs/install.sh, served from
-GitHub Pages; it fetches the release tarball, verifies SHA256SUMS and runs `npm install -g` on it),
-then `signpost init` in a repo: consent, `.signposts/`, the CLAUDE.md pointer,
-and `.claude/skills/signposts/SKILL.md` — the skill is how the tool is driven, and it is rewritten
-on every accepted `init` so it cannot drift from the CLI it describes.
+GitHub Pages; it fetches the release tarball, verifies SHA256SUMS and runs `npm install -g` on it,
+then installs the plugin). Nothing is typed per repo after that. **The human steps are the
+product's main DX constraint, and each one has to earn its place** (19-value-to-a-user.md, "Fewer
+human steps"): today a new user answers one question — the session's offer to run — and reviews one
+pull request.
 
-The CLI is ten commands. `doctor`, `init` and `index` stand alone; `sessions`, `run` and `resume`
-are the loop the skill drives, one JSON object per invocation, and `publish` is what the skill runs
-once the developer says yes; `review` is the developer's own terminal; `worker` is spawned by the
-hook and `mcp` by the plugin, and neither is ever typed (see below):
+- The hook offers a run in any repo with an eligible session, including one nothing has run in.
+- The yes is the consent. The first `sessions`, `run` or `resume` sets the repo up
+  (`src/cli/setup.ts`): the consent row, the status line, and two allow rules in
+  `.claude/settings.local.json` — `Bash(signpost *)` and `Edit` on the replies file in the state
+  directory — so the loop never stops for a permission prompt. The settings file goes into
+  `.git/info/exclude` when nothing ignores it.
+- Nothing lands in the checkout. The skill ships in the plugin (`skills/signposts/SKILL.md`, pinned
+  to the release like the CLI), and the CLAUDE.md pointer is written by `commit` onto the signposts
+  branch, so it reaches the team in the first PR.
+- The yes also covers the PR: the skill runs `publish` at the end without asking again.
+
+`signpost init` still exists and runs the same setup plus the model download, but asks nothing and
+is never required.
+
+The CLI is nine commands. `doctor`, `init` and `index` stand alone; `sessions`, `run` and `resume`
+are the loop the skill drives, one JSON object per invocation, and `publish` is how it ends;
+`worker` is spawned by the hook and `mcp` by the plugin, and neither is ever typed (see below):
 
 ```
 signpost sessions                                  # eligible transcripts
@@ -161,9 +178,10 @@ signpost publish                                   # push the branch, open or up
 `--first` clears what the previous run left pending, so it belongs on the first session of a run
 and nowhere else. `resume` can leave out `--content-hash`, and `--session` too when only one thread
 is halted: it reads the hash off the halted thread in the checkpoint database, never off the
-transcript, which may have grown since the halt. The skill still passes both. The skill runs the loop in a subagent (a session's prompts are thousands of
-tokens) and brings a `human_review` halt back to the main session, because only the developer can
-answer it.
+transcript, which may have grown since the halt. The skill still passes both. The skill runs the
+loop in a subagent, because a session's prompts are thousands of tokens. Every halt's output names
+`repliesPath`, and the subagent writes the answers there with the Write tool — the one path setup
+allowed.
 
 A run never touches the developer's checkout. `commit` writes through a second worktree
 (`paths.worktreeDir`) on `signposts/<author-slug>/<date>`, so proposals live on a branch and in a PR
@@ -172,12 +190,13 @@ branches still has an open PR, or has commits nobody has pushed; once the PR mer
 session starts a new one from the base, because nothing rebases the branch and a reused one drifts
 from the merged corpus (`src/core/git/branch.ts`).
 
-**A run pushes nothing.** `commit` stops at a local commit, and `signpost publish`
-(`src/io/commit/publish.ts`) does the push and the PR, after the skill has shown the developer what
-was committed and they have said yes. It used to happen inside every run, and the first thing a
-developer saw after a run that worked was a pull request nobody asked for (19-value-to-a-user.md,
-open item 1). Each commit carries its session's PR section in its message, because by the time
-`publish` runs the operations are gone and the unpushed commits are the only record of them.
+**A run pushes nothing; the skill's last step does.** `commit` stops at a local commit, and
+`signpost publish` (`src/io/commit/publish.ts`) does the push and the PR, which the skill runs once
+every session is done. Pushing inside `commit` once put a PR on a developer's repo nobody asked for
+(19-value-to-a-user.md, open item 1); the offer now says a run opens a pull request, so the yes that
+starts the run is also the yes to the PR. Each commit carries its session's PR section in its
+message, because by the time `publish` runs the operations are gone and the unpushed commits are the
+only record of them.
 
 So a change can still be correct, tested, and unreachable by a user. Say so when that is true of
 what you just wrote.
@@ -191,9 +210,12 @@ an empty marker per session under `STATE_DIR/ended-sessions`, and eligibility wa
 `ENDED_IDLE_HOURS` instead of a day for a session whose marker is no older than its last write. It
 is one bundle rather than two because a second file's shipped `.js` could not import a `.ts`
 sibling from inside `node_modules`, and a third copy of the state-directory rule is how the two
-processes stop agreeing. It checks three conditions with `stat` calls only — eligible transcripts,
-threads waiting, a stale index — takes the run lock, spawns `signpost worker --adopt-lock`
-detached, prints one `systemMessage` and exits. Measured, not asserted: `node scripts/measure-hook.mjs`
+processes stop agreeing. It checks two conditions with `stat` calls only — eligible transcripts and
+a stale index — takes the run lock, spawns `signpost worker --adopt-lock` detached, prints one
+`systemMessage` and exits. In a repo with neither a database nor `.signposts/` — nothing has run
+there and nobody has merged a signpost — it only makes the offer: no lock, no worker, no state
+(R3). A cold clone with a corpus still gets its index built. The `SessionEnd` marker is written in
+every repo, so a first offer waits the hour too. Measured, not asserted: `node scripts/measure-hook.mjs`
 prints the distribution against `HOOK_BUDGET_MS`, and it sits around 23ms against a 50ms budget, of
 which ~18ms is bare Node start-up.
 
@@ -202,12 +224,11 @@ extraction node is a model call, and model calls are answered by the Claude Code
 `interrupt()` — a detached process has none, so a run it started would halt on the first `extract`
 and never return. So the worker rebuilds the index (local, free, no credential) and takes a census
 into `status.json`; the hook reads that census because it cannot open a database inside the budget.
-The notice is worded to match: the index is background work, the sessions and reviews are the
-developer's.
+The notice is worded to match: the index is background work, the sessions are the developer's.
 
 The worker never writes `lastRunFinishedAt`. That is the watermark the hook uses to stop waking for
 a session already judged, and the worker judges none. `settle` (`src/cli/with-run.ts`) writes it,
-since `run`, `resume` and `review` are the three commands that finish one. It goes down only once
+since `run` and `resume` are the commands that finish one. It goes down only once
 the finished session leaves nothing else eligible, and it carries that session's own last activity
 rather than the clock: the watermark is one date for the whole repo, so a wall-clock stamp buries
 every transcript that fell quiet just before it — the backlog nobody has run, and the session the
@@ -230,10 +251,10 @@ the `.ts` stays out. A developer never runs the build; an end user gets the outp
 It reads `status.json` and nothing else — no database, no git subprocess — because it runs on every
 assistant message and on a one-second `refreshInterval`.
 
-It renders one of six things, each true at the moment it renders: a review parked on the developer,
-a run in flight, sessions committed and not published, the worker reindexing, a failure nobody was
-told about, and last the backlog — in that order. A review and unpublished commits are the two that
-wait on the developer. A run commits as it goes, so the unpublished count sits below its progress,
+It renders one of five things, each true at the moment it renders: a run in flight, sessions
+committed and not published, the worker reindexing, a failure nobody was told about, and last the
+backlog — in that order. Unpublished commits are the one that waits on the developer: the skill
+publishes at the end of every run, so they mean a publish that could not finish. A run commits as it goes, so the unpublished count sits below its progress,
 and the backlog asks for nothing. The unpublished count is git's: `settle` and `publish` ask it and
 write `unpublishedSessions`, and the worker carries the field through like the watermark.
 
@@ -256,14 +277,12 @@ invocation adds its own session to what the last one left. It ages out after
 `RUN_PROGRESS_STALE_MINUTES`, because closing the terminal between two halts leaves progress behind
 with nothing to finish it, and a bar reading "2/3 sessions" all week is not stale, it is wrong.
 
-Which is why `settle` retakes the census in the same write. A run halted on a review re-stamps
-nothing until the developer answers, so its progress ages out — and `threadsWaiting` used to be
-the worker's alone, written only when a session start happened to wake one. The state the
-developer most has to act on was the state that went blank. Both counts come from the same
-`pendingReviews` the worker's census uses, so a run replaces them with fresher numbers rather than
-competing; `lastIndexedAt` and `lastError` stay the worker's and are carried through.
+`settle` retakes the eligible count in the same write, fresher than the worker's last census;
+`lastIndexedAt` and `lastError` stay the worker's and are carried through. There was a sixth row,
+"N changes need your review", fed by a `threadsWaiting` count of halted reviews; it went with the
+review halt.
 
-`init` installs it into `.claude/settings.local.json` rather than `settings.json`: the command holds
+Setup installs it into `.claude/settings.local.json` rather than `settings.json`: the command holds
 an absolute path to this machine's install, and a status line is a personal preference, so neither
 belongs in a file the team shares. **If the developer already has a statusLine, theirs is wrapped
 rather than replaced** (`--wrap`, and `src/core/init/statusline-settings.ts`): Claude Code allows one
@@ -275,13 +294,19 @@ exits non-zero, which blanks the bar and takes their status line down with it.
 ## The plugin, and what it cannot carry
 
 Two manifests, and both are needed. `.claude-plugin/marketplace.json` is what
-`/plugin marketplace add gregra81/signposts` reads, and it offers this repo's own plugin from the
-repo root (`"source": "./"`); `.claude-plugin/plugin.json` is that plugin. Without the first, the
+`/plugin marketplace add gregra81/signposts` reads, and it offers this repo's own plugin **at the
+release tag** (`"ref": "v<version>"`); `.claude-plugin/plugin.json` is that plugin. It was `"./"`,
+which is the default branch, while `install.sh` installs the CLI from a release: every merge shipped
+plugin wiring ahead of the CLI it drives. Bumping the version means moving the ref too — the manifest
+test and the release workflow both fail otherwise. Without the first, the
 second cannot be installed at all, which is how v0.1.0 shipped — the README described an install
 nobody could perform.
 
-`plugin.json` carries `commands/` (`/signposts:run`, `/signposts:status`, `/signposts:review`) and
-`mcpServers` (which starts `signpost mcp`), and it does **not** name `hooks/hooks.json`. Claude Code
+`plugin.json` carries `commands/` (`/signposts:run`, `/signposts:status`) and `mcpServers` (which
+starts `signpost mcp`). The skill sits in `skills/signposts/SKILL.md`, which Claude Code loads from a
+plugin by convention; it used to be written into each repo by `init`, and shipping it with the
+plugin is what lets a run start without anything in the checkout. `test/behaviour/plugin/skill.test.ts`
+holds it to the CLI. `plugin.json` does **not** name `hooks/hooks.json`. Claude Code
 loads that file by convention, and declaring it is fatal rather than redundant: "Duplicate hooks
 file detected", and the whole plugin fails to load, commands and MCP server with it. v0.1.0 shipped
 that too. `test/behaviour/plugin/manifest.test.ts` holds both rules and resolves every path in the
@@ -299,7 +324,7 @@ not the missing binary. The binary is `signpost`, and the fix is installing the 
 touching the manifest.
 
 **The status line is not in it.** A plugin's own `settings.json` accepts `agent` and
-`subagentStatusLine` and nothing else, so `init` still installs the status line into
+`subagentStatusLine` and nothing else, so setup still installs the status line into
 `.claude/settings.local.json` — see the statusLine section above; that is a platform limit, not an
 oversight.
 
@@ -342,8 +367,9 @@ the CLAUDE.md pointer stays after the server ships (15-spec.md story 62).
 **It searches what it can.** An index behind the mirror is still searched, and so is its FTS half
 alone when the embedder will not load or the index was built with another model. Each comes back
 with its hits and a caveat in `diagnostic`. All three used to return nothing, so a `git pull`
-blanked search until the worker ran (19-value-to-a-user.md item 12). `init` fetches the model
-after consent (`src/io/embed/prefetch.ts`), so the download no longer lands inside a Claude turn.
+blanked search until the worker ran (19-value-to-a-user.md item 12). Setup fetches the model
+(`src/io/embed/prefetch.ts`) the first time it runs, from `init` or from the first skill command, so
+the download does not land inside a search.
 
 Three things it does not do:
 
@@ -357,7 +383,7 @@ Three things it does not do:
   Disk drift is the worker's to fix, and it wakes at the same session start this server does.
 - **It does not treat every failure as the same failure.** No file is a checkout nothing has run
   in; a file this build cannot read is a schema worth naming; a database with no `index_meta` row
-  is a repo that has consented and not indexed, which is where `init` leaves every repo. Each gets
+  is a repo that has been set up and not indexed, which is where setup leaves every repo. Each gets
   its own diagnostic, because the friendly one ("expected on a fresh clone") is a lie about the
   other two.
 - **It does not trust the working directory.** Claude Code documents which variables a manifest

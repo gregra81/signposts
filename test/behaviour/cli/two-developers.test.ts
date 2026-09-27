@@ -48,7 +48,7 @@ import { projectDirName } from "../../../src/core/transcript/project-dir.js";
 import { FakeForge } from "../../../src/io/forge/fake-forge.js";
 import { makeOpenRun } from "../../../src/io/open-run.js";
 import { makePublish } from "../../../src/io/commit/publish.js";
-import { isModelRequest, REVIEW_REQUEST_KIND, type PendingRequest } from "../../../src/graph/index.js";
+import { isModelRequest, type PendingRequest } from "../../../src/graph/index.js";
 import type { OpenRun, Publish } from "../../../src/cli/run-port.js";
 import { giveConsent, markPastBootstrap } from "../helpers/consent.js";
 import { createFakeStdio } from "../helpers/fake-stdio.js";
@@ -261,7 +261,7 @@ describe("two developers, one remote", () => {
   /** One candidate, kept by the critic, classified as the script says. */
   function reply(script: Script, pending: PendingRequest): unknown {
     if (!isModelRequest(pending.request)) {
-      throw new Error("the driver was asked to answer a review it should have stopped at");
+      throw new Error(`a run halted on something other than a model call: ${JSON.stringify(pending.request)}`);
     }
 
     switch (pending.request.node) {
@@ -294,11 +294,7 @@ describe("two developers, one remote", () => {
   /**
    * Runs one session the way the skill does: `run --first`, then a `resume`
    * per halt, each its own invocation — and once it has committed, `publish`,
-   * standing in for the developer saying yes to it.
-   *
-   * A review halt ends the loop rather than being answered. Only the
-   * developer can answer one, and whether the run stopped there at all is what
-   * two of these tests are about.
+   * standing in for the skill, which publishes on the yes the run began with.
    */
   async function runSession(
     machine: Machine,
@@ -310,9 +306,6 @@ describe("two developers, one remote", () => {
     let result = await invoke(machine, ["run", "--session", sessionId, "--first"]);
 
     while (result.output.status === "waiting") {
-      if (result.output.pending.some((pending) => !isModelRequest(pending.request))) {
-        return { ...result, published: null };
-      }
       const replies = Object.fromEntries(
         result.output.pending.map((pending) => [pending.id, reply(script, pending)]),
       );
@@ -393,7 +386,11 @@ describe("two developers, one remote", () => {
       expect(signpostFile).toMatch(/^environment\//);
     }, TIMEOUT_MS);
 
-    it("pauses for a human when Sam's session contradicts it, and lands nothing", async () => {
+    // Changed with "Fewer human steps" (19-value-to-a-user.md): this used to
+    // stop Sam's run on an in-session review and land nothing. The review is
+    // the pull request now, so the contradiction is committed, flagged there
+    // with its reason, and merges only if someone merges it.
+    it("flags it for the reviewer when Sam's session contradicts it, and merges nothing", async () => {
       const SAM_SESSION = "01SAMCONTRADICTS";
       writeTranscript(sam, SAM_SESSION, CONTRADICTS);
 
@@ -409,12 +406,9 @@ describe("two developers, one remote", () => {
         },
       });
 
-      // It stopped, and it stopped on the developer rather than on the model.
-      expect(result.output.status).toBe("waiting");
-      expect(result.output.pending).toHaveLength(1);
-      const request = result.output.pending[0]!.request;
-      expect(request.kind).toBe(REVIEW_REQUEST_KIND);
-      expect(result.exitCode).toBe(EXIT_CODES.awaitingHuman);
+      // It did not stop on the developer.
+      expect(result.output.status).toBe("finished");
+      expect(result.exitCode).toBe(EXIT_CODES.ok);
 
       // And it is Dana's claim it was weighed against: merged knowledge that
       // reached Sam's classifier through the index, not somebody's outstanding
@@ -422,19 +416,17 @@ describe("two developers, one remote", () => {
       expect(classifyTurns.at(-1)).toContain(READ_ONLY);
       expect(classifyTurns.at(-1)).not.toContain('"pending"');
 
-      // Held because of the contradiction, not because of confidence, not
+      // Flagged because of the contradiction, not because of confidence, not
       // because the repo is new: 0.9 clears AUTO_PUBLISH_CONFIDENCE and this
-      // repo is past its bootstrap run.
-      const needsHuman = (request as { needsHuman: { reason: string }[] }).needsHuman;
-      expect(needsHuman.map((item) => item.reason)).toEqual([GATE_REASONS.unresolved_contradiction]);
+      // repo is past its bootstrap run. The reviewer reads why in the PR.
+      expect(forge.openPrCalls.map((call) => call.branch)).toEqual([dana.branch, sam.branch]);
+      const body = forge.openPrCalls[1]!.body;
+      expect(body).toContain("**Look closely at:**");
+      expect(body).toContain("it contradicts what is recorded and nothing could settle which is right");
+      expect(GATE_REASONS.unresolved_contradiction).toBe("unresolved_contradiction");
 
-      // And nothing landed anywhere. No commit, no branch, no pull request,
-      // and Dana's claim on main still says what Dana said.
-      expect(result.output.commit).toBe(null);
-      // Dana's branch is still there — it is merged, not deleted — and Sam
-      // has none at all.
-      expect(branchesOnRemote()).toEqual([dana.branch, "main"].sort());
-      expect(forge.openPrCalls).toHaveLength(1);
+      // Nothing merged. Main, and Sam's own checkout, still say what Dana said.
+      expect(git(remote, "log", "--pretty=%s", "-1", "main")).not.toContain(SAM_SESSION);
       expect(parseSignpost(readFileSync(path.join(sam.repoRoot, SIGNPOSTS_DIRNAME, signpostFile), "utf8")).claim)
         .toBe(READ_ONLY);
     }, TIMEOUT_MS);

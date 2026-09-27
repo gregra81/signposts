@@ -1,22 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   CLAUDE_MD_POINTER,
-  consentExitCode,
   ensureClaudeMdPointer,
   isConsented,
-  needsConsentPrompt,
-  parseConsentAnswer,
 } from "../../../src/core/init/policy.js";
-
-describe("needsConsentPrompt", () => {
-  it("prompts when not yet consented", () => {
-    expect(needsConsentPrompt(false)).toBe(true);
-  });
-
-  it("does not prompt an already-consented repo", () => {
-    expect(needsConsentPrompt(true)).toBe(false);
-  });
-});
 
 describe("isConsented", () => {
   it("db file present and row consented -> true", () => {
@@ -29,32 +16,6 @@ describe("isConsented", () => {
 
   it("db file present but row not consented -> false", () => {
     expect(isConsented(true, false)).toBe(false);
-  });
-});
-
-describe("parseConsentAnswer", () => {
-  it.each([
-    ["y", true],
-    ["Y", true],
-    ["yes", true],
-    ["YES", true],
-    ["  yes  ", true],
-    ["n", false],
-    ["no", false],
-    ["", false],
-    ["maybe", false],
-  ])("parseConsentAnswer(%j) -> %j", (raw, expected) => {
-    expect(parseConsentAnswer(raw)).toBe(expected);
-  });
-});
-
-describe("consentExitCode", () => {
-  it("accepted -> 0", () => {
-    expect(consentExitCode(true)).toBe(0);
-  });
-
-  it("declined -> 1", () => {
-    expect(consentExitCode(false)).toBe(1);
   });
 });
 

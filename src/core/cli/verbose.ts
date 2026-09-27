@@ -23,9 +23,9 @@ export interface VerboseSession {
 
 /** One halt, flattened: the graph's own types stay on the graph's side of this. */
 export interface VerbosePending {
-  /** `model_call` or `human_review`. */
+  /** `model_call`, the one kind of halt. */
   kind: string;
-  /** The graph node that halted; absent on a review, which is the whole run's. */
+  /** The graph node that halted. */
   node?: string | undefined;
   /** LangGraph's interrupt id — what the answer is keyed by. */
   interruptId: string;

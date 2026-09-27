@@ -156,10 +156,12 @@ export interface GitFacts {
 }
 
 /**
- * Whether this repo has consented to spend tokens (07-triggering-and-ux.md,
- * "First-run consent"). `unknown` when it cannot be read: no origin gives no
- * key to look it up under, and an unreadable database has nowhere to look.
- * Both of those are reported, and blocked on, by their own lines.
+ * Whether this repo has been set up — the consent row, written by the first
+ * run (src/cli/setup.ts). Not a blocker: the run sets it up itself. It used to
+ * be "consent", and blocked until someone typed `signpost init`
+ * (19-value-to-a-user.md, "Fewer human steps"). `unknown` when it cannot be
+ * read: no origin gives no key, and an unreadable database has nowhere to
+ * look. Both of those are reported, and blocked on, by their own lines.
  */
 export type ConsentFact = "given" | "not-given" | "unknown";
 
@@ -277,11 +279,11 @@ function gitLine(label: string, value: string | null, absent: string): string {
 function consentLine(facts: DoctorFacts): string {
   switch (facts.consent) {
     case "given":
-      return "consent: given";
+      return "setup: done";
     case "not-given":
-      return "consent: not given — run `signpost init`";
+      return "setup: not yet — the first run does it";
     case "unknown":
-      return "consent: unknown — needs an origin remote and a readable database to check";
+      return "setup: unknown — needs an origin remote and a readable database to check";
   }
 }
 
@@ -311,7 +313,6 @@ export function blockers(facts: DoctorFacts): string[] {
     ...(facts.git.authorEmail === null ? ["no git author"] : []),
     ...(facts.git.repo === null ? ["no origin remote"] : []),
     ...(facts.dbIntegrity === "corrupt" ? ["database corrupt"] : []),
-    ...(facts.consent === "not-given" ? ["no consent"] : []),
   ];
 }
 

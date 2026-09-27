@@ -25,7 +25,6 @@ import { ghForge } from "./forge/gh-forge.ts";
 import { resolveRepo } from "./git/remote-origin.ts";
 import { authorEmail } from "./git/worktree.ts";
 import { buildGraphPorts } from "./graph-ports.ts";
-import { listPendingReviews } from "./review/pending.ts";
 import { syncCorpus } from "./signpost/sync-corpus.ts";
 import { discoverSessions } from "./transcript/discover.ts";
 
@@ -113,7 +112,6 @@ const openRunWith = async (
       graph,
       checkpointer,
       pendingIndex: ports.pendingIndex,
-      index: ports.index,
 
       commitOutcome: () => commitOutcome,
 
@@ -129,8 +127,6 @@ const openRunWith = async (
           },
           endedDir: config.paths.endedDir,
         }),
-
-      pendingReviews: (now, options) => listPendingReviews({ graph, checkpointer, repo, now, warn, ...options }),
 
       syncCorpus: () =>
         syncCorpus({

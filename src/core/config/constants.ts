@@ -280,8 +280,12 @@ export const MAX_VALIDATE_ATTEMPTS = 2;
 /** Above this ratio of critic rejections → retry extraction. Judgement; tune by measuring extraction quality. */
 export const CRITIC_REJECT_RATIO = 0.66;
 
-/** Unrecognised → discard thread, re-run from transcript. */
-export const STATE_VERSION = 1;
+/**
+ * Unrecognised → discard thread, re-run from transcript. 2 since the
+ * `humanDecisions` channel went with the in-session review
+ * (19-value-to-a-user.md, "Fewer human steps").
+ */
+export const STATE_VERSION = 2;
 
 /** Backstop against runaway extraction. */
 export const MAX_CANDIDATES_PER_SESSION = 10;
@@ -302,21 +306,8 @@ export const HEDGE_CONFIDENCE_CAP = 0.6;
 /** Not configurable — anything altering approved knowledge. */
 export const ALWAYS_HUMAN_OPS = ["refine", "supersede", "retire"] as const;
 
-/**
- * Older → drop with a log line. Only `signpost review` drops one, with the
- * developer at the terminal; a background reader leaves it where it is
- * (19-value-to-a-user.md item 3).
- */
+/** Older → a halted thread is not resumed; the session is re-run from its transcript. */
 export const THREAD_EXPIRY_DAYS = 30;
-
-/**
- * How close to THREAD_EXPIRY_DAYS a parked review has to be before the status
- * line, the session-start notice and `signpost review` say how long it has
- * left. A week, so a developer who opens Claude Code most working days sees it
- * several times before it goes. Transcribed in hooks/session-start.ts and
- * statusline/statusline.ts.
- */
-export const REVIEW_EXPIRY_WARN_DAYS = 7;
 
 /** Not configurable. See 06-review-and-pr.md. */
 export const AUTO_MERGE = false;
@@ -444,6 +435,13 @@ export const CHECKPOINT_FILENAME = "checkpoints.db";
 export const STATUSLINE_FILENAME = "status.json";
 
 export const LOCKFILE_FILENAME = "run.lock";
+
+/**
+ * Where the skill writes each halt's answers: in the state directory, outside
+ * the checkout, named in every `run` and `resume` output and allowed by the
+ * rule setup writes (19-value-to-a-user.md, open item 17).
+ */
+export const REPLIES_FILENAME = "replies.json";
 
 export const INDEX_FILENAME = "index.md";
 

@@ -60,10 +60,12 @@ export type Candidate = z.infer<typeof candidateSchema>;
  *   - `in_pr` — the proposal cleared the confidence gate and session N's
  *     `commit` has already written it into the branch. An operation against it
  *     may auto-publish, because the two land in the same pull request.
- *   - `awaiting_review` — a person is holding it and may reject it. An
- *     operation against it inherits that review (`pending_neighbour` below);
- *     auto-publishing one would put a reference to a signpost in the branch
- *     that may never exist.
+ *   - `awaiting_review` — a person was holding it in an in-session review.
+ *     **Never produced any more**: the review moved into the pull request, so
+ *     every proposal a session makes is committed and `in_pr`. The literal
+ *     stays because CLASSIFY_SYSTEM names it, and changing that prompt misses
+ *     every recorded classify reply in the eval (19-value-to-a-user.md,
+ *     "Fewer human steps").
  *
  * `classify` is shown the field too, and CLASSIFY_SYSTEM (../prompts/system.ts,
  * transcribed from 14-prompts.md) tells the model what the two values mean.
@@ -226,19 +228,10 @@ export const gateReasonSchema = z.enum([
   "deletes_existing",
   "unresolved_contradiction",
   "bootstrap_run",
-  // The operation targets a signpost an earlier session in this same run
-  // proposed and a person has not accepted yet — `awaiting_review` above
-  // (06-review-and-pr.md, "Reindex within a run"). Sixth reason, added with
-  // the within-run reindex: before it, a pending id was absent from
-  // `existingIds` and `validate` dropped the candidate, so an operation could
-  // never target one. Now that it can, the operation inherits the neighbour's
-  // review — otherwise a `reinforce` of a proposal a person may reject
-  // auto-publishes a reference to a signpost that never exists.
-  "pending_neighbour",
 ]);
 export type GateReason = z.infer<typeof gateReasonSchema>;
 
-/** Single source of truth for the six gate-reason literals. */
+/** Single source of truth for the gate-reason literals. */
 export const GATE_REASONS = gateReasonSchema.enum;
 
 /**
@@ -257,28 +250,18 @@ export const candidateOperationsSchema = z.object({
 });
 export type CandidateOperations = z.infer<typeof candidateOperationsSchema>;
 
+/**
+ * The gate's partition. `needsHuman` no longer halts the run: those operations
+ * are committed with the rest and flagged, with their reason, in the pull
+ * request, which is where a person reviews them (19-value-to-a-user.md,
+ * "Fewer human steps"). The name stays because it is still true — a human
+ * looks at them — just no longer inside the session.
+ */
 export const gatedOperationsSchema = z.object({
   auto: z.array(operationSchema),
   needsHuman: z.array(z.object({ operation: operationSchema, reason: gateReasonSchema })),
 });
 export type GatedOperations = z.infer<typeof gatedOperationsSchema>;
-
-export const humanDecisionSchema = z
-  .object({
-    decision: z.enum(["accept", "reject", "edit"]),
-    edited: operationSchema.optional(),
-    decidedAt: z.string(),
-  })
-  .superRefine((value, ctx) => {
-    if (value.decision === "edit" && value.edited === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["edited"],
-        message: 'edited is required when decision is "edit"',
-      });
-    }
-  });
-export type HumanDecision = z.infer<typeof humanDecisionSchema>;
 
 // ---------------------------------------------------------------------------
 // Graph state
@@ -327,18 +310,13 @@ export const graphStateSchema = z.object({
   // read by node 8, which needs the per-candidate confidence and the
   // unresolved-contradiction marking that a flat Operation[] cannot carry.
   validated: z.array(candidateOperationsSchema),
-  // The graph's output: what `commit` actually applied, after the gate and any
-  // human decisions. 12-wire-contracts.md's "commit consumes only this".
+  // The graph's output: what `commit` actually applied — both halves of the
+  // gate's partition. 12-wire-contracts.md's "commit consumes only this".
   operations: z.array(operationSchema),
-  // The `confidence_gate` partition. 12-wire-contracts.md's GraphState sketch
-  // predates a working gate node and omits it, but node 9 cannot resume
-  // without it: LangGraph re-executes an interrupted node from the top, so
-  // `human_review` needs the partition it interrupted on, and the confidence
-  // that produced it is gone by then. Recorded at version 1 as part of
-  // defining that shape, not as a change to it.
+  // The `confidence_gate` partition, which `commit` reads to flag the gated
+  // half in the pull request.
   gated: gatedOperationsSchema,
   validationErrors: z.array(z.string()),
   validateAttempts: z.number(),
-  humanDecisions: z.record(z.string(), humanDecisionSchema),
 });
 export type GraphState = z.infer<typeof graphStateSchema>;
