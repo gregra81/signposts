@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveConfig, type ResolvedConfig } from "../../../src/core/config/resolve.js";
+import { CLAIM_MAX_CHARS } from "../../../src/core/config/constants.js";
 import { serialiseSignpost } from "../../../src/core/signpost/codec.js";
 import type { Signpost } from "../../../src/core/signpost/schema.js";
 import type { WorkerStatus } from "../../../src/core/worker/status.js";
@@ -257,6 +258,33 @@ describe("signpost worker", () => {
 
       expect(status().lastError).toMatch(/origin/);
       expect(existsSync(config.paths.lockfile)).toBe(false);
+    },
+    120_000,
+  );
+
+  // The bug observed in a real repo: a merged signpost whose claim exceeds
+  // CLAIM_MAX_CHARS makes `syncCorpus` skip it, and a detached worker's
+  // stderr goes to /dev/null (see the header comment), so the file and the
+  // reason must reach status.json — not just the exit code `runIndex`
+  // returns for it.
+  it(
+    "names the file and the reason when the corpus rejects one, not the exit code",
+    async () => {
+      writeSignpostFile(signpost("good-claim", "Something true about the system"));
+      const rejected = signpost("claim-too-long", "x".repeat(CLAIM_MAX_CHARS + 1));
+      mkdirSync(config.paths.knowledgeDir, { recursive: true });
+      writeFileSync(
+        path.join(config.paths.knowledgeDir, "claim-too-long.md"),
+        serialiseSignpost(rejected),
+        "utf8",
+      );
+
+      expect(await worker()).toBe(0);
+
+      const lastError = status().lastError;
+      expect(lastError).toContain("claim-too-long.md");
+      expect(lastError).toContain(`claim exceeds ${String(CLAIM_MAX_CHARS)} characters`);
+      expect(lastError).not.toMatch(/^index rebuild exited/);
     },
     120_000,
   );
