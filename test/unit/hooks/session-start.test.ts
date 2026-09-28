@@ -351,6 +351,18 @@ describe("the corpus, carried into the session", () => {
     expect(output.hookSpecificOutput.additionalContext).toContain("do not ask again before the pull request");
   });
 
+  // The skill is now `context: fork, background: true` (skills/signposts/SKILL.md),
+  // so the run no longer occupies the terminal. A developer asked whether it did,
+  // and the session had no way to answer; the offer now says so itself.
+  it("says the run happens in the background, so the developer can keep working", () => {
+    const output = hookOutput({ sessions: 2, staleIndex: false }) as {
+      hookSpecificOutput: { additionalContext: string };
+    };
+
+    expect(output.hookSpecificOutput.additionalContext).toContain("runs in the background, outside this conversation");
+    expect(output.hookSpecificOutput.additionalContext).toContain("keep working");
+  });
+
   it("puts the corpus ahead of the run offer when both are due", () => {
     const output = hookOutput({ sessions: 1, staleIndex: false }, "the index") as {
       systemMessage: string;

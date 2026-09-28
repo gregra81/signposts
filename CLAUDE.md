@@ -183,6 +183,12 @@ loop in a subagent, because a session's prompts are thousands of tokens. Every h
 `repliesPath`, and the subagent writes the answers there with the Write tool — the one path setup
 allowed.
 
+The skill itself is also a fork: `skills/signposts/SKILL.md` carries `context: fork` and
+`background: true`, so invoking it spawns a background agent and returns control at once, reporting
+back as a task notification rather than holding the turn. The per-session subagent above is a
+separate, unchanged concern — it bounds one session's thousands of tokens, where the fork bounds a
+whole backlog's, which would overflow the developer's context in one turn.
+
 A run never touches the developer's checkout. `commit` writes through a second worktree
 (`paths.worktreeDir`) on `signposts/<author-slug>/<date>`, so proposals live on a branch and in a PR
 and appear in the working tree only when it merges. Sessions accumulate onto whichever of those

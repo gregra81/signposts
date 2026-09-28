@@ -609,13 +609,28 @@ function plural(count: number, noun: string): string {
  * The yes is the only answer a run asks for, so the offer says what it
  * covers: the run, and the pull request it opens with what it finds. That
  * used to be a second question at the end of the run, and the in-session
- * review a third (19-value-to-a-user.md, "Fewer human steps"). The clause was
- * added after the offer's timing was measured; `measure-offer.mjs` has not
- * been re-run on it.
+ * review a third (19-value-to-a-user.md, "Fewer human steps"). That clause
+ * went in after the timing was measured and went unmeasured for a while; the
+ * A/B below carried it in both arms.
  *
  * Only the developer-facing condition produces it. A stale index is the
  * worker's job and needs nobody's permission, and an offer to do work that is
  * already happening is noise in a context window the developer is paying for.
+ *
+ * One clause added since: the run itself no longer occupies the terminal
+ * (`skills/signposts/SKILL.md` now carries `context: fork` and
+ * `background: true`), and a developer asked whether it did before the
+ * session had any way to answer. The offer now says so directly — background,
+ * outside this conversation, free to keep working — inserted into the same
+ * sentence rather than as a sentence of its own, because a longer notice is
+ * exactly where the 4-of-18 compliance came from.
+ *
+ * Measured, both arms on one day: `measure-offer.mjs --runs 6 --only plain
+ * --model sonnet`, this wording against the one v0.1.3 shipped. This 18/18
+ * offered and asked first, that 15/18, neither acted first. Three misses is
+ * p≈0.23, so it rules out the regression the length risked and shows no
+ * improvement — read it as "no worse", not as "better". It also says the 18 of
+ * 18 above is not reproducible: the shipped wording scored 15 of 18 that day.
  */
 export function contextFor(reasons: WakeReasons): string | null {
   const waiting: string[] = [];
@@ -632,7 +647,8 @@ export function contextFor(reasons: WakeReasons): string | null {
     `signposts has ${waiting.join(", and ")}. ` +
     "Ask the developer about this before anything else in this session: before your first tool call " +
     "and before starting what they asked for. Put it in one sentence that says a run opens a pull " +
-    "request with what it finds, then end your turn and wait for their answer — a run spends this " +
+    "request with what it finds and runs in the background, outside this conversation, so they can " +
+    "keep working, then end your turn and wait for their answer — a run spends this " +
     "session's tokens, so it is theirs to start. On a yes, drive it with the signposts skill and do " +
     "not ask again before the pull request. On a no, drop it and do not raise it again this session."
   );

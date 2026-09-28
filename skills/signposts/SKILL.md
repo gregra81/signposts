@@ -1,6 +1,8 @@
 ---
 name: signposts
 description: Turn the corrections in your idle Claude Code sessions into reviewed knowledge in this repo. Use when the user asks to run signposts, extract signposts, or capture what a session taught.
+context: fork
+background: true
 ---
 
 # signposts
