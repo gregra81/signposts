@@ -66,7 +66,10 @@ export function setUpRepo({ config, repoRoot, say }: SetupInput): SetupOutcome {
 
   const added = installPermissions(repoRoot, config.paths.repliesPath);
   if (added !== null && added.length > 0) {
-    say(`allowed ${added.join(" and ")} in .claude/settings.local.json, so a run does not stop to ask.`);
+    // The rule strings themselves read as noise to a developer — one of them is
+    // a 60-character absolute path in permission syntax, double slash and all.
+    // Say what they let Claude do instead; the file is there to read.
+    say("Claude can now run signpost and save your answers to a run's questions without asking each time (.claude/settings.local.json).");
   }
 
   // Claude Code keeps this file out of commits only when it wrote the file

@@ -176,7 +176,7 @@ describe("the run loop", () => {
   }, 30_000);
 
   // 19-value-to-a-user.md, open item 5: the SessionEnd hook's marker lets a
-  // session in after ENDED_IDLE_HOURS instead of a day.
+  // session in with no idle wait at all, instead of a day.
   it("lists a session two hours after Claude Code said it ended", async () => {
     const projectDir = path.join(homeDir, ".claude", "projects", projectDirName(repoRoot));
     const endedId = `${SESSION_ID}-ended`;

@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  ENDED_IDLE_HOURS,
   ENDED_MARKER_SLACK_MINUTES,
   IDLE_HOURS,
   INDEX_CONTEXT_MAX_BYTES,
@@ -165,19 +164,22 @@ describe("the second copy of what src/ already knows", () => {
     expect(looksEligible(at(maxAgeHours + 0.001), NOW, 0)).toBe(false);
   });
 
-  it("shortens the wait for an ended session by the same ENDED_IDLE_HOURS and slack", () => {
+  it("waits no idle time at all for an ended session, by the same slack src/core/eligibility uses", () => {
     const endedAt = (hoursAgo: number, markerOffsetMs = 0) => ({
       lastActivityMs: NOW - hoursAgo * HOUR,
       startedMs: NOW - hoursAgo * HOUR,
       endedMs: NOW - hoursAgo * HOUR + markerOffsetMs,
     });
-    expect(looksEligible(endedAt(ENDED_IDLE_HOURS), NOW, 0)).toBe(true);
-    expect(looksEligible(endedAt(ENDED_IDLE_HOURS - 0.001), NOW, 0)).toBe(false);
+    // The moment it ends it is eligible — no marker, and it would still wait IDLE_HOURS.
+    expect(looksEligible(endedAt(0), NOW, 0)).toBe(true);
+    expect(looksEligible({ lastActivityMs: NOW, startedMs: NOW }, NOW, 0)).toBe(false);
 
     const slack = ENDED_MARKER_SLACK_MINUTES * 60_000;
-    expect(looksEligible(endedAt(ENDED_IDLE_HOURS, -slack), NOW, 0)).toBe(true);
-    expect(looksEligible(endedAt(ENDED_IDLE_HOURS, -slack - 1), NOW, 0)).toBe(false);
-    expect(looksEligible({ ...endedAt(ENDED_IDLE_HOURS), endedMs: null }, NOW, 0)).toBe(false);
+    expect(looksEligible(endedAt(0, -slack), NOW, 0)).toBe(true);
+    // Older than the slack means the session was resumed after the marker, so
+    // the marker no longer counts and the full IDLE_HOURS wait applies again.
+    expect(looksEligible(endedAt(0, -slack - 1), NOW, 0)).toBe(false);
+    expect(looksEligible({ ...endedAt(0), endedMs: null }, NOW, 0)).toBe(false);
   });
 
   it("expires a lock at the same LOCK_STALE_MINUTES", () => {

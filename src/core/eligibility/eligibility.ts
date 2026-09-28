@@ -2,7 +2,7 @@
 // metadata in, decision out. Size and content gates live elsewhere (they
 // need transcript/gutter output, not session metadata).
 
-import { ENDED_IDLE_HOURS, ENDED_MARKER_SLACK_MINUTES, IDLE_HOURS, MAX_AGE_DAYS } from "../config/constants.ts";
+import { ENDED_MARKER_SLACK_MINUTES, IDLE_HOURS, MAX_AGE_DAYS } from "../config/constants.ts";
 import type { Session } from "./types.ts";
 
 const MS_PER_MINUTE = 60_000;
@@ -48,9 +48,9 @@ export function isEligible(
 /**
  * How long this session has to have been quiet.
  *
- * A day, unless Claude Code said the session ended and nothing has been
- * written to it since — then ENDED_IDLE_HOURS, or the configured window when
- * that is shorter still (19-value-to-a-user.md, open item 5). A session
+ * The configured window, unless Claude Code said the session ended and
+ * nothing has been written to it since — then zero: a marker is already
+ * proof the session is over, so there is nothing left to wait for. A session
  * resumed after its end has activity past the marker, so the marker stops
  * counting and the full window applies again.
  */
@@ -59,5 +59,5 @@ function idleHoursFor(session: Session, thresholds: EligibilityThresholds): numb
   const ended =
     endedMs !== undefined &&
     endedMs >= session.lastActivityAt.getTime() - ENDED_MARKER_SLACK_MINUTES * MS_PER_MINUTE;
-  return ended ? Math.min(ENDED_IDLE_HOURS, thresholds.idleHours) : thresholds.idleHours;
+  return ended ? 0 : thresholds.idleHours;
 }

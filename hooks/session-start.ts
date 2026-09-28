@@ -75,8 +75,6 @@ import { fileURLToPath } from "node:url";
  * 24 hours (19-value-to-a-user.md, open items).
  */
 const IDLE_HOURS = 24;
-/** A session Claude Code said had ended is eligible after this. See ENDED_IDLE_HOURS in 13-constants.md. */
-const ENDED_IDLE_HOURS = 1;
 /** How far before a transcript's last write its end marker still counts. */
 const ENDED_MARKER_SLACK_MINUTES = 1;
 const MAX_AGE_DAYS = 90;
@@ -99,7 +97,6 @@ const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 86_400_000;
 
 const IDLE_MS = IDLE_HOURS * MS_PER_HOUR;
-const ENDED_IDLE_MS = ENDED_IDLE_HOURS * MS_PER_HOUR;
 const ENDED_MARKER_SLACK_MS = ENDED_MARKER_SLACK_MINUTES * MS_PER_MINUTE;
 const MAX_AGE_MS = MAX_AGE_DAYS * MS_PER_DAY;
 const LOCK_STALE_MS = LOCK_STALE_MINUTES * MS_PER_MINUTE;
@@ -321,12 +318,13 @@ export function looksEligible(
   watermark: number,
 ): boolean {
   // The same rule as src/core/eligibility: an end marker no older than the
-  // last write, give or take the slack, shortens the wait to an hour.
+  // last write, give or take the slack, means the session is over and there
+  // is no wait left to serve.
   const ended =
     file.endedMs !== undefined &&
     file.endedMs !== null &&
     file.endedMs >= file.lastActivityMs - ENDED_MARKER_SLACK_MS;
-  const idle = nowMs - file.lastActivityMs >= (ended ? ENDED_IDLE_MS : IDLE_MS);
+  const idle = nowMs - file.lastActivityMs >= (ended ? 0 : IDLE_MS);
   const notTooOld = nowMs - file.startedMs <= MAX_AGE_MS;
   const sinceLastRun = file.lastActivityMs > watermark;
   return idle && notTooOld && sinceLastRun;
@@ -772,13 +770,13 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9-]+$/;
  * Leaves the marker that says this session ended: an empty file named for it
  * under `endedDir`, whose mtime is the moment it ended (19-value-to-a-user.md,
  * open item 5). Eligibility reads it — here and in src/core/eligibility — and
- * waits ENDED_IDLE_HOURS instead of a day, as long as nothing was written to
- * the transcript after it.
+ * waits no idle time at all, as long as nothing was written to the transcript
+ * after it.
  *
  * Written in every repo, run in or not: a marker is an empty file, not a
- * database, and a repo's first offer should wait the hour rather than the day
- * too (19-value-to-a-user.md, "Fewer human steps"). Returns whether a marker
- * was written.
+ * database, and a repo's first offer should not wait on this either
+ * (19-value-to-a-user.md, "Fewer human steps"). Returns whether a marker was
+ * written.
  */
 export function recordSessionEnd(
   input: { session_id?: unknown; cwd?: unknown },

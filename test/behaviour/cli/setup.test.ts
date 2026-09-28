@@ -105,7 +105,7 @@ describe("the first skill command sets the repo up", () => {
     await runCli(["sessions"], { config, openRun, stdio });
 
     expect(JSON.parse(stdio.writtenOutput())).toEqual({ sessions: [] });
-    expect(stdio.writtenError()).toContain("signposts: allowed Bash(signpost *)");
+    expect(stdio.writtenError()).toContain("signposts: Claude can now run signpost");
   });
 
   it("writes nothing into the checkout but the settings file git now ignores", async () => {
