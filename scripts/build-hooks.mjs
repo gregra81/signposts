@@ -16,7 +16,7 @@
 // rather than removing them, so a stack trace from the shipped `.js` points at
 // the same line as the `.ts` it came from.
 
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +33,18 @@ for (const directory of DIRECTORIES) {
     }
     const source = path.join(absolute, entry);
     const output = source.replace(/\.ts$/, ".js");
-    writeFileSync(output, stripTypeScriptTypes(readFileSync(source, "utf8"), { mode: "strip" }));
+    // Four behaviour test files run this script in a `beforeAll`, and vitest
+    // runs files in parallel workers, so more than one build can be in
+    // flight while another test spawns the very bundle being written. A
+    // plain writeFileSync is visible to a reader mid-write — a truncated
+    // `.js` a concurrent process would try to parse. Writing to a temp file
+    // and renaming over the target sidesteps that: rename is atomic on
+    // POSIX, so a reader always sees either the old bundle or the new one,
+    // never a partial one. The pid keeps two concurrent builds' temp files
+    // from colliding on the same name.
+    const temp = `${output}.${process.pid}.tmp`;
+    writeFileSync(temp, stripTypeScriptTypes(readFileSync(source, "utf8"), { mode: "strip" }));
+    renameSync(temp, output);
     built.push(path.relative(ROOT, output));
   }
 }

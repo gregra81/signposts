@@ -19,10 +19,11 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { IDLE_HOURS, RUN_PROGRESS_STALE_MINUTES } from "../../../src/core/config/constants.ts";
 import { hashRepoRoot } from "../../../src/core/config/paths.ts";
 import type { WorkerStatus } from "../../../src/core/worker/status.ts";
+import { delegate } from "../../../statusline/statusline.ts";
 
 const ROOT = path.dirname(path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url)))));
 const STATUSLINE = path.join(ROOT, "statusline", "statusline.js");
@@ -341,5 +342,38 @@ describe("wrapping a status line that was already there", () => {
     const outside = { ...f, repoRoot: path.dirname(f.repoRoot) };
 
     expect(render(outside, ["--wrap", "echo theirs"]).stdout).toBe("theirs\n");
+  });
+});
+
+// delegate's own retry: a real fork failure (EAGAIN under process pressure)
+// leaves spawnSync's stdout non-string and sets error, which is the CI flake
+// this closes (CI failed once on `keeps their output when their script exits
+// non-zero`, with stdout "" where spawnSync could not start the process at
+// all). A command that ran and printed nothing looks the same on the surface
+// — stdout "" — so the fake here is what lets the two be told apart without
+// forcing a real fork failure.
+describe("delegate retries a spawn that could not start", () => {
+  it("returns the second call's output when the first could not start", () => {
+    const spawn = vi
+      .fn()
+      .mockReturnValueOnce({ stdout: null, error: new Error("EAGAIN") })
+      .mockReturnValueOnce({ stdout: "still useful\n" });
+
+    expect(delegate("whatever", "", spawn)).toBe("still useful");
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after one retry and returns \"\" when the process never starts", () => {
+    const spawn = vi.fn().mockReturnValue({ stdout: null, error: new Error("EAGAIN") });
+
+    expect(delegate("whatever", "", spawn)).toBe("");
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a command that ran and genuinely printed nothing", () => {
+    const spawn = vi.fn().mockReturnValue({ stdout: "" });
+
+    expect(delegate("whatever", "", spawn)).toBe("");
+    expect(spawn).toHaveBeenCalledTimes(1);
   });
 });

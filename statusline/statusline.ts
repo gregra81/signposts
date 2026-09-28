@@ -296,17 +296,46 @@ export function wrappedCommand(argv: readonly string[]): string | null {
 }
 
 /**
+ * The slice of spawnSync's return value `delegate` reads — narrowed rather
+ * than `typeof spawnSync`, so a test can hand it a fake without also
+ * fabricating pid, signal and the rest of SpawnSyncReturns.
+ */
+type SpawnResult = { stdout: unknown; error?: unknown };
+type SpawnFn = (
+  command: string,
+  options: { shell: boolean; input: string; encoding: "utf8" },
+) => SpawnResult;
+
+/**
  * The wrapped command's output, given the same stdin we were given.
  *
  * Its exit code is ignored on purpose. A status line that prints something
  * useful and exits 1 is common enough — the platform's own git examples do it
  * — and dropping its output would be a regression the developer would blame
  * on us, correctly.
+ *
+ * A spawnSync that ran the command sets `stdout` to a string — "" when it
+ * printed nothing — and that returns at once, no retry: a status line
+ * printing nothing is the ordinary case. A spawnSync that could not start the
+ * process at all (a fork failure such as EAGAIN under load) leaves `stdout`
+ * non-string and sets `error` instead; that case is retried once, because the
+ * failure is transient and dropping the developer's own row over it is worse
+ * than one extra spawn. If the retry also fails, "" — same as before there
+ * was a retry — because a status line must never break the bar.
+ *
+ * `spawn` defaults to spawnSync and is only ever overridden by a test: the
+ * seam that lets one force the "could not start" branch without forcing a
+ * real fork failure.
  */
-export function delegate(command: string, stdin: string): string {
+export function delegate(command: string, stdin: string, spawn: SpawnFn = spawnSync): string {
   try {
-    const result = spawnSync(command, { shell: true, input: stdin, encoding: "utf8" });
-    return typeof result.stdout === "string" ? result.stdout.replace(/\n+$/, "") : "";
+    const options = { shell: true, input: stdin, encoding: "utf8" as const };
+    const first = spawn(command, options);
+    if (typeof first.stdout === "string") {
+      return first.stdout.replace(/\n+$/, "");
+    }
+    const retry = spawn(command, options);
+    return typeof retry.stdout === "string" ? retry.stdout.replace(/\n+$/, "") : "";
   } catch {
     return "";
   }
