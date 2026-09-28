@@ -9,6 +9,7 @@ import {
   runningStatus,
   runProgressStatus,
   unpublishedStatus,
+  type WorkerStatus,
 } from "../../../src/core/worker/status.ts";
 
 const NOW = new Date("2026-09-09T12:00:00.000Z");
@@ -509,5 +510,47 @@ describe("unpublishedStatus", () => {
     expect(runningStatus(NOW, undefined, undefined, undefined, 2).unpublishedSessions).toBe(2);
     expect(finishedStatus({ now: NOW, eligibleSessions: 0, unpublishedSessions: 2 }).unpublishedSessions).toBe(2);
     expect(runningStatus(NOW)).not.toHaveProperty("unpublishedSessions");
+  });
+});
+
+// R5, 19-value-to-a-user.md open item 22: `lastOfferedAt` belongs to the
+// SessionStart hook, not to this module — neither `runningStatus` nor
+// `finishedStatus` ever set it — but the worker's wholesale writes must still
+// carry it forward, the same way they already carry `unpublishedSessions`
+// and `judgedSessions`. A field one writer silently drops is exactly the bug
+// this file's comments (and this test) exist to catch.
+describe("lastOfferedAt", () => {
+  const STAMP = "2026-09-09T09:00:00.000Z";
+
+  it("is carried through both of the worker's writes", () => {
+    expect(runningStatus(NOW, undefined, undefined, undefined, undefined, STAMP).lastOfferedAt).toBe(STAMP);
+    expect(finishedStatus({ now: NOW, eligibleSessions: 0, lastOfferedAt: STAMP }).lastOfferedAt).toBe(STAMP);
+    expect(runningStatus(NOW)).not.toHaveProperty("lastOfferedAt");
+    expect(finishedStatus({ now: NOW, eligibleSessions: 0 })).not.toHaveProperty("lastOfferedAt");
+  });
+
+  // These three spread the previous snapshot wholesale rather than listing
+  // fields, so a stamp already on disk survives them without any code here
+  // naming it — worth proving, since that is the property the other two
+  // functions above do not get for free.
+  it("survives runFinishedStatus, runProgressStatus and unpublishedStatus untouched", () => {
+    const previous: WorkerStatus = {
+      phase: "idle",
+      updatedAt: NOW.toISOString(),
+      eligibleSessions: 0,
+      lastOfferedAt: STAMP,
+    };
+
+    expect(runFinishedStatus(previous, FINISHED_THROUGH).lastOfferedAt).toBe(STAMP);
+    expect(
+      runProgressStatus(previous, {
+        now: NOW,
+        remaining: 1,
+        sessionFinished: false,
+        found: 0,
+        freshRun: false,
+      }).lastOfferedAt,
+    ).toBe(STAMP);
+    expect(unpublishedStatus(previous, 2, NOW).lastOfferedAt).toBe(STAMP);
   });
 });

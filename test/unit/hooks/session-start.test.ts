@@ -14,6 +14,7 @@ import {
   INDEX_CONTEXT_MAX_BYTES,
   LOCK_STALE_MINUTES,
   MAX_AGE_DAYS,
+  OFFER_QUIET_HOURS,
 } from "../../../src/core/config/constants.ts";
 import { derivePaths as deriveAppPaths } from "../../../src/core/config/paths.ts";
 import { generateIndexDoc } from "../../../src/core/signpost/index-doc.ts";
@@ -29,6 +30,7 @@ import {
   lockIsHeld,
   looksEligible,
   noticeFor,
+  offerIsQuiet,
   recordSessionEnd,
   watermarkMs,
 } from "../../../hooks/session-start.ts";
@@ -86,6 +88,48 @@ describe("watermarkMs", () => {
 
   it("is 0 rather than NaN when the stamp is unparseable", () => {
     expect(watermarkMs({ lastRunFinishedAt: "last tuesday" })).toBe(0);
+  });
+});
+
+// R3 (revised), 19-value-to-a-user.md open item 22: whether hookOutput should
+// withhold the additionalContext offer instruction this session start.
+// `noticeFor`'s systemMessage is never gated by this — only the instruction
+// that stops Claude and asks is.
+describe("offerIsQuiet", () => {
+  it("is quiet right after the offer was made", () => {
+    expect(offerIsQuiet({ lastOfferedAt: new Date(NOW).toISOString() }, NOW)).toBe(true);
+  });
+
+  it("offers again once OFFER_QUIET_HOURS has passed", () => {
+    const offeredAt = new Date(NOW - OFFER_QUIET_HOURS * HOUR).toISOString();
+    expect(offerIsQuiet({ lastOfferedAt: offeredAt }, NOW)).toBe(false);
+  });
+
+  it("stays quiet just inside the window", () => {
+    const offeredAt = new Date(NOW - (OFFER_QUIET_HOURS * HOUR - 1)).toISOString();
+    expect(offerIsQuiet({ lastOfferedAt: offeredAt }, NOW)).toBe(true);
+  });
+
+  // A run finishing reopens the offer at once, even well inside the window.
+  it("offers again once a run has finished since the stamp", () => {
+    const offeredAt = new Date(NOW - HOUR).toISOString();
+    const finishedAt = new Date(NOW - 30 * 60_000).toISOString();
+    expect(offerIsQuiet({ lastOfferedAt: offeredAt, lastRunFinishedAt: finishedAt }, NOW)).toBe(false);
+  });
+
+  it("stays quiet when the run that finished was before the stamp", () => {
+    const finishedAt = new Date(NOW - 2 * HOUR).toISOString();
+    const offeredAt = new Date(NOW - HOUR).toISOString();
+    expect(offerIsQuiet({ lastOfferedAt: offeredAt, lastRunFinishedAt: finishedAt }, NOW)).toBe(true);
+  });
+
+  // The hook must never go silent because it could not parse its own stamp.
+  it("offers when there is no stamp at all", () => {
+    expect(offerIsQuiet({}, NOW)).toBe(false);
+  });
+
+  it("offers when the stamp does not parse", () => {
+    expect(offerIsQuiet({ lastOfferedAt: "last tuesday" }, NOW)).toBe(false);
   });
 });
 
@@ -370,6 +414,24 @@ describe("the corpus, carried into the session", () => {
     };
     expect(output.systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
     expect(output.hookSpecificOutput.additionalContext).toMatch(/^the index\n\nsignposts has 1 session/);
+  });
+
+  // R3, revised (19-value-to-a-user.md open item 22): the quiet window drops
+  // only the instruction that makes Claude stop and ask, never the notice.
+  it("keeps the systemMessage but drops the offer instruction when told to suppress it", () => {
+    const output = hookOutput({ sessions: 1, staleIndex: false }, null, true) as {
+      systemMessage: string;
+      hookSpecificOutput?: unknown;
+    };
+    expect(output.systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
+    expect(output.hookSpecificOutput).toBeUndefined();
+  });
+
+  it("keeps the corpus even while the offer instruction is suppressed", () => {
+    const output = hookOutput({ sessions: 1, staleIndex: false }, "the index", true) as {
+      hookSpecificOutput: { additionalContext: string };
+    };
+    expect(output.hookSpecificOutput.additionalContext).toBe("the index");
   });
 });
 

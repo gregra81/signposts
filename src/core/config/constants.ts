@@ -53,6 +53,16 @@ export const MAX_TRANSCRIPT_BYTES = 50_000_000;
 
 export const MIN_GUTTERED_TOKENS = 100;
 
+/**
+ * Judgement, not load-bearing: how long the `SessionStart` hook stays quiet
+ * about an offer it already made, once `/clear` joined the matcher and put
+ * the offer in the same window as every clear rather than once a session
+ * (19-value-to-a-user.md, open items 21-22). Eight hours means at most one
+ * offer per repo per working day; a run finishing, or the window expiring,
+ * reopens it. Transcribed in hooks/session-start.ts.
+ */
+export const OFFER_QUIET_HOURS = 8;
+
 // ---------------------------------------------------------------------------
 // Gutter
 // ---------------------------------------------------------------------------

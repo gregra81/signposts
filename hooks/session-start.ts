@@ -78,6 +78,12 @@ const IDLE_HOURS = 24;
 /** How far before a transcript's last write its end marker still counts. */
 const ENDED_MARKER_SLACK_MINUTES = 1;
 const MAX_AGE_DAYS = 90;
+/**
+ * Judgement, not load-bearing: at most one run offer per repo per working
+ * day. See the constant's own comment in src/core/config/constants.ts for
+ * why `/clear` made this necessary.
+ */
+const OFFER_QUIET_HOURS = 8;
 /** Past this, Claude gets a pointer to index.md rather than its content. */
 const INDEX_CONTEXT_MAX_BYTES = 8_000;
 /** Older lock -> assume dead worker, take over. */
@@ -100,6 +106,7 @@ const IDLE_MS = IDLE_HOURS * MS_PER_HOUR;
 const ENDED_MARKER_SLACK_MS = ENDED_MARKER_SLACK_MINUTES * MS_PER_MINUTE;
 const MAX_AGE_MS = MAX_AGE_DAYS * MS_PER_DAY;
 const LOCK_STALE_MS = LOCK_STALE_MINUTES * MS_PER_MINUTE;
+const OFFER_QUIET_MS = OFFER_QUIET_HOURS * MS_PER_HOUR;
 
 const TRANSCRIPT_EXTENSION = ".jsonl";
 const REPO_HASH_LENGTH = 12;
@@ -262,6 +269,12 @@ export interface WorkerState {
    * the watermark can move (19-value-to-a-user.md item 2).
    */
   judgedSessions?: Record<string, string>;
+  /**
+   * ISO timestamp of the last time this hook actually emitted the run offer.
+   * Written by the hook alone (recordOffered, below) — see OFFER_QUIET_HOURS
+   * and 19-value-to-a-user.md, open item 22.
+   */
+  lastOfferedAt?: string;
 }
 
 export function readWorkerState(statuslineState: string): WorkerState {
@@ -299,6 +312,28 @@ export function judgedSessions(state: WorkerState): Record<string, number> {
     }
   }
   return judged;
+}
+
+/**
+ * Whether the run offer was made recently enough that asking again would be
+ * a nag, not news (OFFER_QUIET_HOURS, 19-value-to-a-user.md open item 22).
+ *
+ * A malformed or absent `lastOfferedAt` offers — the hook must never go
+ * silent because it could not parse its own stamp. A run finishing since the
+ * stamp reopens the offer at once: `watermarkMs` is 0 when no run has
+ * finished yet, which reads as "not since", the direction that keeps the
+ * quiet window closed rather than accidentally reopening it on a repo that
+ * has never run at all.
+ */
+export function offerIsQuiet(state: WorkerState, nowMs: number): boolean {
+  if (typeof state.lastOfferedAt !== "string") {
+    return false;
+  }
+  const offeredMs = Date.parse(state.lastOfferedAt);
+  if (Number.isNaN(offeredMs) || nowMs - offeredMs >= OFFER_QUIET_MS) {
+    return false;
+  }
+  return watermarkMs(state) <= offeredMs;
 }
 
 // ---------------------------------------------------------------------------
@@ -704,9 +739,22 @@ export function indexContext(indexFile: string): string | null {
  *
  * The corpus alone adds no `systemMessage`: it is context, not news, and a
  * notice on every session start is the noise 07 gates against.
+ *
+ * `suppressOfferInstruction` drops only `contextFor`'s text — the instruction
+ * that makes Claude stop before its first tool call and ask — inside
+ * OFFER_QUIET_HOURS (19-value-to-a-user.md, open item 22). `noticeFor` is
+ * never affected by it: the developer still sees "N sessions ready" at every
+ * session start, quiet window or not, because that line is information the
+ * developer can ignore, not the interruption the window exists to stop.
+ * `indexContext` is untouched either way — the corpus is knowledge, not part
+ * of the offer.
  */
-export function hookOutput(reasons: WakeReasons | null, index: string | null = null): Record<string, unknown> | null {
-  const offer = reasons === null ? null : contextFor(reasons);
+export function hookOutput(
+  reasons: WakeReasons | null,
+  index: string | null = null,
+  suppressOfferInstruction = false,
+): Record<string, unknown> | null {
+  const offer = reasons === null || suppressOfferInstruction ? null : contextFor(reasons);
   const context = [index, offer].filter((part) => part !== null).join("\n\n");
   const output: Record<string, unknown> = {};
   if (reasons !== null) {
@@ -837,12 +885,19 @@ function main(): void {
   // worker opens a database, and a repo nobody has opted into gets none (R3).
   // A corpus counts as opted in: a teammate's cold clone with `.signposts/`
   // still gets its index built in the background, free and local.
+  //
+  // The one exception is `lastOfferedAt` (see `offerInstructionIsQuiet`,
+  // below): a repo nothing has run in is exactly where a decline is most
+  // likely, so it gets the same quiet window everyone else does, stamped
+  // into the same small state-directory file — never a lock, a database or
+  // anything in the checkout itself (19-value-to-a-user.md, open item 22).
   const initialised = exists(paths.dbPath) || exists(paths.knowledgeDir);
 
   // The corpus goes in whether or not a worker is woken: it is what the
   // session needs, and the wake is the tool's own business.
   const reasons = initialised ? wake(paths, repoRoot) : offerOnly(paths);
-  const output = hookOutput(reasons, indexContext(paths.indexFile));
+  const quiet = offerInstructionIsQuiet(reasons, paths.statuslineState, Date.now());
+  const output = hookOutput(reasons, indexContext(paths.indexFile), quiet);
   if (output !== null) {
     process.stdout.write(JSON.stringify(output) + "\n");
   }
@@ -852,6 +907,69 @@ function main(): void {
 function offerOnly(paths: HookPaths): WakeReasons | null {
   const sessions = countEligibleSessions(paths, Date.now(), 0, undefined);
   return sessions > 0 ? { sessions, staleIndex: false } : null;
+}
+
+/**
+ * Whether `hookOutput` should withhold the `additionalContext` offer
+ * instruction this session start (R3, revised, 19-value-to-a-user.md open
+ * item 22). Deliberately narrow: it gates only the instruction that makes
+ * Claude stop before its first tool call and ask, never `noticeFor`'s
+ * `systemMessage` line, which always prints when there is something to run —
+ * a line the developer can ignore is not the interruption the window exists
+ * to stop.
+ *
+ * That split is why the stamp is written here, inside this check, rather
+ * than wherever the offer was first computed: `contextFor`'s instruction is
+ * followed 83-100% of the time (scripts/measure-offer.mjs), so stamping
+ * whenever it is *emitted* — as opposed to whenever Claude actually asks —
+ * already accepts that the quiet window can suppress an offer the developer
+ * never saw acted on. What it can no longer do is suppress the developer
+ * *learning* there is something to run: that always reaches `systemMessage`,
+ * quiet window or not, because this function's result never reaches
+ * `noticeFor`.
+ *
+ * Written here, and only here: exactly when the instruction is the thing
+ * being emitted, never when it is withheld, so a withheld offer does not
+ * reset its own clock and the window cannot extend itself forever.
+ */
+function offerInstructionIsQuiet(reasons: WakeReasons | null, statuslineState: string, nowMs: number): boolean {
+  if (reasons === null || reasons.sessions === 0) {
+    return false;
+  }
+  if (offerIsQuiet(readWorkerState(statuslineState), nowMs)) {
+    return true;
+  }
+  recordOffered(statuslineState, nowMs);
+  return false;
+}
+
+/**
+ * Read-modify-write of `lastOfferedAt` into status.json, merging into
+ * whatever JSON is already there rather than replacing the file — the worker
+ * and the run commands write the same file and neither side may erase the
+ * other's fields (src/io/worker/status-file.ts explains the rule this
+ * mirrors; this file may not import it). Best effort: a hook that could not
+ * stamp the offer still made it, and failing the session over a missed stamp
+ * would be a worse bug than one extra offer.
+ */
+function recordOffered(statuslineState: string, nowMs: number): void {
+  try {
+    let state: Record<string, unknown> = {};
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(statuslineState, "utf8"));
+      if (typeof parsed === "object" && parsed !== null) {
+        state = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // No file yet — this repo's first offer — or one this build cannot
+      // read. Either way, start fresh rather than block the stamp on it.
+    }
+    state["lastOfferedAt"] = new Date(nowMs).toISOString();
+    mkdirSync(path.dirname(statuslineState), { recursive: true });
+    writeFileSync(statuslineState, JSON.stringify(state, null, 2) + "\n");
+  } catch {
+    // Never fail the hook over its own progress note.
+  }
 }
 
 /** Spawns the worker when there is work for it, and says why; null when it did not. */

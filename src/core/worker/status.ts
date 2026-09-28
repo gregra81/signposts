@@ -135,6 +135,15 @@ export interface WorkerStatus {
    * it forward untouched, like the run commands' other fields.
    */
   unpublishedSessions?: number;
+  /**
+   * When the `SessionStart` hook last emitted the run offer — the hook's own
+   * field, written directly to this file (hooks/session-start.ts,
+   * `recordOffered`), never by this module. Carried through by the write
+   * paths below like `lastRunFinishedAt`: neither the worker nor the run
+   * commands own it, so both must pass it back untouched rather than drop it
+   * on their next wholesale write (19-value-to-a-user.md, open item 22).
+   */
+  lastOfferedAt?: string;
 }
 
 export interface SnapshotInput {
@@ -150,6 +159,8 @@ export interface SnapshotInput {
   judgedSessions?: Record<string, string> | undefined;
   /** Likewise. */
   unpublishedSessions?: number | undefined;
+  /** Likewise — the hook's field, not this process's; see WorkerStatus. */
+  lastOfferedAt?: string | undefined;
 }
 
 /**
@@ -174,12 +185,13 @@ export function runningStatus(
   runProgress?: RunProgress,
   judgedSessions?: Record<string, string>,
   unpublishedSessions?: number,
+  lastOfferedAt?: string,
 ): WorkerStatus {
   return {
     phase: WORKER_PHASES.running,
     updatedAt: now.toISOString(),
     eligibleSessions: 0,
-    ...runCommandFields({ lastRunFinishedAt, runProgress, judgedSessions, unpublishedSessions }),
+    ...runCommandFields({ lastRunFinishedAt, runProgress, judgedSessions, unpublishedSessions, lastOfferedAt }),
   };
 }
 
@@ -196,13 +208,18 @@ function runCommandFields(
     runProgress?: RunProgress | undefined;
     judgedSessions?: Record<string, string> | undefined;
     unpublishedSessions?: number | undefined;
+    lastOfferedAt?: string | undefined;
   },
-): Pick<WorkerStatus, "lastRunFinishedAt" | "runProgress" | "judgedSessions" | "unpublishedSessions"> {
+): Pick<
+  WorkerStatus,
+  "lastRunFinishedAt" | "runProgress" | "judgedSessions" | "unpublishedSessions" | "lastOfferedAt"
+> {
   return {
     ...(carried.lastRunFinishedAt === undefined ? {} : { lastRunFinishedAt: carried.lastRunFinishedAt }),
     ...(carried.runProgress === undefined ? {} : { runProgress: carried.runProgress }),
     ...(carried.judgedSessions === undefined ? {} : { judgedSessions: carried.judgedSessions }),
     ...(carried.unpublishedSessions === undefined ? {} : { unpublishedSessions: carried.unpublishedSessions }),
+    ...(carried.lastOfferedAt === undefined ? {} : { lastOfferedAt: carried.lastOfferedAt }),
   };
 }
 
