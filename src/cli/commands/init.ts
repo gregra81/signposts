@@ -48,7 +48,14 @@ export async function runInit({ config, repoRoot, stdio, prefetchModel }: RunIni
     return 1;
   }
 
-  say("ready. Claude offers a run when a session of this repo has gone quiet.");
+  // "a run" and "a session that has gone quiet" are this repo's words, not a
+  // developer's. Say what they will see happen, and where it ends up.
+  //
+  // "clear or close" rather than "goes idle": a session Claude Code said had
+  // ended is eligible with no wait, so `/clear` brings the offer up in the same
+  // window. Falling quiet without ending still waits IDLE_HOURS, which is the
+  // slow path and not worth a sentence here.
+  say("ready. When you clear or close a Claude conversation here, Claude offers to write up what you worked out in it and open a pull request.");
   await prefetchModel?.(config, say);
   return 0;
 }

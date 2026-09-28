@@ -34,20 +34,13 @@ export const SQLITE_BINDING = "better-sqlite3";
 export const IDLE_HOURS = 24;
 
 /**
- * How long a session has to be quiet once Claude Code has said it ended — the
- * marker the SessionEnd hook leaves (hooks/session-start.ts, `--session-end`).
- * IDLE_HOURS is a day because a quiet session may still be resumed; one its
- * developer exited or cleared is much less likely to be, and a resume after
- * this only grows the transcript, which a run then judges again as a new
- * content hash (19-value-to-a-user.md, open item 5).
- */
-export const ENDED_IDLE_HOURS = 1;
-
-/**
  * How far before the transcript's last write an end marker still counts, in minutes.
  * Claude Code may finish writing the transcript after the SessionEnd hook has
  * run, and a marker a few seconds older than the last line is still that
- * session's end. A resume is a person coming back, minutes at the least.
+ * session's end. A resume is a person coming back, minutes at the least — so a
+ * marker inside this window means the session is over and IDLE_HOURS's wait
+ * does not apply; one older than it means a resume happened, and the full
+ * wait applies again.
  */
 export const ENDED_MARKER_SLACK_MINUTES = 1;
 

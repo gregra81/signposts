@@ -244,20 +244,22 @@ describe("the three wake conditions", () => {
   });
 
   // 19-value-to-a-user.md, open item 5: a session Claude Code said had ended
-  // is announced after ENDED_IDLE_HOURS, through the same bundle's SessionEnd run.
-  it("announces a session two hours after it ended, rather than a day", async () => {
-    const f = withTranscript(withCurrentIndex(fixture()), "ended-2h", 2);
+  // is announced with no idle wait, through the same bundle's SessionEnd run.
+  // dx/capture-sooner: a transcript that JUST ended — not one already an hour
+  // or a day quiet — is what /clear produces, and is the case this change is for.
+  it("announces a session the moment it ends, not after any wait", async () => {
+    const f = withTranscript(withCurrentIndex(fixture()), "ended-now", 0);
     expect(JSON.parse(runHook(f).stdout || "null")).toBe(null);
 
     const ended = spawnSync(process.execPath, [HOOK, "--session-end"], {
       encoding: "utf8",
-      input: JSON.stringify({ session_id: "ended-2h", cwd: f.repoRoot, hook_event_name: "SessionEnd", reason: "other" }),
+      input: JSON.stringify({ session_id: "ended-now", cwd: f.repoRoot, hook_event_name: "SessionEnd", reason: "other" }),
       env: { ...process.env, HOME: f.home, CLAUDE_PROJECT_DIR: f.repoRoot, CLAUDE_CONFIG_DIR: f.configDir },
     });
     expect(ended.status).toBe(0);
     expect(ended.stdout).toBe("");
     // The end is when the hook ran, which is after the transcript's last write.
-    const marker = path.join(f.stateDir, "ended-sessions", "ended-2h");
+    const marker = path.join(f.stateDir, "ended-sessions", "ended-now");
     expect(existsSync(marker)).toBe(true);
 
     const started = runHook(f);
