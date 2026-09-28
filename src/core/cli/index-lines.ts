@@ -45,3 +45,28 @@ export function indexFinishedLine(indexed: number, rebuilt: boolean): string {
   const corpus = `${String(indexed)} signpost${indexed === 1 ? "" : "s"}`;
   return rebuilt ? `indexed ${corpus}` : `index already up to date (${corpus})`;
 }
+
+/**
+ * What `runWorker` records as `lastError` when the rebuild skipped one or
+ * more corpus files — the fix for a real repo's `signpost index` reporting
+ * only "index rebuild exited 1" while the file and the reason went to the
+ * worker's `/dev/null` stderr (CLAUDE.md, "The SessionStart hook and its
+ * worker"; 19-value-to-a-user.md open items).
+ *
+ * Named the first failure and counted the rest, rather than concatenating
+ * every line `syncCorpus` produced: the statusLine renders this verbatim in
+ * one row on every assistant message, so it has to stay short regardless of
+ * how many files the corpus has wrong.
+ *
+ * Callers only ever pass a non-empty list — `runWorker` checks that before
+ * calling — but the type is `readonly string[]`, so an empty one still
+ * answers honestly rather than throwing.
+ */
+export function corpusFailureSummary(failures: readonly string[]): string {
+  const first = failures[0];
+  if (first === undefined) {
+    return "";
+  }
+  const rest = failures.length - 1;
+  return rest === 0 ? first : `${first} (+${rest} more)`;
+}

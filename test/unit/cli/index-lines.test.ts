@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { indexFinishedLine, indexStartedLine } from "../../../src/core/cli/index-lines.js";
+import { corpusFailureSummary, indexFinishedLine, indexStartedLine } from "../../../src/core/cli/index-lines.js";
 import type { ModelCacheStatus } from "../../../src/core/doctor/report.js";
 
 describe("indexStartedLine", () => {
@@ -38,5 +38,30 @@ describe("indexFinishedLine", () => {
 
   it("says so for an empty corpus rather than saying nothing", () => {
     expect(indexFinishedLine(0, true)).toBe("indexed 0 signposts");
+  });
+});
+
+describe("corpusFailureSummary", () => {
+  it("names the one failure verbatim", () => {
+    expect(corpusFailureSummary(["skipping foo.md: claim exceeds 200 characters"])).toBe(
+      "skipping foo.md: claim exceeds 200 characters",
+    );
+  });
+
+  // The statusLine renders this in one row on every assistant message, so it
+  // stays short regardless of how many files the corpus has wrong — the
+  // first is named, the rest are counted rather than concatenated.
+  it("names the first and counts the rest", () => {
+    expect(
+      corpusFailureSummary([
+        "skipping foo.md: claim exceeds 200 characters",
+        "skipping bar.md: not a valid signpost file",
+        "skipping baz.md: malformed frontmatter",
+      ]),
+    ).toBe("skipping foo.md: claim exceeds 200 characters (+2 more)");
+  });
+
+  it("answers honestly on an empty list rather than throwing", () => {
+    expect(corpusFailureSummary([])).toBe("");
   });
 });

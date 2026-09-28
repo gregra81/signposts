@@ -35,9 +35,18 @@ export interface RunIndexInput {
   config: ResolvedConfig;
   repoRoot: string;
   stderr: NodeJS.WritableStream;
+  /**
+   * Per-file corpus failures, reported back to the caller without changing
+   * this command's exit code or a byte of what it prints. `signpost index`'s
+   * own dispatch (src/app.ts) passes nothing; `runWorker` passes a collector,
+   * because the worker is detached with its stderr going to `/dev/null`
+   * (CLAUDE.md, "The SessionStart hook and its worker") and the exit code
+   * alone names neither the file nor the reason.
+   */
+  onFailures?: (failures: readonly string[]) => void;
 }
 
-export async function runIndex({ config, repoRoot, stderr }: RunIndexInput): Promise<ExitCode> {
+export async function runIndex({ config, repoRoot, stderr, onFailures }: RunIndexInput): Promise<ExitCode> {
   // `repo` (the signposts/index_meta key) comes from the `origin` git remote —
   // resolved here rather than eagerly at the composition root (see
   // src/io/production-app.ts) so a repo with no GitHub origin fails gracefully.
@@ -75,6 +84,8 @@ export async function runIndex({ config, repoRoot, stderr }: RunIndexInput): Pro
     stderr.write(`signposts: ${failure}\n`);
   }
   stderr.write(`signposts: ${indexFinishedLine(result.indexed, result.rebuilt)}\n`);
+
+  onFailures?.(result.failures);
 
   return indexExitCode(result.failures.length > 0);
 }

@@ -254,6 +254,23 @@ describe("progress during a run", () => {
     expect(render(f).stdout.trim()).toBe("🪧 signposts: last run failed — run `signpost doctor`");
   });
 
+  // The fix for a real repo's `signpost index` reporting only an exit code
+  // (see src/core/cli/index-lines.ts, corpusFailureSummary): `lastError` now
+  // names the file and the reason instead of the code. The row itself does
+  // not change shape — a `lastError` this specific still renders as a single
+  // failure line pointing at `signpost doctor`, which is what shows the rest.
+  it("still shows the failure row for the new, more specific lastError text", () => {
+    const f = withStatus(fixture(), {
+      phase: "idle",
+      updatedAt: new Date().toISOString(),
+      eligibleSessions: 0,
+      lastError:
+        "skipping /Users/greg/Projects/earnest/.signposts/correction/production-main-domain-is-www-earnestkid-com.md: claim: claim exceeds 200 characters",
+    });
+
+    expect(render(f).stdout.trim()).toBe("🪧 signposts: last run failed — run `signpost doctor`");
+  });
+
 
 
   // 19-value-to-a-user.md, open item 14: a publish that could not finish

@@ -36,6 +36,7 @@
 // anyone will ever see it.
 
 import type { ExitCode } from "../../app.ts";
+import { corpusFailureSummary } from "../../core/cli/index-lines.ts";
 import { EXIT_CODES } from "../../core/cli/exit-codes.ts";
 import { describeError } from "../../core/errors/format-zod-error.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
@@ -91,6 +92,11 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
   let indexedAt: Date | undefined;
   let error: string | undefined;
   let eligibleSessions = 0;
+  // Filled by `runIndex`'s `onFailures` when the corpus itself is the
+  // problem — a file that does not parse or fails validation — so this
+  // process can say what a human running `signpost index` sees on stderr,
+  // which this process's own stderr never reaches (see the header comment).
+  let corpusFailures: readonly string[] = [];
 
   try {
     // `rebuildIndex` consults `shouldReindex` itself and returns without
@@ -98,10 +104,26 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
     // the common case — a repo whose signposts have not moved — costs a hash
     // and a query. The hook's mtime check is only a cheap shadow of this one,
     // and this is the authority: a wake it disagrees with ends here.
-    const code = await runIndex({ config, repoRoot, stderr: input.stderr });
+    const code = await runIndex({
+      config,
+      repoRoot,
+      stderr: input.stderr,
+      onFailures: (failures) => {
+        corpusFailures = failures;
+      },
+    });
     if (code === EXIT_CODES.ok) {
       indexedAt = input.now();
+    } else if (corpusFailures.length > 0) {
+      // The corpus, not the run: the index still rebuilt around the file it
+      // skipped, and `indexFinishedLine` already said so on this process's
+      // own stderr. Naming the skip here is what reaches a person, since a
+      // detached worker's stderr does not.
+      error = corpusFailureSummary(corpusFailures);
     } else {
+      // No per-file failures — no `origin` remote, an unreadable database —
+      // and today's wording is not wrong for those; they already print their
+      // own line.
       error = `index rebuild exited ${code}`;
     }
 
