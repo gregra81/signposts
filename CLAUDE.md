@@ -183,6 +183,12 @@ loop in a subagent, because a session's prompts are thousands of tokens. Every h
 `repliesPath`, and the subagent writes the answers there with the Write tool — the one path setup
 allowed.
 
+The skill itself is also a fork: `skills/signposts/SKILL.md` carries `context: fork` and
+`background: true`, so invoking it spawns a background agent and returns control at once, reporting
+back as a task notification rather than holding the turn. The per-session subagent above is a
+separate, unchanged concern — it bounds one session's thousands of tokens, where the fork bounds a
+whole backlog's, which would overflow the developer's context in one turn.
+
 A run never touches the developer's checkout. `commit` writes through a second worktree
 (`paths.worktreeDir`) on `signposts/<author-slug>/<date>`, so proposals live on a branch and in a PR
 and appear in the working tree only when it merges. Sessions accumulate onto whichever of those
@@ -211,13 +217,20 @@ all for a session whose marker is no older than its last write. It is one bundle
 because a second file's shipped `.js` could not import a `.ts` sibling from inside `node_modules`,
 and a third copy of the state-directory rule is how the two processes stop agreeing. It checks two
 conditions with `stat` calls only — eligible transcripts and a stale index — takes the run lock,
-spawns `signpost worker --adopt-lock` detached, prints one `systemMessage` and exits. In a repo with
-neither a database nor `.signposts/` — nothing has run there and nobody has merged a signpost — it
-only makes the offer: no lock, no worker, no state (R3). A cold clone with a corpus still gets its
-index built. The `SessionEnd` marker is written in every repo, so a first offer is eligible the
-moment the session ends. Measured, not asserted: `node scripts/measure-hook.mjs` prints the
-distribution against `HOOK_BUDGET_MS`, and it sits around 23ms against a 50ms budget, of which ~18ms
-is bare Node start-up.
+spawns `signpost worker --adopt-lock` detached, prints one `systemMessage` and exits. It also decides
+whether to hand Claude the `additionalContext` instruction that turns the notice into an offer:
+inside `OFFER_QUIET_HOURS` (13-constants.md) of the last time it did, with no run finished since,
+that instruction is withheld — the `systemMessage` row still prints regardless, because a line the
+developer can ignore is not the nag the window exists to stop (19-value-to-a-user.md, open item 22).
+In a repo with neither a database nor `.signposts/` — nothing has run there and nobody has merged a
+signpost — it only makes the offer: no lock, no worker, no database (R3), with one exception.
+`lastOfferedAt` still lands in `status.json`, the one small file already in the state directory
+outside the checkout, recording only that the offer was made — Greg's ruling, because a repo nothing
+has run in is exactly where a decline is most likely and where the nag would bite hardest. A cold
+clone with a corpus still gets its index built. The `SessionEnd` marker is written in every repo, so
+a first offer is eligible the moment the session ends. Measured, not asserted: `node
+scripts/measure-hook.mjs` prints the distribution against `HOOK_BUDGET_MS`, and it sits around 23ms
+against a 50ms budget, of which ~18ms is bare Node start-up.
 
 **The worker cannot drain sessions, and that is not an oversight.** Every
 extraction node is a model call, and model calls are answered by the Claude Code session through

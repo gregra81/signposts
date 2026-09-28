@@ -84,6 +84,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
       previous?.runProgress,
       previous?.judgedSessions,
       previous?.unpublishedSessions,
+      previous?.lastOfferedAt,
     ),
   );
 
@@ -130,6 +131,7 @@ export async function runWorker(input: WorkerInput): Promise<ExitCode> {
         runProgress: current?.runProgress,
         judgedSessions: current?.judgedSessions,
         unpublishedSessions: current?.unpublishedSessions,
+        lastOfferedAt: current?.lastOfferedAt,
       }),
     );
     lock.release();

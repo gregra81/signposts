@@ -23,6 +23,15 @@ describe("the plugin's skill", () => {
     expect(SKILL).toContain("description:");
   });
 
+  // The run used to hold the turn until the whole loop finished. A developer
+  // in another repo asked whether it ran in a subagent or blocked the main
+  // interface, and the session had no way to answer without reading this file
+  // from the plugin's directory — exactly what it says not to do, below.
+  it("runs as a background fork, so invoking it does not hold the turn", () => {
+    expect(SKILL).toContain("\ncontext: fork\n");
+    expect(SKILL).toContain("\nbackground: true\n");
+  });
+
   it.each([
     "signpost sessions",
     "signpost run --session",

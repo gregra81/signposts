@@ -9,6 +9,9 @@ Drive the signposts extraction loop for this repository.
 Follow the signposts skill that ships with this plugin — it is the authority on the
 loop, the halt and the shape of a reply. Read it before running anything.
 
+The skill runs as a background fork: invoking it here returns control at once, and
+its result arrives later as a task notification instead of holding this turn.
+
 In short: `signpost sessions` says what is eligible; stop and say so if nothing is.
 Otherwise run the loop in a subagent, one session at a time, then run
 `signpost publish` and report the pull request. Typing this command is the yes:

@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { IDLE_HOURS, LOCK_STALE_MINUTES } from "../../../src/core/config/constants.ts";
+import { IDLE_HOURS, LOCK_STALE_MINUTES, OFFER_QUIET_HOURS } from "../../../src/core/config/constants.ts";
 import type { WorkerStatus } from "../../../src/core/worker/status.ts";
 import { serialiseSignpost } from "../../../src/core/signpost/codec.ts";
 import { generateIndexDoc } from "../../../src/core/signpost/index-doc.ts";
@@ -186,15 +186,23 @@ describe("silence when there is nothing to do", () => {
   });
 
   // 19-value-to-a-user.md, "Fewer human steps": nobody types `init` any
-  // more, so a repo nothing has run in gets the offer — and still no state,
-  // no worker and no database, until the developer says yes.
-  it("offers a run in a repo nothing has run in, and writes nothing", () => {
+  // more, so a repo nothing has run in gets the offer — and still no worker,
+  // no lock and no database, until the developer says yes.
+  //
+  // R6 revised this: `lastOfferedAt` is now the one exception (open item 22),
+  // Greg's ruling — a repo nothing has run in is exactly where a decline is
+  // most likely, so the quiet window applies here too. The state directory
+  // now holds exactly one small file, and it names nothing but the offer.
+  it("offers a run in a repo nothing has run in, stamping only that it did", () => {
     const f = withTranscript(fixture(), "old", IDLE_HOURS + 1);
     rmSync(path.join(f.repoRoot, ".signposts"), { recursive: true });
     const result = runHook(f);
 
     expect(JSON.parse(result.stdout).systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
-    expect(existsSync(f.stateDir)).toBe(false);
+    expect(existsSync(path.join(f.stateDir, "run.lock"))).toBe(false);
+    expect(existsSync(path.join(f.stateDir, "signposts.db"))).toBe(false);
+    const state = JSON.parse(readFileSync(path.join(f.stateDir, "status.json"), "utf8"));
+    expect(Object.keys(state)).toEqual(["lastOfferedAt"]);
   });
 
   it("emits nothing outside a git repo", () => {
@@ -303,6 +311,72 @@ describe("the three wake conditions", () => {
     writeWorkerState(f, { lastRunFinishedAt: new Date(Date.now() - HOUR_MS).toISOString() });
 
     expect(runHook(f).stdout).toBe("");
+  });
+});
+
+// R3, revised (19-value-to-a-user.md open item 22): OFFER_QUIET_HOURS drops
+// only the additionalContext instruction that stops Claude and asks. The
+// systemMessage notice — the line a developer can ignore — always prints
+// when there is something to run, quiet window or not. That split means the
+// window can still make Claude never actually ask about a backlog the
+// developer never saw the offer for (scripts/measure-offer.mjs measures
+// 83-100% compliance with the instruction even when it is emitted), but it
+// cannot make the developer fail to learn there is a backlog: that always
+// reaches systemMessage.
+describe("the offer's quiet window (OFFER_QUIET_HOURS)", () => {
+  it("keeps the notice but drops the offer instruction on the very next session start", () => {
+    const f = withTranscript(fixture(), "old", IDLE_HOURS + 1);
+    rmSync(path.join(f.repoRoot, ".signposts"), { recursive: true });
+
+    const first = JSON.parse(runHook(f).stdout) as { systemMessage: string; hookSpecificOutput: { additionalContext: string } };
+    expect(first.systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
+    expect(first.hookSpecificOutput.additionalContext).toContain("before your first tool call");
+
+    const second = JSON.parse(runHook(f).stdout) as { systemMessage: string; hookSpecificOutput?: unknown };
+    expect(second.systemMessage).toBe("🪧 signposts: 1 session ready — run `signpost run`");
+    expect(second.hookSpecificOutput).toBeUndefined();
+  });
+
+  it("offers again once OFFER_QUIET_HOURS has passed", () => {
+    const f = withTranscript(fixture(), "old", IDLE_HOURS + 1);
+    rmSync(path.join(f.repoRoot, ".signposts"), { recursive: true });
+    runHook(f); // stamps lastOfferedAt
+
+    writeWorkerState(f, { lastOfferedAt: new Date(Date.now() - OFFER_QUIET_HOURS * HOUR_MS).toISOString() });
+
+    const third = JSON.parse(runHook(f).stdout) as { hookSpecificOutput: { additionalContext: string } };
+    expect(third.hookSpecificOutput.additionalContext).toContain("before your first tool call");
+  });
+
+  it("offers again once a run has finished since the stamp", () => {
+    const f = withTranscript(fixture(), "old", IDLE_HOURS + 1);
+    rmSync(path.join(f.repoRoot, ".signposts"), { recursive: true });
+    runHook(f); // stamps lastOfferedAt, well inside the window
+
+    const stamped = JSON.parse(readFileSync(path.join(f.stateDir, "status.json"), "utf8")) as { lastOfferedAt: string };
+    writeWorkerState(f, {
+      lastOfferedAt: stamped.lastOfferedAt,
+      lastRunFinishedAt: new Date(Date.parse(stamped.lastOfferedAt) + 1000).toISOString(),
+    });
+
+    const again = JSON.parse(runHook(f).stdout) as { hookSpecificOutput: { additionalContext: string } };
+    expect(again.hookSpecificOutput.additionalContext).toContain("before your first tool call");
+  });
+
+  // R4: the reindex announcement needs nobody's consent, so it is unaffected
+  // by the quiet window — only the offer instruction is.
+  it("still prints the reindex notice inside the quiet window", async () => {
+    const f = withTranscript(fixture(), "yesterday", IDLE_HOURS + 1);
+    writeWorkerState(f, { lastOfferedAt: new Date().toISOString() });
+
+    const result = runHook(f);
+    const output = JSON.parse(result.stdout) as { systemMessage: string; hookSpecificOutput?: unknown };
+
+    expect(output.systemMessage).toBe(
+      "🪧 signposts: rebuilding the search index in the background; 1 session ready — run `signpost run`",
+    );
+    expect(output.hookSpecificOutput).toBeUndefined();
+    await workerLines(f, 1);
   });
 });
 

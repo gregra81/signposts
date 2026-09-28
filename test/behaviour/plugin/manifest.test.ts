@@ -124,6 +124,20 @@ describe("the SessionStart hook it installs", () => {
     expect(groups[0]!.hooks[0]!.type).toBe("command");
   });
 
+  // A matcher that silently drops `clear` is exactly the failure that shipped:
+  // `startup|resume` filtered out the SessionStart that follows `/clear`, so the
+  // offer for a session `SessionEnd` had just marked never fired, even though
+  // `07-triggering-and-ux.md` and `19-value-to-a-user.md` already claimed the
+  // same-window behaviour. Compaction and fork stay excluded on purpose — both
+  // continue a context the developer is already in, so a re-injected offer
+  // there is noise — but `/clear` starts a brand-new one, where the offer is
+  // the first thing in it, exactly as at a real startup.
+  it("fires on clear as well as startup and resume, but not compaction or fork", () => {
+    const matcher = (hooks["hooks"] as Record<string, unknown>)["SessionStart"] as { matcher: string }[];
+
+    expect(matcher[0]!.matcher).toBe("startup|resume|clear");
+  });
+
   it("is what `doctor` detects, now that it knows what an enabled plugin is", () => {
     // A plugin's hook is in hooks/hooks.json and in none of the three settings
     // files, so the settings check reported "not installed" to every plugin
