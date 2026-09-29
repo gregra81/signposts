@@ -15,7 +15,7 @@
 // does (../run-port.ts), wired at the composition root like every other port,
 // and closed again whatever the command did with it.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import type { ExitCode } from "../../app.ts";
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
 import { JSON_INDENT } from "../../core/config/constants.ts";
@@ -305,6 +305,17 @@ async function report(
   });
 
   const waiting = result.pending.length > 0;
+  if (waiting) {
+    // The file a halt names does not exist when it names it. Each session is
+    // answered by a fresh subagent, and Claude Code's Write tool will not
+    // replace a file that agent has not read — and setup allows only Edit on
+    // this path, so reading it first is a prompt. A file left by the previous
+    // session's answers failed the next session's first Write, and a resume
+    // after that read the old answers (19-value-to-a-user.md, open item 24). Every halt
+    // passes here, so every Write creates the file. Only the state directory's
+    // file: a path passed to `--replies` by hand is the caller's.
+    rmSync(input.config.paths.repliesPath, { force: true });
+  }
   const trace = tracer(input);
   const proposed = waiting ? [] : result.state.operations.map(describe);
   trace(() =>
