@@ -11,11 +11,12 @@
 | id | claim | repo |
 | --- | --- | --- |
 | `code-comments-must-not-narrate-a-switch-from-an` | Code comments must not narrate a switch from an earlier design when the earlier code was never used by anyone. | gregra81/signposts |
-| `the-signposts-repo-must-not-mention-the` | The signposts repo must not mention the signposts-eval repository anywhere, including docs, comments, test data and commit or PR text. | gregra81/signposts |
 | `docs-and-comments-in-signposts-must-read-for` | Docs and comments in signposts must read for outside open-source contributors, so avoid internal framing such as 'public slice' or 'golden set' that the repo never defines. | gregra81/signposts |
+| `the-signposts-repo-must-not-mention-the` | The signposts repo must not mention the signposts-eval repository anywhere, including docs, comments, test data and commit or PR text. | gregra81/signposts |
 
 ## decision
 
 | id | claim | repo |
 | --- | --- | --- |
 | `the-sessionstart-hook-s-injected-context-is` | The SessionStart hook's injected context is scoped to startup and resume so it never lands mid-session, because a mid-session injection breaks prompt caching. | gregra81/signposts |
+| `do-not-have-claude-offer-to-save-a-signpost-in` | Do not have Claude offer to save a signpost in the moment a developer corrects it; the team rejected in-session prompts because developers would come to hate the tool. | gregra81/signposts |
