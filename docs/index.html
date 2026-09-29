@@ -3,260 +3,502 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>signposts</title>
+    <title>signposts: reviewed team memory for Claude Code</title>
     <meta
       name="description"
-      content="The corrections you type at Claude Code become reviewed team knowledge — markdown in your own repo, opened as a pull request."
+      content="Turns the corrections in your Claude Code sessions into reviewed markdown in your repo, so every teammate's next session starts knowing them."
     />
-    <meta property="og:title" content="signposts" />
+    <link rel="canonical" href="https://gregra81.github.io/signposts/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="signposts" />
+    <meta property="og:url" content="https://gregra81.github.io/signposts/" />
+    <meta property="og:title" content="signposts: teach Claude once, and the whole team keeps it" />
     <meta
       property="og:description"
-      content="The corrections you type at Claude Code become reviewed team knowledge — markdown in your own repo, opened as a pull request."
+      content="The corrections in your Claude Code sessions become markdown in your repo, reviewed in a pull request. No API key, no server."
     />
-    <meta name="theme-color" content="#16161a" />
+    <meta property="og:image" content="https://gregra81.github.io/signposts/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="signposts: Teach Claude once. The whole team keeps it." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#0b6b47" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <style>
       :root {
         color-scheme: light dark;
-        --bg: #fbfaf8;
-        --panel: #ffffff;
-        --fg: #17171a;
-        --muted: #5f5f68;
-        --rule: #e4e0d8;
-        --code-bg: #f2efe9;
-        --accent: #1f6f4a;
+        --bg: #f7f6f2;
+        --surface: #ffffff;
+        --surface-2: #efede6;
+        --fg: #16181b;
+        --muted: #5a5f67;
+        --rule: #e1ded5;
+        --accent: #0b6b47;
+        --accent-soft: #e2f0e8;
         --accent-fg: #ffffff;
+        --term-bg: #15171a;
+        --term-fg: #e7e6e1;
+        --term-muted: #8a8f96;
+        --term-accent: #5fd39b;
+        --term-err: #ff7b72;
+        --term-user: #c9d1d9;
+        --shadow: 0 1px 2px rgba(20, 20, 20, 0.04), 0 8px 24px rgba(20, 20, 20, 0.06);
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       }
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg: #131316;
-          --panel: #1a1a1f;
-          --fg: #ecebe7;
-          --muted: #a2a09a;
-          --rule: #2b2b32;
-          --code-bg: #202027;
-          --accent: #4ba87a;
-          --accent-fg: #10231a;
+          --bg: #0f1113;
+          --surface: #16191c;
+          --surface-2: #1c2024;
+          --fg: #ecebe6;
+          --muted: #a1a5ab;
+          --rule: #2a2f34;
+          --accent: #45b985;
+          --accent-soft: #13271e;
+          --accent-fg: #06140d;
+          --term-bg: #0a0b0d;
+          --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
         }
       }
+
       * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
       body {
         margin: 0;
-        padding: 0 20px 6rem;
         background: var(--bg);
         color: var(--fg);
-        font: 17px/1.65 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+        font: 17px/1.65 var(--sans);
         -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
       }
-      main { max-width: 46rem; margin: 0 auto; }
-      section { padding-block: 2.5rem; border-top: 1px solid var(--rule); }
-      section:first-of-type { border-top: 0; }
-      h1 {
-        font-size: clamp(2rem, 6vw, 2.75rem);
-        letter-spacing: -0.025em;
-        line-height: 1.15;
-        margin: 0 0 0.75rem;
+      a { color: inherit; text-underline-offset: 3px; text-decoration-color: var(--accent); }
+      code { font-family: var(--mono); font-size: 0.9em; }
+      p code { background: var(--surface-2); border-radius: 4px; padding: 1px 5px; }
+      .wrap { max-width: 70rem; margin: 0 auto; padding: 0 16px; }
+      .narrow { max-width: 46rem; }
+
+      header.top {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        backdrop-filter: saturate(1.4) blur(10px);
+        -webkit-backdrop-filter: saturate(1.4) blur(10px);
+        border-bottom: 1px solid var(--rule);
       }
-      h2 { font-size: 1.15rem; letter-spacing: -0.01em; margin: 0 0 1rem; }
-      h3 { font-size: 1rem; margin: 0 0 0.35rem; }
+      header.top .wrap { display: flex; align-items: center; gap: 24px; height: 58px; }
+      .logo { display: inline-flex; align-items: center; gap: 9px; font: 650 1.05rem/1 var(--sans); text-decoration: none; }
+      .logo svg { width: 22px; height: 22px; color: var(--accent); }
+      header.top nav { display: flex; gap: 22px; margin-left: auto; font-size: 0.93rem; }
+      header.top nav a { text-decoration: none; color: var(--muted); }
+      header.top nav a:hover { color: var(--fg); }
+      @media (max-width: 640px) { header.top nav a.hide-sm { display: none; } }
+
+      section { padding: 4.5rem 0; border-top: 1px solid var(--rule); }
+      section.hero { border-top: 0; padding: 5rem 0 4rem; }
+      h1, h2, h3 { letter-spacing: -0.02em; line-height: 1.15; }
+      h1 { font-size: clamp(2.4rem, 4.6vw, 3.8rem); margin: 0 0 1.25rem; letter-spacing: -0.035em; }
+      h2 { font-size: clamp(1.7rem, 4vw, 2.3rem); margin: 0 0 1rem; }
+      h3 { font-size: 1.05rem; margin: 0 0 0.3rem; letter-spacing: -0.01em; }
       p { margin: 0 0 1rem; }
-      .lede { font-size: 1.1rem; color: var(--muted); margin-bottom: 2rem; }
-      .brand {
+      .lede { font-size: clamp(1.1rem, 2.2vw, 1.25rem); color: var(--muted); max-width: 38rem; }
+      .intro { color: var(--muted); max-width: 44rem; margin-bottom: 2.25rem; font-size: 1.06rem; }
+      .fine { color: var(--muted); font-size: 0.86rem; margin-top: 1.25rem; }
+
+      /* The road-sign motif: a small green plate with a thin inner border. */
+      .sign {
         display: inline-block;
-        font: 600 0.85rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        color: var(--muted);
-        padding: 4.5rem 0 1.5rem;
-      }
-      pre {
-        background: var(--code-bg);
-        border: 1px solid var(--rule);
-        border-radius: 10px;
-        padding: 14px 16px;
-        overflow-x: auto;
-        margin: 0 0 1rem;
-        font: 13.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
-      }
-      code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-      p code, li code, td code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
-      .install { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; margin-bottom: 0.75rem; }
-      .install pre { flex: 1 1 22rem; margin: 0; }
-      button {
-        flex: 0 0 auto;
-        border: 1px solid var(--rule);
-        border-radius: 10px;
         background: var(--accent);
         color: var(--accent-fg);
-        font: 600 14px/1 inherit;
-        font-family: inherit;
-        padding: 0 18px;
-        cursor: pointer;
-        min-height: 44px;
+        font: 650 0.74rem/1 var(--sans);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 7px 11px;
+        border-radius: 6px;
+        box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent-fg) 55%, transparent);
+        margin-bottom: 1.25rem;
       }
-      button:hover { filter: brightness(1.08); }
-      .quotes { list-style: none; padding: 0; margin: 0 0 1rem; color: var(--muted); }
-      .quotes li { padding: 0.15rem 0 0.15rem 1rem; border-left: 2px solid var(--rule); margin-bottom: 0.5rem; }
-      .cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
-      .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; }
-      .card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
-      ol.steps { padding-left: 1.25rem; }
-      ol.steps li { margin-bottom: 0.6rem; }
-      ol.steps strong { font-weight: 600; }
-      .caption { color: var(--muted); font-size: 0.95rem; }
-      footer { border-top: 1px solid var(--rule); padding-top: 1.5rem; color: var(--muted); font-size: 0.92rem; }
-      a { color: inherit; text-underline-offset: 3px; }
-      footer a, .lede a { text-decoration-color: var(--accent); }
+
+      .install {
+        display: flex;
+        max-width: 40rem;
+        margin: 2rem 0 0.85rem;
+        border: 1px solid var(--rule);
+        border-radius: 12px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      .install pre { flex: 1 1 auto; min-width: 0; margin: 0; padding: 15px 16px; overflow-x: auto; font: 14px/1.5 var(--mono); }
+      .install pre::before { content: "$ "; color: var(--muted); }
+      .install button {
+        flex: 0 0 auto;
+        border: 0;
+        border-left: 1px solid var(--rule);
+        background: var(--accent);
+        color: var(--accent-fg);
+        font: 600 14px/1 var(--sans);
+        padding: 0 20px;
+        min-height: 48px;
+        cursor: pointer;
+      }
+      .install button:hover { filter: brightness(1.08); }
+      .facts { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 0.92rem; padding: 0; margin: 0; list-style: none; }
+      .facts li::before { content: "✓ "; color: var(--accent); font-weight: 700; }
+
+      .hero-grid { display: grid; gap: 3rem; grid-template-columns: minmax(0, 1.45fr) minmax(0, 0.85fr); align-items: center; }
+      @media (max-width: 960px) { .hero-grid { grid-template-columns: minmax(0, 1fr); } .roadsign { max-width: 27rem; } }
+
+      /* A direction sign whose destinations are team knowledge. Always highway
+         green, in both themes, because that is what a road sign looks like. */
+      .roadsign { --sign-green: #0b6b47; }
+      .roadsign .panel {
+        background: var(--sign-green);
+        color: #fff;
+        border-radius: 14px;
+        padding: 10px 20px;
+        box-shadow: inset 0 0 0 5px var(--sign-green), inset 0 0 0 7.5px #fff, var(--shadow);
+      }
+      .roadsign .row { display: grid; grid-template-columns: 2.1rem minmax(0, 1fr); column-gap: 12px; padding: 14px 0; }
+      .roadsign .row + .row { border-top: 1.5px solid rgba(255, 255, 255, 0.35); }
+      .roadsign .arr { grid-row: span 2; font: 800 1.9rem/1 var(--sans); align-self: center; }
+      .roadsign .dest { font: 750 1.28rem/1.2 var(--sans); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+      .roadsign .note { font-size: 0.92rem; line-height: 1.35; color: rgba(255, 255, 255, 0.82); }
+      .roadsign .posts { display: flex; justify-content: space-around; padding: 0 22%; }
+      .roadsign .posts i { display: block; width: 14px; height: 70px; background: linear-gradient(90deg, #8d949b, #c3c8cc 45%, #8d949b); border-radius: 0 0 3px 3px; }
+
+      .story { display: grid; gap: 18px; margin-top: 2rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      @media (max-width: 960px) { .story { grid-template-columns: minmax(0, 1fr); max-width: 40rem; } }
+      .frame { display: flex; flex-direction: column; }
+      .frame .when { font: 600 0.8rem/1 var(--mono); color: var(--muted); margin-bottom: 10px; }
+      .frame .when b { color: var(--accent); }
+      .term {
+        background: var(--term-bg);
+        color: var(--term-fg);
+        border-radius: 12px;
+        padding: 14px 16px 16px;
+        font: 12.8px/1.6 var(--mono);
+        box-shadow: var(--shadow);
+        flex: 1 1 auto;
+        overflow-wrap: anywhere;
+      }
+      .term .bar { display: flex; gap: 6px; margin-bottom: 12px; }
+      .term .bar i { width: 9px; height: 9px; border-radius: 50%; background: #3a3f45; display: block; }
+      .term p { margin: 0 0 0.75em; padding-left: 2ch; text-indent: -2ch; }
+      .term .u { color: var(--term-user); }
+      .term .u::before { content: "> "; color: var(--term-muted); }
+      .term .a::before { content: "⏺ "; }
+      .term .t { color: var(--term-muted); margin-top: -0.6em; padding-left: 4ch; }
+      .term .t::before { content: "⎿ "; }
+      .term .err { color: var(--term-err); }
+      .term .sp { color: var(--term-accent); padding-left: 0; text-indent: 0; }
+      .frame .cap { color: var(--muted); font-size: 0.95rem; margin: 12px 2px 0; }
+
+      .table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+      table.compare { border-collapse: collapse; width: 100%; min-width: 760px; font-size: 0.93rem; }
+      .compare th, .compare td { text-align: left; vertical-align: top; padding: 13px 16px; border-bottom: 1px solid var(--rule); }
+      .compare tr:last-child td, .compare tr:last-child th { border-bottom: 0; }
+      .compare thead th { font-size: 0.85rem; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+      .compare tbody th { font-weight: 600; width: 16%; }
+      .compare td { color: var(--muted); width: 21%; }
+      .compare .us { background: var(--accent-soft); color: var(--fg); }
+      .compare thead .us { color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface-2)); }
+      .compare .yes::before { content: "✓ "; color: var(--accent); font-weight: 700; }
+      .compare .no::before { content: "✕ "; }
+
+      ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; display: grid; gap: 18px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      @media (max-width: 960px) { ol.steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      @media (max-width: 560px) { ol.steps { grid-template-columns: minmax(0, 1fr); } }
+      ol.steps li { counter-increment: s; background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); }
+      ol.steps li::before {
+        content: counter(s);
+        display: block;
+        width: 1.9rem;
+        height: 1.9rem;
+        border-radius: 7px;
+        background: var(--accent);
+        color: var(--accent-fg);
+        font: 700 0.9rem/1.9rem var(--sans);
+        text-align: center;
+        margin-bottom: 12px;
+      }
+      ol.steps p { color: var(--muted); margin: 0; font-size: 0.95rem; }
+
+      details { border-top: 1px solid var(--rule); }
+      details:last-of-type { border-bottom: 1px solid var(--rule); }
+      summary { cursor: pointer; list-style: none; padding: 16px 2rem 16px 0; font-weight: 600; position: relative; }
+      summary::-webkit-details-marker { display: none; }
+      summary::after { content: "+"; position: absolute; right: 4px; top: 13px; font: 400 1.4rem/1 var(--sans); color: var(--muted); }
+      details[open] summary::after { content: "–"; }
+      details p { color: var(--muted); margin: 0 0 1.1rem; }
+
+      footer { border-top: 1px solid var(--rule); padding: 2rem 0 3rem; color: var(--muted); font-size: 0.9rem; }
+      footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+      footer nav { display: flex; gap: 18px; flex-wrap: wrap; margin-left: auto; }
+      footer a { text-decoration: none; }
+      footer a:hover { color: var(--fg); }
     </style>
   </head>
   <body>
+    <header class="top">
+      <div class="wrap">
+        <a class="logo" href="#">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <rect x="14.5" y="3" width="3" height="26" rx="1" fill="currentColor" />
+            <path d="M5 6h15l4.5 4L20 14H5z" fill="currentColor" />
+            <path d="M27 16H12l-4.5 4 4.5 4h15z" fill="currentColor" />
+          </svg>
+          signposts
+        </a>
+        <nav>
+          <a class="hide-sm" href="#compare">Compare</a>
+          <a class="hide-sm" href="#how">How it works</a>
+          <a href="https://github.com/gregra81/signposts">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
     <main>
-      <span class="brand">signposts</span>
-
-      <section>
-        <h1>Your corrections shouldn't die with the session.</h1>
-        <p class="lede">
-          "Staging is read-only." "That file is generated, don't edit it." "We don't use that pattern
-          here." signposts turns what you tell Claude Code into markdown in your own repo, opened as
-          a pull request, so the next person's Claude already knows.
-        </p>
-
-        <div class="install">
-          <pre id="install"><code>curl -fsSL https://gregra81.github.io/signposts/install.sh | bash</code></pre>
-          <button type="button" id="copy" data-copy="curl -fsSL https://gregra81.github.io/signposts/install.sh | bash">Copy</button>
-        </div>
-        <p class="caption">
-          Needs Node 24+. No account, no API key, no server —
-          <a href="https://github.com/gregra81/signposts">the source is on GitHub</a>.
-        </p>
-      </section>
-
-      <section>
-        <h2>The knowledge is already being produced. Nothing catches it.</h2>
-        <p>
-          Every working session with an agent contains corrections that are not in the code and not
-          in any doc:
-        </p>
-        <ul class="quotes">
-          <li>"Don't run migrations against staging, the ETL job owns writes there."</li>
-          <li>"That permissions error is a read-only replica, not a network problem."</li>
-          <li>"The platform team owns that module. We don't fork it."</li>
-        </ul>
-        <p>
-          Then the session ends and it is gone. The next developer hits the same wall, and so does
-          the next agent, because none of it was ever written down anywhere a person or a model
-          would look.
-        </p>
-      </section>
-
-      <section>
-        <h2>What lands in your repo</h2>
-        <pre><code>---
-id: staging-read-only
-claim: Staging is read only outside the ETL window
-category: environment
-scope:
-  repo: acme/api
-  paths:
-    - db/migrations/**
-confidence: 0.9
-status: active
-provenance:
-  session_ids: [01J9F8Q2K7, 01J9M2B4RT]
-  authors: [dana@acme.example, sam@acme.example]
-  first_seen: 2026-09-02
-  last_reinforced: 2026-09-09
----
-
-A migration run against staging failed with a permissions error, and the
-human said every write goes through the nightly ETL job.</code></pre>
-        <p class="caption">
-          Two authors on that file because two people hit the same wall in different words, and the
-          second session recognised the first one's claim instead of writing a second file about it.
-          A third session that contradicts it stops and asks you.
-        </p>
-      </section>
-
-      <section>
-        <h2>How it works</h2>
-        <ol class="steps">
-          <li>
-            <strong>It reads the transcripts you already have.</strong> The sessions Claude Code
-            wrote to your disk, once they have been idle a day, stripped down to the human turns.
-          </li>
-          <li>
-            <strong>Your own Claude session does the thinking.</strong> signposts pauses and asks it
-            to extract, criticise and classify — on the plan and quota you already pay for.
-          </li>
-          <li>
-            <strong>A pull request appears.</strong> You review it like any other. Anything that
-            edits, deletes or contradicts existing knowledge waits for you first.
-          </li>
-        </ol>
-      </section>
-
-      <section>
-        <h2>Why it is safe to leave running</h2>
-        <div class="cards">
-          <div class="card">
-            <h3>Nothing leaves the machine</h3>
-            <p>Transcripts are read locally and the search index is local. There is no server and no account.</p>
+      <section class="hero">
+        <div class="wrap hero-grid">
+          <div>
+            <span class="sign">For teams on Claude Code</span>
+            <h1>Teach Claude once.<br />The whole team keeps it.</h1>
+            <p class="lede">
+              signposts turns the corrections in your Claude Code sessions into markdown in your repo,
+              reviewed in a pull request. After the merge, every teammate's session starts with them.
+            </p>
+            <div class="install">
+              <pre><code>curl -fsSL https://gregra81.github.io/signposts/install.sh | bash</code></pre>
+              <button type="button" data-copy="curl -fsSL https://gregra81.github.io/signposts/install.sh | bash">Copy</button>
+            </div>
+            <ul class="facts">
+              <li>No API key</li>
+              <li>No server</li>
+              <li>Plain markdown in git</li>
+              <li>MIT</li>
+            </ul>
           </div>
-          <div class="card">
-            <h3>No new API key</h3>
-            <p>The reasoning is answered by the Claude Code session you are already in.</p>
-          </div>
-          <div class="card">
-            <h3>Your working tree is untouched</h3>
-            <p>Proposals are committed through a separate worktree onto their own branch, mid-task or not.</p>
-          </div>
-          <div class="card">
-            <h3>Nothing merges itself</h3>
-            <p>Every signpost arrives as a pull request a person approves, and contradictions always stop.</p>
+
+          <div class="roadsign" aria-hidden="true">
+            <div class="panel">
+              <div class="row"><span class="arr">←</span><span class="dest">staging</span><span class="note">read-only outside the ETL window</span></div>
+              <div class="row"><span class="arr">↑</span><span class="dest">db/schema/orders.ts</span><span class="note">generated on every build, edit the SQL</span></div>
+              <div class="row"><span class="arr">→</span><span class="dest">payments/</span><span class="note">the platform team owns it, don't fork</span></div>
+            </div>
+            <div class="posts"><i></i><i></i></div>
           </div>
         </div>
       </section>
 
-      <section>
-        <h2>Get started</h2>
-        <pre><code>curl -fsSL https://gregra81.github.io/signposts/install.sh | bash
-cd your-repo
-signpost init</code></pre>
-        <p class="caption">
-          One command installs both halves: the CLI, and the Claude Code plugin that carries the
-          session-start hook, the <code>/signposts</code> commands and the search server. Restart a
-          session that was already open so it picks the plugin up. Then ask Claude to run signposts,
-          and read the pull request when it arrives — the
-          <a href="https://github.com/gregra81/signposts#readme">README</a> covers the commands you
-          can still type by hand.
-        </p>
+      <section id="story">
+        <div class="wrap">
+          <h2>Dana hits the wall. Sam never does.</h2>
+          <div class="story">
+            <div class="frame">
+              <div class="when"><b>TUE</b> · Dana's session</div>
+              <div class="term">
+                <div class="bar"><i></i><i></i><i></i></div>
+                <p class="u">apply the orders index migration to staging</p>
+                <p class="a">Bash(pnpm db:migrate --env staging)</p>
+                <p class="t"><span class="err">ERROR: permission denied for table orders</span></p>
+                <p class="u">don't. staging is read-only outside the ETL window, every write goes through the nightly job</p>
+              </div>
+              <p class="cap">Dana corrects Claude. Without signposts, the lesson ends there.</p>
+            </div>
+
+            <div class="frame">
+              <div class="when"><b>WED</b> · Dana's next session</div>
+              <div class="term">
+                <div class="bar"><i></i><i></i><i></i></div>
+                <p class="sp">🪧 signposts: 1 session ready — run `signpost run`</p>
+                <p class="a">1 finished session can become team knowledge. A run opens a pull request and works in the background. Start it?</p>
+                <p class="u">yes</p>
+                <p class="a">Pull request opened: signposts: knowledge proposed for review</p>
+                <p class="t">+ .signposts/environment/staging-read-only.md</p>
+              </div>
+              <p class="cap">One question. The result is a pull request the team reviews.</p>
+            </div>
+
+            <div class="frame">
+              <div class="when"><b>THU</b> · Sam's session, after the merge</div>
+              <div class="term">
+                <div class="bar"><i></i><i></i><i></i></div>
+                <p class="u">add an index on orders.created_at and apply it to staging</p>
+                <p class="a">Staging is read-only outside the ETL window (signpost staging-read-only), so I'll write the migration and leave it for the nightly job.</p>
+              </div>
+              <p class="cap">Sam's Claude had the signpost in context from the start.</p>
+            </div>
+          </div>
+          <p class="fine">An illustration. The names and Claude's wording are made up; the notice line and PR title are real.</p>
+        </div>
       </section>
 
-      <footer>
-        <a href="https://github.com/gregra81/signposts">GitHub</a> ·
-        <a href="https://github.com/gregra81/signposts/releases/latest">Releases</a> ·
-        <a href="https://github.com/gregra81/signposts/issues">Issues</a> ·
-        <a href="https://github.com/gregra81/signposts/blob/main/LICENSE">MIT</a>
-        <p style="margin-top: 0.75rem">
-          Nothing here checks that a signpost is true, only that it is new and not obviously hedged.
-          The review is what catches a wrong one.
-        </p>
-      </footer>
+      <section id="compare">
+        <div class="wrap">
+          <h2>Why not agent memory?</h2>
+          <p class="intro">
+            Claude Code's auto memory already notes your corrections, but
+            <a href="https://code.claude.com/docs/en/memory#storage-location">its docs</a> call it
+            "machine-local", and nobody reviews it. Memory plugins work the same way: per developer,
+            stored outside the repo. Keep them for your personal preferences. signposts is for what the
+            whole team needs to know.
+          </p>
+          <div class="table-wrap">
+            <table class="compare">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th class="us">signposts</th>
+                  <th>CLAUDE.md, by hand</th>
+                  <th>Claude Code auto memory</th>
+                  <th>Memory plugins</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>Who gets it</th>
+                  <td class="us yes">The whole team, through git</td>
+                  <td class="yes">The whole team, through git</td>
+                  <td class="no">You, on this machine</td>
+                  <td class="no">Usually you alone</td>
+                </tr>
+                <tr>
+                  <th>Reviewed before an agent trusts it</th>
+                  <td class="us yes">Every change is a PR</td>
+                  <td class="yes">If it goes through a PR</td>
+                  <td class="no">No</td>
+                  <td class="no">Usually not</td>
+                </tr>
+                <tr>
+                  <th>Two people learn the same thing</th>
+                  <td class="us">One signpost, both credited</td>
+                  <td>Written once, if someone remembers</td>
+                  <td>Two notes on two laptops</td>
+                  <td>Two records in two databases</td>
+                </tr>
+                <tr>
+                  <th>New knowledge contradicts old</th>
+                  <td class="us">Flagged in the PR with the reason</td>
+                  <td>Up to whoever edits the file</td>
+                  <td>Claude rewrites its note</td>
+                  <td>Depends on the tool</td>
+                </tr>
+                <tr>
+                  <th>Effort</th>
+                  <td class="us">One yes, then a PR review</td>
+                  <td>Writing it, keeping it current</td>
+                  <td>None</td>
+                  <td>None</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="how">
+        <div class="wrap">
+          <h2>How it works</h2>
+          <p class="intro">Everything runs on your laptop. The only LLM is the Claude Code session you already have open.</p>
+          <ol class="steps">
+            <li>
+              <h3>Reads finished sessions</h3>
+              <p>The transcripts Claude Code already keeps, with secrets redacted locally.</p>
+            </li>
+            <li>
+              <h3>Keeps what code can't tell you</h3>
+              <p>Your session drafts claims, and a critic rejects anything the code, config or docs already say.</p>
+            </li>
+            <li>
+              <h3>Checks what's recorded</h3>
+              <p>A duplicate merges into the existing signpost. A contradiction is flagged.</p>
+            </li>
+            <li>
+              <h3>Opens a pull request</h3>
+              <p>Committed from a separate worktree, so your checkout is never touched.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section id="faq">
+        <div class="wrap narrow">
+          <h2>Questions</h2>
+          <details>
+            <summary>Does it check that a signpost is true?</summary>
+            <p>
+              No. It checks that a claim is new and not hedged. The pull request is where someone who
+              knows says "that changed in April".
+            </p>
+          </details>
+          <details>
+            <summary>What does it cost?</summary>
+            <p>
+              Tokens from your Claude Code plan. In our 33-session eval set the median was about 10k
+              tokens per session, and the real figure is a little higher.
+            </p>
+          </details>
+          <details>
+            <summary>What leaves my machine?</summary>
+            <p>
+              Redacted excerpts go to Claude through your own session. The branch goes to your GitHub
+              origin. There is no signposts server.
+            </p>
+          </details>
+          <details>
+            <summary>What do I need?</summary>
+            <p>
+              Node 24+, git, and a repo with a GitHub <code>origin</code>. It captures from Claude Code
+              only, but the output is plain markdown any agent can read.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <section class="cta">
+        <div class="wrap narrow">
+          <h2>Your team already did the teaching.</h2>
+          <div class="install">
+            <pre><code>curl -fsSL https://gregra81.github.io/signposts/install.sh | bash</code></pre>
+            <button type="button" data-copy="curl -fsSL https://gregra81.github.io/signposts/install.sh | bash">Copy</button>
+          </div>
+          <p class="fine">
+            The script checks the release against its SHA256SUMS before installing.
+            <a href="https://github.com/gregra81/signposts/blob/main/docs/install.sh">Read it first</a>.
+          </p>
+        </div>
+      </section>
     </main>
 
+    <footer>
+      <div class="wrap">
+        <span>signposts · MIT</span>
+        <nav>
+          <a href="https://github.com/gregra81/signposts">GitHub</a>
+          <a href="https://github.com/gregra81/signposts#readme">README</a>
+          <a href="https://github.com/gregra81/signposts/releases/latest">Releases</a>
+          <a href="https://github.com/gregra81/signposts/issues">Issues</a>
+        </nav>
+      </div>
+    </footer>
+
     <script>
-      const button = document.getElementById("copy");
-      button.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(button.dataset.copy);
-          button.textContent = "Copied";
-        } catch {
-          // Clipboard is blocked in some contexts; the command is on screen anyway.
-          button.textContent = "Select it above";
-        }
-        setTimeout(() => {
-          button.textContent = "Copy";
-        }, 2000);
-      });
+      for (const button of document.querySelectorAll("button[data-copy]")) {
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(button.dataset.copy);
+            button.textContent = "Copied";
+          } catch {
+            // Clipboard is blocked in some contexts; the command is on screen anyway.
+            button.textContent = "Select it";
+          }
+          setTimeout(() => {
+            button.textContent = "Copy";
+          }, 2000);
+        });
+      }
     </script>
   </body>
 </html>
