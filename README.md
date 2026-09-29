@@ -49,10 +49,11 @@ inside Claude Code instead:
 
 `SIGNPOSTS_SKIP_PLUGIN=1` installs the CLI on its own.
 
-The first run in a repo sets it up on the way through. It installs the status line, and it adds two
-allow rules to `.claude/settings.local.json` (the `signpost` binary and one replies file outside the
-repo), so the run does not stop to ask permission at every step. A plugin is not allowed to do
-either, which is why the run does it. That file stays out of git. Nothing is written into your
+The first run in a repo sets it up on the way through. Claude Code asks you once to allow
+`signpost sessions`, the run's first command. That command installs the status line and adds two
+allow rules to `.claude/settings.local.json` (the `signpost` binary and one replies file outside
+the repo), so the rest of the run, and every run after it, does not stop to ask. A plugin is not
+allowed to do either, which is why the run does it. That file stays out of git. Nothing is written into your
 checkout: the `CLAUDE.md` pointer comes in with the first pull request.
 
 ## What you end up with
@@ -92,7 +93,7 @@ colleague's claim stays until someone merges it.
 
 ## How it works
 
-1. Scan `~/.claude/projects/**.jsonl` for sessions that have been idle 24+ hours.
+1. Scan `~/.claude/projects/**.jsonl` for sessions that have ended, or have been idle 24+ hours.
 2. Strip each transcript down to the human turns plus trimmed assistant context. No LLM involved
    at this step — it's cheap and it runs on everything.
 3. Your Claude Code session proposes candidate signposts, then critiques them with a skeptical eye.
@@ -120,16 +121,18 @@ worker. Sessions pile onto the branch that is still open; a merge starts the nex
 **Only knowledge you couldn't get from reading the code.** If it's inferable from the source, it
 doesn't belong here — that's the entire point of the tool.
 
-**Sessions have to sit idle 24+ hours first,** or one hour when you ended them. Claude Code
-sessions are resumable, so a quiet session isn't really finished until enough time has passed. A
-session you exited or cleared is marked by a `SessionEnd` hook, and it only waits the hour. If you
-resume it after all, the new activity cancels the mark and the full day applies again.
+**A session has to be finished first:** ended, or idle 24+ hours. Claude Code sessions are
+resumable, so a quiet session isn't really finished until enough time has passed. A session you
+exit or `/clear` is marked by a `SessionEnd` hook and needs no wait, so the next session can offer
+to capture it straight away. If you resume it after all, the new activity cancels the mark and the
+full day applies again.
 
 **Your working tree is never touched.** A run commits through a second worktree, so proposals
 appear on a branch while you carry on with whatever you were doing.
 
 **One question, then a pull request.** Claude offers the run and says it will open a pull request.
-Your yes covers both. The run stops at a local commit and `signpost publish` does the push at the
+Your yes covers both. In a repo nothing has run in yet, Claude Code also asks once to allow the
+first `signpost` command, because a plugin cannot grant permissions. The run stops at a local commit and `signpost publish` does the push at the
 end, so nothing leaves your machine before you have said yes. There used to be more questions: a
 consent prompt at `init`, a review of every flagged change inside the session, and a separate yes
 to publishing. Each one was a reason not to use the tool, and the pull request was already the
@@ -179,13 +182,21 @@ retrieval works offline.
 
 ## Uninstall
 
+Remove the plugin first: once the package is gone, its hook and search server call a `signpost`
+that no longer exists.
+
 ```
+claude plugin uninstall signposts@signposts
+claude plugin marketplace remove signposts
 npm rm -g signposts     # or: rm -rf "$(npm prefix -g)/lib/node_modules/signposts"
 rm -rf ~/.signposts     # database, index, model cache
 ```
 
-`.signposts/` in your repo is yours and stays. So does the status line entry in
-`.claude/settings.local.json`, which is one line to delete.
+`.signposts/` in your repo is yours and stays. So does what the first run wrote into each repo's
+`.claude/settings.local.json`: two allow rules, which do nothing once `signpost` is gone, and the
+`statusLine` entry, which you have to change. If its command ends in `--wrap '<your command>'`,
+put your command back as the `command`; otherwise delete the entry. A status line that points at
+a file that is gone shows nothing at all, yours included.
 
 ## Where this stands
 
