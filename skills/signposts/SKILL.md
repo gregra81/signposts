@@ -65,6 +65,11 @@ Each `pending` entry is `{ "id": "...", "request": { ... } }`. The request carri
 as the input, and reply with JSON that satisfies `schema` exactly — a reply of the
 wrong shape fails the resume.
 
+A request is often too long to show inline, and Claude Code then saves the output
+to a file and shows a preview. Read that whole file with the Read tool before you
+answer. Do not grep it, and do not answer from the preview: a reply to a request
+you have not read is a guess.
+
 - `extract` — propose candidate signposts from the transcript.
 - `critic` — judge those candidates sceptically.
 - `classify` — decide how one candidate relates to what is already recorded.
@@ -74,8 +79,9 @@ wrong shape fails the resume.
 
 Write all the answers as `{ "replies": { "<id>": <answer>, ... } }` — keyed by id,
 because several may be pending at once and they are not interchangeable — to the
-`repliesPath` the output names, with the Write tool, replacing the file at every
-halt. That path is outside the checkout and allowed without a prompt. Do not use
+`repliesPath` the output names, with the Write tool, at every halt. `signpost`
+removes the file before each halt, so the Write creates it and nothing needs
+reading first. That path is outside the checkout and allowed without a prompt. Do not use
 `/tmp`, a heredoc or `echo`: each of those stops the run for a permission prompt.
 
 ## At the end

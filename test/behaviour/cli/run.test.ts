@@ -8,7 +8,7 @@
 // between them.
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -85,6 +85,27 @@ function transcript(): string {
 
 function firstJson(output: string): Record<string, unknown> {
   return JSON.parse(output) as Record<string, unknown>;
+}
+
+/** A replies file answering `extract` with one candidate, which halts next on `critic`. */
+function oneCandidate(interruptId: string): string {
+  return JSON.stringify({
+    replies: {
+      [interruptId]: {
+        candidates: [
+          {
+            tempId: "t1",
+            claim: "Staging is read only outside the ETL window",
+            category: "environment",
+            scope: { repo: "acme/api" },
+            evidence: "A migration against staging was refused.",
+            confidence: 0.9,
+            hedged: false,
+          },
+        ],
+      },
+    },
+  });
 }
 
 describe("the run loop", () => {
@@ -301,6 +322,47 @@ describe("the run loop", () => {
     };
     expect(output.status).toBe("waiting");
     expect(output.pending[0]?.request.node).toBe("critic");
+  }, 30_000);
+
+  // 19-value-to-a-user.md, open item 24: each session is answered by a fresh
+  // subagent, and Claude Code's Write tool will not replace a file that agent
+  // has not read. So the file a halt names has to be absent when it names it:
+  // left over from the last session, it failed the next session's first
+  // Write, and a resume after that read the old answers.
+  it("names a replies file that does not exist yet, at every halt", async () => {
+    const statePath = config.paths.repliesPath;
+    mkdirSync(path.dirname(statePath), { recursive: true });
+    writeFileSync(statePath, JSON.stringify({ replies: { "an-earlier-session": {} } }), "utf8");
+
+    const started = createFakeStdio();
+    await runCli(["run", "--first"], { config, stdio: started });
+    const halted = firstJson(started.writtenOutput()) as { repliesPath: string; pending: { id: string }[] };
+    expect(halted.repliesPath).toBe(statePath);
+    expect(existsSync(statePath)).toBe(false);
+
+    writeFileSync(statePath, oneCandidate(halted.pending[0]!.id), "utf8");
+    const resumed = createFakeStdio();
+    const exitCode = await runCli(["resume", "--session", SESSION_ID, "--replies", statePath], {
+      config,
+      stdio: resumed,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(firstJson(resumed.writtenOutput())).toMatchObject({ status: "waiting", repliesPath: statePath });
+    expect(existsSync(statePath)).toBe(false);
+  }, 30_000);
+
+  it("leaves a replies file passed by hand where it is", async () => {
+    const started = createFakeStdio();
+    await runCli(["run", "--first"], { config, stdio: started });
+    const { pending } = firstJson(started.writtenOutput()) as { pending: { id: string }[] };
+    writeFileSync(repliesPath, oneCandidate(pending[0]!.id), "utf8");
+
+    const resumed = createFakeStdio();
+    await runCli(["resume", "--session", SESSION_ID, "--replies", repliesPath], { config, stdio: resumed });
+
+    expect(firstJson(resumed.writtenOutput())).toMatchObject({ status: "waiting" });
+    expect(existsSync(repliesPath)).toBe(true);
   }, 30_000);
 
   // 19-value-to-a-user.md, the open item beside the retry fix: a batch the
