@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseCommand, setsUpRepo } from "../../../src/core/cli/dispatch.js";
 import { detectSignpostPlugin } from "../../../src/core/doctor/report.js";
+import { SEARCH_TOOL_NAME } from "../../../src/core/mcp/search-tool.js";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -162,6 +163,31 @@ describe("the SessionStart hook it installs", () => {
     // session start has no room in HOOK_BUDGET_MS.
     expect(bin[command]).not.toContain(".ts");
     expect(() => read("hooks/session-start.ts")).not.toThrow();
+  });
+});
+
+describe("the PostToolUse hook on search results", () => {
+  const groups = (readJson("hooks/hooks.json")["hooks"] as Record<string, unknown>)["PostToolUse"] as {
+    matcher: string;
+    hooks: { type: string; command: string }[];
+  }[];
+
+  it("matches the search tool by the name Claude Code gives a plugin's MCP tool", () => {
+    // `mcp__plugin_<plugin>_<server>__<tool>`. A matcher written against the
+    // bare server key never fires for a plugin's server, and nothing says so:
+    // renaming the plugin, the server key or the tool breaks it silently.
+    const server = Object.keys(manifest["mcpServers"] as Record<string, unknown>)[0]!;
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.matcher).toBe(`mcp__plugin_${manifest["name"] as string}_${server}__${SEARCH_TOOL_NAME}`);
+  });
+
+  it("runs the installed hook binary, with the flag that selects the search half", () => {
+    const [command, flag] = groups[0]!.hooks[0]!.command.split(" ");
+
+    expect(groups[0]!.hooks[0]!.type).toBe("command");
+    expect(bin[command!]).toBe("hooks/session-start.js");
+    expect(read("hooks/session-start.ts")).toContain(`SEARCH_HIT_FLAG = "${flag!}"`);
   });
 });
 

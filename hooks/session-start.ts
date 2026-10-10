@@ -862,9 +862,61 @@ export function recordSessionEnd(
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// PostToolUse on `search_signposts`: the same bundle, run with SEARCH_HIT_FLAG.
+// ---------------------------------------------------------------------------
+
+/**
+ * `hooks.json` runs this file after every `search_signposts` call, with this
+ * flag, for the reason SESSION_END_FLAG gives for sharing the bundle.
+ *
+ * A search that found something used to reach the developer only as Claude's
+ * prose, indistinguishable from what Claude knew anyway. `systemMessage` is a
+ * row Claude Code renders apart from that prose, so the developer sees which
+ * recorded claims came back, whatever Claude then makes of them.
+ */
+export const SEARCH_HIT_FLAG = "--search-hit";
+
+/**
+ * The developer's line for one search, or null when it found nothing.
+ *
+ * An MCP tool's `tool_response` arrives as its `structuredContent` serialised
+ * to a string — captured from a live call, since the hooks reference leaves
+ * the shape to the tool — so a string is parsed and an object taken as is.
+ * An empty result stays silent: the diagnostic beside it is written for
+ * Claude, and "nothing recorded here" is not news to show anyone.
+ */
+export function searchHitNotice(toolResponse: unknown): string | null {
+  let response = toolResponse;
+  if (typeof response === "string") {
+    try {
+      response = JSON.parse(response);
+    } catch {
+      return null;
+    }
+  }
+  const results = (response as { results?: unknown } | null)?.results;
+  if (!Array.isArray(results) || results.length === 0) {
+    return null;
+  }
+  const lines = results.map((hit: { claim?: unknown; category?: unknown }) => {
+    const category = typeof hit.category === "string" ? ` (${hit.category})` : "";
+    return `  · ${String(hit.claim)}${category}`;
+  });
+  return `${NOTICE_PREFIX}${plural(results.length, "recorded claim")} found\n${lines.join("\n")}`;
+}
+
 function main(): void {
   if (process.argv.includes(SESSION_END_FLAG)) {
     recordSessionEnd(JSON.parse(readFileSync(0, "utf8")) as Record<string, unknown>, process.env, homedir());
+    return;
+  }
+  if (process.argv.includes(SEARCH_HIT_FLAG)) {
+    const input = JSON.parse(readFileSync(0, "utf8")) as { tool_response?: unknown };
+    const notice = searchHitNotice(input.tool_response);
+    if (notice !== null) {
+      process.stdout.write(JSON.stringify({ systemMessage: notice }) + "\n");
+    }
     return;
   }
 

@@ -32,6 +32,7 @@ import {
   noticeFor,
   offerIsQuiet,
   recordSessionEnd,
+  searchHitNotice,
   watermarkMs,
 } from "../../../hooks/session-start.ts";
 
@@ -479,5 +480,30 @@ describe("recordSessionEnd", () => {
 
     expect(recordSessionEnd({ session_id: "../escape", cwd: repoRoot }, {}, homeDir)).toBe(false);
     expect(recordSessionEnd({ cwd: repoRoot }, {}, homeDir)).toBe(false);
+  });
+});
+
+// The PostToolUse half of the bundle: what the developer sees after a search.
+describe("searchHitNotice", () => {
+  const hit = { id: "a", claim: "Use pnpm, never npm.", category: "decision", evidence: "", confidence: 0.9, score: 0.1 };
+
+  it("lists each claim that came back, as the tool's serialised structuredContent", () => {
+    expect(searchHitNotice(JSON.stringify({ results: [hit, { ...hit, claim: "Dates are UTC.", category: "correction" }] }))).toBe(
+      "🪧 signposts: 2 recorded claims found\n  · Use pnpm, never npm. (decision)\n  · Dates are UTC. (correction)",
+    );
+  });
+
+  it("takes an object as well as a string, and singularises a count of one", () => {
+    expect(searchHitNotice({ results: [hit] })).toBe("🪧 signposts: 1 recorded claim found\n  · Use pnpm, never npm. (decision)");
+  });
+
+  it("says nothing when the search found nothing, diagnostic or not", () => {
+    expect(searchHitNotice(JSON.stringify({ results: [], diagnostic: "No search index." }))).toBe(null);
+  });
+
+  it("says nothing for a response it cannot read", () => {
+    expect(searchHitNotice("not json")).toBe(null);
+    expect(searchHitNotice(null)).toBe(null);
+    expect(searchHitNotice(JSON.stringify({ results: "x" }))).toBe(null);
   });
 });
