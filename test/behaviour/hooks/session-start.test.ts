@@ -553,3 +553,32 @@ describe("the corpus, carried into the session", () => {
     expect(await workerLines(f, 1)).toHaveLength(1);
   });
 });
+
+// PostToolUse on search_signposts: the same bundle, with --search-hit.
+describe("after a search", () => {
+  function runSearchHit(toolResponse: unknown): ReturnType<typeof spawnSync> {
+    return spawnSync(process.execPath, [HOOK, "--search-hit"], {
+      encoding: "utf8",
+      input: JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "x", tool_input: {}, tool_response: toolResponse }),
+    });
+  }
+
+  it("shows the developer the claims that came back", () => {
+    const response = JSON.stringify({
+      results: [{ id: "a", claim: "Use pnpm, never npm.", category: "decision", evidence: "", confidence: 0.9, score: 0.1 }],
+    });
+    const result = runSearchHit(response);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout as string)).toEqual({
+      systemMessage: "🪧 signposts: 1 recorded claim found\n  · Use pnpm, never npm. (decision)",
+    });
+  });
+
+  it("prints nothing for an empty search", () => {
+    const result = runSearchHit(JSON.stringify({ results: [], diagnostic: "No search index." }));
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+});

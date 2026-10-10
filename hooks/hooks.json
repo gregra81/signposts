@@ -20,6 +20,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__plugin_signposts_signposts__search_signposts",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "signpost-session-start --search-hit"
+          }
+        ]
+      }
     ]
   }
 }

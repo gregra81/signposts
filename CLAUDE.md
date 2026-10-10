@@ -215,7 +215,11 @@ every session start. The same bundle is the `SessionEnd` hook: run with `--sessi
 an empty marker per session under `STATE_DIR/ended-sessions`, and eligibility waits no idle time at
 all for a session whose marker is no older than its last write. It is one bundle rather than two
 because a second file's shipped `.js` could not import a `.ts` sibling from inside `node_modules`,
-and a third copy of the state-directory rule is how the two processes stop agreeing. It checks two
+and a third copy of the state-directory rule is how the two processes stop agreeing. It is also the
+`PostToolUse` hook on `search_signposts`: run with `--search-hit`, it turns the claims a search
+returned into a `systemMessage`, so the developer sees them on a row of their own rather than only
+inside Claude's prose. An MCP tool's `tool_response` arrives as its `structuredContent` serialised
+to a string. It checks two
 conditions with `stat` calls only — eligible transcripts and a stale index — takes the run lock,
 spawns `signpost worker --adopt-lock` detached, prints one `systemMessage` and exits. It also decides
 whether to hand Claude the `additionalContext` instruction that turns the notice into an offer:
