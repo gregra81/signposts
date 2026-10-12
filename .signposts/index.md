@@ -16,5 +16,6 @@
 
 | id | claim | repo |
 | --- | --- | --- |
-| `the-sessionstart-hook-s-injected-context-is` | The SessionStart hook's injected context is scoped to startup and resume so it never lands mid-session, because a mid-session injection breaks prompt caching. | gregra81/signposts |
 | `a-session-s-sessionend-marker-overrides-a` | A session's SessionEnd marker overrides a configured idleHours in both directions: even an operator who set a longer idle window gets zero wait for an ended session. | gregra81/signposts |
+| `the-sessionstart-hook-s-injected-context-is` | The SessionStart hook's injected context is scoped to startup and resume so it never lands mid-session, because a mid-session injection breaks prompt caching. | gregra81/signposts |
+| `search-hits-are-surfaced-as-a-posttooluse` | Search hits are surfaced as a PostToolUse systemMessage row, not a MessageDisplay rewrite of Claude's text, which was deferred as model-dependent and run on every streamed batch. | gregra81/signposts |
