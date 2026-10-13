@@ -362,6 +362,29 @@ describe("wrapping a status line that was already there", () => {
   });
 });
 
+// Under the mod (mod/register.tsx) the same rows are pinned by the mod
+// itself; this command inherits SIGNPOSTS_MOD from the Claude Code process and
+// keeps to the developer's own line.
+describe("when the signposts mod is loaded", () => {
+  function renderUnderMod(f: Fixture, args: string[] = []) {
+    return spawnSync(process.execPath, [STATUSLINE, ...args], {
+      encoding: "utf8",
+      input: sessionJson(f),
+      env: { ...process.env, HOME: f.home, SIGNPOSTS_MOD: "1" },
+    });
+  }
+
+  it("prints nothing of its own", () => {
+    expect(renderUnderMod(withStatus(fixture(), progress(1, 1, 2, 3))).stdout).toBe("");
+  });
+
+  it("still prints the line it wraps", () => {
+    const f = withStatus(fixture(), progress(1, 1, 2, 3));
+
+    expect(renderUnderMod(f, ["--wrap", "echo 'main | 42% context'"]).stdout).toBe("main | 42% context\n");
+  });
+});
+
 // delegate's own retry: a real fork failure (EAGAIN under process pressure)
 // leaves spawnSync's stdout non-string and sets error, which is the CI flake
 // this closes (CI failed once on `keeps their output when their script exits

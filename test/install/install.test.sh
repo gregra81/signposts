@@ -191,7 +191,9 @@ if [ "$status" = 0 ]; then pass "installs with claude on PATH"; else fail "insta
 expected="plugin marketplace add gregra81/signposts
 plugin marketplace update signposts
 plugin install signposts@signposts --scope user --yes
-plugin update signposts@signposts --scope user --yes"
+plugin update signposts@signposts --scope user --yes
+plugin install signposts-mod@signposts --scope user --yes
+plugin update signposts-mod@signposts --scope user --yes"
 if [ "$(cat "$CLAUDE_LOG" 2>/dev/null)" = "$expected" ]; then
   pass "refreshes the marketplace and updates an installed plugin"
 else

@@ -138,7 +138,7 @@ export interface WorkerStatus {
   /**
    * When the `SessionStart` hook last emitted the run offer — the hook's own
    * field, written directly to this file (hooks/session-start.ts,
-   * `recordOffered`), never by this module. Carried through by the write
+   * `offerInstructionIsQuiet`), never by this module. Carried through by the write
    * paths below like `lastRunFinishedAt`: neither the worker nor the run
    * commands own it, so both must pass it back untouched rather than drop it
    * on their next wholesale write (19-value-to-a-user.md, open item 22).

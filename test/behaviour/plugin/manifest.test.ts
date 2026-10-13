@@ -73,7 +73,7 @@ describe("the marketplace manifest", () => {
   const entry = plugins[0]!;
 
   it("offers this repo's own plugin, pinned to the release the CLI comes from", () => {
-    expect(plugins).toHaveLength(1);
+    expect(plugins).toHaveLength(2);
     expect(entry["name"]).toBe(manifest["name"]);
     // It was "./", the marketplace root — which is the default branch, while
     // install.sh installs the CLI from a release tarball. So merging to main
@@ -262,5 +262,40 @@ describe("the slash commands", () => {
 
     expect(frontmatter).toContain(`name: ${name}`);
     expect(frontmatter).toMatch(/description: .+/);
+  });
+});
+
+// The mod (mod/) is a second plugin in the same marketplace, so a Claude Code
+// build that cannot load mods drops it and keeps the plugin. It moves with a
+// release like the plugin does: the same ref, and its own cache key.
+describe("the mod", () => {
+  const mod = readJson("mod/.claude-plugin/plugin.json");
+  const marketplace = readJson(".claude-plugin/marketplace.json");
+  const entry = (marketplace["plugins"] as Record<string, unknown>[]).find((plugin) => plugin["name"] === mod["name"]);
+
+  it("is offered from its folder, pinned to the release the CLI comes from", () => {
+    const repository = (packageJson["repository"] as { url: string }).url;
+    const slug = /github\.com\/([^/]+\/[^/.]+)/.exec(repository)?.[1];
+    expect(entry?.["source"]).toEqual({
+      source: "git-subdir",
+      url: `https://github.com/${slug!}.git`,
+      path: "mod",
+      ref: `v${packageJson["version"] as string}`,
+    });
+  });
+
+  it("carries the package's version", () => {
+    expect(mod["version"]).toBe(packageJson["version"]);
+  });
+
+  it("names a hooks module and a state contract that exist", () => {
+    const modules = readJson("mod/hooks/hooks.json")["modules"] as string[];
+    expect(modules).toHaveLength(1);
+    expect(existsSync(path.join(PROJECT_ROOT, "mod/hooks", modules[0]!))).toBe(true);
+    expect(existsSync(path.join(PROJECT_ROOT, "mod", mod["types"] as string))).toBe(true);
+  });
+
+  it("is what install.sh installs", () => {
+    expect(read("docs/install.sh")).toContain(`MOD_PLUGIN="${mod["name"] as string}@$MARKETPLACE"`);
   });
 });

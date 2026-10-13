@@ -380,6 +380,45 @@ describe("the offer's quiet window (OFFER_QUIET_HOURS)", () => {
   });
 });
 
+// The mod (mod/register.tsx) sets SIGNPOSTS_MOD before this hook runs and
+// draws the offer as a band of its own, reading the backlog off status.json.
+describe("when the signposts mod is loaded", () => {
+  const MOD = { SIGNPOSTS_MOD: "1" };
+
+  it("leaves the offer to the mod and writes the backlog where it reads it", () => {
+    const f = withTranscript(fixture(), "old", IDLE_HOURS + 1);
+    rmSync(path.join(f.repoRoot, ".signposts"), { recursive: true });
+
+    const result = runHook(f, MOD);
+
+    expect(result.stdout).toBe("");
+    const status = JSON.parse(readFileSync(path.join(f.stateDir, "status.json"), "utf8")) as Record<string, unknown>;
+    expect(status["eligibleSessions"]).toBe(1);
+    expect(status["lastOfferedAt"]).toBeUndefined();
+  });
+
+  it("still announces a reindex, without the sessions", async () => {
+    const f = withTranscript(fixture(), "yesterday", IDLE_HOURS + 1);
+
+    const output = JSON.parse(runHook(f, MOD).stdout) as { systemMessage: string; hookSpecificOutput?: unknown };
+
+    expect(output.systemMessage).toBe("🪧 signposts: rebuilding the search index in the background");
+    expect(output.hookSpecificOutput).toBeUndefined();
+    await workerLines(f, 1);
+  });
+
+  it("still carries the corpus", () => {
+    const f = withCurrentIndex(withTranscript(fixture(), "old", IDLE_HOURS + 1));
+    writeFileSync(path.join(f.repoRoot, ".signposts", "index.md"), "| id | claim |\n| `a` | b |\n");
+    utimesSync(path.join(f.repoRoot, ".signposts", "index.md"), new Date(Date.now() - HOUR_MS), new Date(Date.now() - HOUR_MS));
+
+    const output = JSON.parse(runHook(f, MOD).stdout) as { hookSpecificOutput: { additionalContext: string } };
+
+    expect(output.hookSpecificOutput.additionalContext).toContain("| `a` | b |");
+    expect(output.hookSpecificOutput.additionalContext).not.toContain("before your first tool call");
+  });
+});
+
 describe("the lockfile", () => {
   it("produces exactly one worker when three sessions start at once", async () => {
     const f = withTranscript(withCurrentIndex(fixture()), "yesterday", IDLE_HOURS + 1);

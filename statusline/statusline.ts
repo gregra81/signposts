@@ -61,6 +61,15 @@ const WORKER_PHASE_RUNNING = "running";
 const PREFIX = "🪧 signposts: ";
 
 /**
+ * Set by the plugin's hooks module (mod/register.tsx) in a Claude Code build
+ * that loads one, and inherited by this command. The mod pins the same rows as
+ * a status entry of its own, so this one prints only the developer's wrapped
+ * line rather than a second copy of ours.
+ */
+const MOD_ENV_VAR = "SIGNPOSTS_MOD";
+const MOD_LOADED = "1";
+
+/**
  * `--wrap <command>`: the statusLine the developer already had.
  *
  * It is an argument rather than a file we keep somewhere, because
@@ -365,9 +374,12 @@ function readStdin(): string {
   }
 }
 
-export function render(argv: readonly string[], stdin: string, nowMs: number): string {
+export function render(argv: readonly string[], stdin: string, nowMs: number, env: NodeJS.ProcessEnv = process.env): string {
   const wrapped = wrappedCommand(argv);
   const delegated = wrapped === null ? "" : delegate(wrapped, stdin);
+  if (env[MOD_ENV_VAR] === MOD_LOADED) {
+    return delegated;
+  }
 
   const repoRoot = findRepoRoot(sessionDir(stdin, process.cwd()));
   if (repoRoot === null) {

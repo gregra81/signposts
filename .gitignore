@@ -11,3 +11,7 @@ statusline/*.js
 # Release artefacts: `pnpm pack --pack-destination dist-release`, built in CI on a tag.
 dist-release/
 *.tgz
+
+# Laid by Claude Code when it loads the mod from a folder (--plugin-dir).
+mod/.claude-plugin/types/
+mod/tsconfig.json

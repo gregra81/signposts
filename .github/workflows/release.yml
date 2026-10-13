@@ -38,27 +38,35 @@ jobs:
       # the pin would ship its CLI beside the previous release's plugin.
       - name: tag matches the marketplace pin
         run: |
-          pinned="$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].source.ref")"
-          if [ "$pinned" != "$GITHUB_REF_NAME" ]; then
-            echo "tag $GITHUB_REF_NAME does not match the plugin ref $pinned in .claude-plugin/marketplace.json" >&2
-            exit 1
-          fi
+          for pinned in $(node -p "require('./.claude-plugin/marketplace.json').plugins.map((p) => p.source.ref).join(' ')"); do
+            if [ "$pinned" != "$GITHUB_REF_NAME" ]; then
+              echo "tag $GITHUB_REF_NAME does not match the plugin ref $pinned in .claude-plugin/marketplace.json" >&2
+              exit 1
+            fi
+          done
 
       # Claude Code's cache key for the plugin. Left behind, `/plugin update`
       # sees nothing new and an existing install keeps the old plugin — v0.1.2.
       - name: tag matches the plugin's own version
         run: |
-          declared="$(node -p "require('./.claude-plugin/plugin.json').version")"
-          if [ "v$declared" != "$GITHUB_REF_NAME" ]; then
-            echo "tag $GITHUB_REF_NAME does not match version $declared in .claude-plugin/plugin.json" >&2
-            exit 1
-          fi
+          for manifest in .claude-plugin/plugin.json mod/.claude-plugin/plugin.json; do
+            declared="$(node -p "require('./$manifest').version")"
+            if [ "v$declared" != "$GITHUB_REF_NAME" ]; then
+              echo "tag $GITHUB_REF_NAME does not match version $declared in $manifest" >&2
+              exit 1
+            fi
+          done
 
       # The same chain a pull request runs. A tag is not a reason to skip it:
       # this artefact is what a `curl | bash` puts on someone's machine.
       - run: pnpm run typecheck
       - run: pnpm run lint
       - run: pnpm run test
+      # The plugins + mod job in ci.yml, with the same pin.
+      - run: npm install -g @anthropic-ai/claude-code@2.1.296
+      - run: claude plugin validate .
+      - run: claude plugin validate mod
+      - run: claude plugin test mod
 
       # `prepack` builds dist/ and both standalone bundles, so the tarball is
       # what an installed copy actually runs.

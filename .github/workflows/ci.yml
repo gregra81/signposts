@@ -47,3 +47,23 @@ jobs:
       # Outside `pnpm test` because it packs, and packing writes dist/ into the
       # checkout that the suite's spawned processes are running from.
       - run: pnpm run test:install
+
+  # The mod (mod/) compiles against Claude Code's own API, not this repo's
+  # toolchain, so typecheck, lint and vitest never see it. `validate` reads both
+  # plugins' manifests, the marketplace and the hooks module the way the engine
+  # will; `test` runs the mod's own tests. Pinned, because the mod API is early
+  # access and moves between releases: a bump here is a deliberate step.
+  mod:
+    name: plugins + mod
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          # It reads `packageManager` and looks for pnpm, which this job never uses.
+          package-manager-cache: false
+      - run: npm install -g @anthropic-ai/claude-code@2.1.296
+      - run: claude plugin validate .
+      - run: claude plugin validate mod
+      - run: claude plugin test mod

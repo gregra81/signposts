@@ -314,10 +314,11 @@ Two manifests, and both are needed. `.claude-plugin/marketplace.json` is what
 `/plugin marketplace add gregra81/signposts` reads, and it offers this repo's own plugin **at the
 release tag** (`"ref": "v<version>"`); `.claude-plugin/plugin.json` is that plugin. It was `"./"`,
 which is the default branch, while `install.sh` installs the CLI from a release: every merge shipped
-plugin wiring ahead of the CLI it drives. **A release moves three fields together:** `package.json`'s
-version, the marketplace `ref`, and `.claude-plugin/plugin.json`'s `version` — the last is Claude Code's
-cache key, and v0.1.2 left it behind, so `/plugin update` told every existing install it was current. The
-manifest test and the release workflow check all three. `install.sh` runs `marketplace update` and
+plugin wiring ahead of the CLI it drives. **A release moves five fields together:** `package.json`'s
+version, both marketplace `ref`s, and the `version` in `.claude-plugin/plugin.json` and
+`mod/.claude-plugin/plugin.json` — those last two are Claude Code's cache keys, and v0.1.2 left one
+behind, so `/plugin update` told every existing install it was current. The manifest test and the
+release workflow check all five. `install.sh` runs `marketplace update` and
 `plugin update` after the install, because `add` and `install` do nothing for a plugin already there. Without the first, the
 second cannot be installed at all, which is how v0.1.0 shipped — the README described an install
 nobody could perform.
@@ -369,6 +370,41 @@ reason frees the lock at the next session start.
 settings files it already read for a hand-installed hook, and reports which of the two routes the
 hook came by. A plugin loaded with `--plugin-dir` leaves no trace in any of them, which is why the
 absent case says "not found in settings or in an enabled plugin" rather than "not installed".
+
+## The mod
+
+`mod/` is a second plugin in the same marketplace, `signposts-mod`: a hooks module
+(`mod/hooks/register.tsx`) for Claude Code builds that load mods. It draws the offer as a band
+above the prompt with a Run button, pins the status row with `$.ui.status`, and runs the loop
+itself: `$.model.complete` answers each halt, and the replies go to `signpost resume --replies -` on
+stdin. No subagent, no replies file, no permission prompt, and no instruction that stops Claude's
+first turn to ask. The CLI still does the work, because a hooks module has no Node.
+
+It is a second plugin rather than a `modules` entry in `hooks/hooks.json` for one reason: a build
+that cannot load mods might reject that file, and a rejected `hooks.json` takes the whole plugin
+down with it (the "Duplicate hooks file" failure above). Apart, a build without mods loses the mod
+and keeps everything else. `install.sh` installs it after the plugin, and a failure there prints
+one line and fails nothing. It also gives `claude plugin test mod` a folder holding only the mod's
+tests; pointed at the repo root, it would run every vitest file too.
+
+The two coexist through one environment variable. The mod sets `SIGNPOSTS_MOD=1` in
+`classic.SessionStart`, which runs above every command hook, so the SessionStart hook sees it. The
+hook then keeps the offer instruction and the "N sessions ready" notice to itself. In a repo nothing
+has run in, it also writes `eligibleSessions` into `status.json`, because the band reads the backlog
+from there and no worker is running to count it. That is a second field beside `lastOfferedAt`, in
+the same file. The statusLine command inherits the variable and prints only the line it wraps. A
+build without mods never sets it, and gets everything as before.
+
+Two things the skill's route does that the mod's does not. `resolve` gets no tools, so it cannot read
+the repository before it rules, and `undecidable` sends the change to the PR for review. And the mod
+has no slash command: after "Not now", `/signposts:run` starts a run through the skill.
+
+`mod/` is outside `tsconfig.json` and eslint, because it compiles against Claude Code's own types
+(`claude-code`, JSX on `h`). Its checks are `claude plugin validate mod`, `claude plugin test mod`,
+and `tsc -p mod` once Claude Code has laid the types (it does that when it loads the folder with
+`--plugin-dir`). CI runs the first two, plus `claude plugin validate .` for the marketplace, in
+its own job with Claude Code pinned. `tsc -p mod` stays local, because CI has no way to get the types
+before Claude Code has loaded the mod.
 
 ## The MCP server
 

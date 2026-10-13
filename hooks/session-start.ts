@@ -144,6 +144,15 @@ const WORKER_ARGS = ["worker", "--adopt-lock"];
 const PROJECT_DIR_ENV_VAR = "CLAUDE_PROJECT_DIR";
 /** Claude Code moves its whole config directory, transcripts included, when this is set. */
 const CONFIG_DIR_ENV_VAR = "CLAUDE_CONFIG_DIR";
+/**
+ * Set by the plugin's hooks module (mod/register.tsx) before this hook runs,
+ * in a Claude Code build that loads one. The mod draws the offer as a band with
+ * a Run button and answers the run's model calls itself, so this hook keeps
+ * the instruction that makes Claude stop and ask, and the notice that repeats
+ * the band, to itself. A build without mods never sets it, and gets both.
+ */
+const MOD_ENV_VAR = "SIGNPOSTS_MOD";
+const MOD_LOADED = "1";
 
 const NOTICE_PREFIX = "🪧 signposts: ";
 
@@ -271,7 +280,7 @@ export interface WorkerState {
   judgedSessions?: Record<string, string>;
   /**
    * ISO timestamp of the last time this hook actually emitted the run offer.
-   * Written by the hook alone (recordOffered, below) — see OFFER_QUIET_HOURS
+   * Written by the hook alone (offerInstructionIsQuiet, below) — see OFFER_QUIET_HOURS
    * and 19-value-to-a-user.md, open item 22.
    */
   lastOfferedAt?: string;
@@ -948,11 +957,29 @@ function main(): void {
   // The corpus goes in whether or not a worker is woken: it is what the
   // session needs, and the wake is the tool's own business.
   const reasons = initialised ? wake(paths, repoRoot) : offerOnly(paths);
+  if (process.env[MOD_ENV_VAR] === MOD_LOADED) {
+    // The mod reads the backlog off status.json, and a repo nothing has run in
+    // has no worker to count it. The count joins `lastOfferedAt` in the one
+    // file this path already writes.
+    if (!initialised && reasons !== null) {
+      mergeIntoStatus(paths.statuslineState, { eligibleSessions: reasons.sessions, updatedAt: new Date().toISOString() });
+    }
+    write(hookOutput(reindexOnly(reasons), indexContext(paths.indexFile), true));
+    return;
+  }
   const quiet = offerInstructionIsQuiet(reasons, paths.statuslineState, Date.now());
-  const output = hookOutput(reasons, indexContext(paths.indexFile), quiet);
+  write(hookOutput(reasons, indexContext(paths.indexFile), quiet));
+}
+
+function write(output: Record<string, unknown> | null): void {
   if (output !== null) {
     process.stdout.write(JSON.stringify(output) + "\n");
   }
+}
+
+/** What is left to announce once the mod has the sessions: the reindex, or nothing. */
+export function reindexOnly(reasons: WakeReasons | null): WakeReasons | null {
+  return reasons?.staleIndex === true ? { sessions: 0, staleIndex: true } : null;
 }
 
 /** For a repo with no database: the eligible sessions to offer, counted with `stat` alone, or null. */
@@ -991,12 +1018,12 @@ function offerInstructionIsQuiet(reasons: WakeReasons | null, statuslineState: s
   if (offerIsQuiet(readWorkerState(statuslineState), nowMs)) {
     return true;
   }
-  recordOffered(statuslineState, nowMs);
+  mergeIntoStatus(statuslineState, { lastOfferedAt: new Date(nowMs).toISOString() });
   return false;
 }
 
 /**
- * Read-modify-write of `lastOfferedAt` into status.json, merging into
+ * Read-modify-write of `fields` into status.json, merging into
  * whatever JSON is already there rather than replacing the file — the worker
  * and the run commands write the same file and neither side may erase the
  * other's fields (src/io/worker/status-file.ts explains the rule this
@@ -1004,7 +1031,7 @@ function offerInstructionIsQuiet(reasons: WakeReasons | null, statuslineState: s
  * stamp the offer still made it, and failing the session over a missed stamp
  * would be a worse bug than one extra offer.
  */
-function recordOffered(statuslineState: string, nowMs: number): void {
+function mergeIntoStatus(statuslineState: string, fields: Record<string, unknown>): void {
   try {
     let state: Record<string, unknown> = {};
     try {
@@ -1016,7 +1043,7 @@ function recordOffered(statuslineState: string, nowMs: number): void {
       // No file yet — this repo's first offer — or one this build cannot
       // read. Either way, start fresh rather than block the stamp on it.
     }
-    state["lastOfferedAt"] = new Date(nowMs).toISOString();
+    Object.assign(state, fields);
     mkdirSync(path.dirname(statuslineState), { recursive: true });
     writeFileSync(statuslineState, JSON.stringify(state, null, 2) + "\n");
   } catch {
