@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "signposts-mod",
+  "description": "The signposts status row, run offer and model loop, drawn in-engine on Claude Code builds that load mods.",
+  "author": {
+    "name": "Greg Rashkevitch"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "version": "0.1.1"
+}

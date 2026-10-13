@@ -16,6 +16,16 @@
       "license": "MIT",
       "category": "productivity",
       "keywords": ["knowledge", "memory", "retrieval", "code-review"]
+    },
+    {
+      "name": "signposts-mod",
+      "source": { "source": "git-subdir", "url": "https://github.com/gregra81/signposts.git", "path": "mod", "ref": "v0.1.1" },
+      "description": "The signposts status row, run offer and model loop, drawn in-engine on Claude Code builds that load mods. Drives the signpost CLI that install.sh puts on PATH.",
+      "homepage": "https://gregra81.github.io/signposts/",
+      "repository": "https://github.com/gregra81/signposts",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": ["knowledge", "memory", "mod"]
     }
   ]
 }

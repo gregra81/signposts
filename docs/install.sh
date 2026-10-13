@@ -25,6 +25,8 @@ REPO="gregra81/signposts"
 # `<plugin>@<marketplace>`, both declared in .claude-plugin/marketplace.json.
 PLUGIN="signposts@signposts"
 MARKETPLACE="${PLUGIN#*@}"
+# The mod (mod/): the offer band, the status row and the run loop, drawn in-engine.
+MOD_PLUGIN="signposts-mod@$MARKETPLACE"
 NODE_MIN_MAJOR=24
 REQUESTED="${SIGNPOSTS_VERSION:-latest}"
 
@@ -169,6 +171,16 @@ install_plugin() {
     ! output="$(claude plugin update "$PLUGIN" --scope user --yes 2>&1)"; then
     say "the plugin did not install: ${output}"
     plugin_by_hand
+    return
+  fi
+
+  # A second plugin rather than a module inside the first, so a Claude Code
+  # build that cannot load mods loses the mod and keeps the plugin. On such a
+  # build the plugin does everything the mod would, the old way, so a failure
+  # here is a line of output and nothing else.
+  if ! output="$(claude plugin install "$MOD_PLUGIN" --scope user --yes 2>&1)" ||
+    ! output="$(claude plugin update "$MOD_PLUGIN" --scope user --yes 2>&1)"; then
+    say "the signposts mod did not install, and the plugin works without it: ${output}"
   fi
 }
 

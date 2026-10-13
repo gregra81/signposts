@@ -8,7 +8,7 @@ export default tseslint.config(
   {
     // hooks/*.js and statusline/*.js are build output (scripts/build-hooks.mjs),
     // linted and typechecked as the .ts they are stripped from.
-    ignores: ["node_modules/**", "dist/**", ".stryker-tmp/**", "hooks/*.js", "statusline/*.js"],
+    ignores: ["node_modules/**", "dist/**", ".stryker-tmp/**", "hooks/*.js", "statusline/*.js", "mod/**"],
   },
   tseslint.configs.base,
   {
