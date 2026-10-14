@@ -397,14 +397,11 @@ describe("when the signposts mod is loaded", () => {
     expect(status["lastOfferedAt"]).toBeUndefined();
   });
 
-  it("still announces a reindex, without the sessions", async () => {
+  it("still reindexes, and leaves the notice to the pane", async () => {
     const f = withTranscript(fixture(), "yesterday", IDLE_HOURS + 1);
 
-    const output = JSON.parse(runHook(f, MOD).stdout) as { systemMessage: string; hookSpecificOutput?: unknown };
-
-    expect(output.systemMessage).toBe("🪧 signposts: rebuilding the search index in the background");
-    expect(output.hookSpecificOutput).toBeUndefined();
-    await workerLines(f, 1);
+    expect(runHook(f, MOD).stdout).toBe("");
+    expect(await workerLines(f, 1)).toHaveLength(1);
   });
 
   it("still carries the corpus", () => {
@@ -612,6 +609,18 @@ describe("after a search", () => {
     expect(JSON.parse(result.stdout as string)).toEqual({
       systemMessage: "🪧 signposts: 1 recorded claim found\n  · Use pnpm, never npm. (decision)",
     });
+  });
+
+  it("leaves the claims to the mod's pane", () => {
+    const response = JSON.stringify({ results: [{ id: "a", claim: "Use pnpm.", category: "decision" }] });
+    const result = spawnSync(process.execPath, [HOOK, "--search-hit"], {
+      encoding: "utf8",
+      env: { ...process.env, SIGNPOSTS_MOD: "1" },
+      input: JSON.stringify({ hook_event_name: "PostToolUse", tool_name: "x", tool_input: {}, tool_response: response }),
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("");
   });
 
   it("prints nothing for an empty search", () => {

@@ -374,11 +374,21 @@ absent case says "not found in settings or in an enabled plugin" rather than "no
 ## The mod
 
 `mod/` is a second plugin in the same marketplace, `signposts-mod`: a hooks module
-(`mod/hooks/register.tsx`) for Claude Code builds that load mods. It draws the offer as a band
-above the prompt with a Run button, pins the status row with `$.ui.status`, and runs the loop
-itself: `$.model.complete` answers each halt, and the replies go to `signpost resume --replies -` on
-stdin. No subagent, no replies file, no permission prompt, and no instruction that stops Claude's
-first turn to ask. The CLI still does the work, because a hooks module has no Node.
+(`mod/hooks/register.tsx`) for Claude Code builds that load mods. It keeps signposts out of the
+transcript. A pane docked beside it holds the status, the offer with a Run button, the run's progress
+and outcome, and the claims each `search_signposts` call returned, which a `tool.call` hook collects.
+While the pane is up, the search's own row draws nothing. Claude Code folds an MCP call into a
+`ToolGroup` line ("Called plugin:signposts:signposts"), so that is the site the mod empties; a group
+that also holds other calls keeps its line. The mod runs the loop itself: `$.model.complete` answers
+each halt, and the replies go to `signpost resume --replies -` on stdin. No subagent, no replies
+file, no permission prompt, and no instruction that stops Claude's first turn to ask. The CLI still
+does the work, because a hooks module has no Node.
+
+Claude Code places a pane opened unasked only from 144 columns. Below that, the band above the prompt
+carries the offer and `$.ui.status` pins the row, and `/signposts-pane` opens the pane at any width.
+It is not `/signposts`, because Claude Code refuses a command name the plugin's skill
+(`/signposts:signposts`) already claims. A plugin's status row is drawn as `signposts-mod: <text>`,
+so the row carries no prefix of its own. The band and the toast still do.
 
 It is a second plugin rather than a `modules` entry in `hooks/hooks.json` for one reason: a build
 that cannot load mods might reject that file, and a rejected `hooks.json` takes the whole plugin
@@ -389,7 +399,9 @@ tests; pointed at the repo root, it would run every vitest file too.
 
 The two coexist through one environment variable. The mod sets `SIGNPOSTS_MOD=1` in
 `classic.SessionStart`, which runs above every command hook, so the SessionStart hook sees it. The
-hook then keeps the offer instruction and the "N sessions ready" notice to itself. In a repo nothing
+hook then keeps the offer instruction to itself and prints no `systemMessage` at all, at session
+start or after a search: a row in the transcript is what the pane replaces, and the reindex shows
+there off the phase the worker writes. In a repo nothing
 has run in, it also writes `eligibleSessions` into `status.json`, because the band reads the backlog
 from there and no worker is running to count it. That is a second field beside `lastOfferedAt`, in
 the same file. The statusLine command inherits the variable and prints only the line it wraps. A
@@ -397,7 +409,11 @@ build without mods never sets it, and gets everything as before.
 
 Two things the skill's route does that the mod's does not. `resolve` gets no tools, so it cannot read
 the repository before it rules, and `undecidable` sends the change to the PR for review. And the mod
-has no slash command: after "Not now", `/signposts:run` starts a run through the skill.
+has no command that runs: after "Not now", `/signposts:run` starts a run through the skill.
+
+The variable reaches everything the session starts, a test suite run from it included, and the hook
+and statusLine tests spawn with `process.env`. `vitest.config.ts` blanks it, so a suite run from a
+session with the mod still takes the default path.
 
 `mod/` is outside `tsconfig.json` and eslint, because it compiles against Claude Code's own types
 (`claude-code`, JSX on `h`). Its checks are `claude plugin validate mod`, `claude plugin test mod`,
