@@ -145,11 +145,13 @@ const PROJECT_DIR_ENV_VAR = "CLAUDE_PROJECT_DIR";
 /** Claude Code moves its whole config directory, transcripts included, when this is set. */
 const CONFIG_DIR_ENV_VAR = "CLAUDE_CONFIG_DIR";
 /**
- * Set by the plugin's hooks module (mod/register.tsx) before this hook runs,
- * in a Claude Code build that loads one. The mod draws the offer as a band with
- * a Run button and answers the run's model calls itself, so this hook keeps
- * the instruction that makes Claude stop and ask, and the notice that repeats
- * the band, to itself. A build without mods never sets it, and gets both.
+ * Set by the plugin's hooks module (mod/hooks/register.tsx) before this hook
+ * runs, in a Claude Code build that loads one. The mod draws the offer, the
+ * reindex and each search's claims in a pane beside the transcript, and
+ * answers the run's model calls itself, so this hook keeps the instruction that
+ * makes Claude stop and ask to itself and prints no `systemMessage` at all: a
+ * row in the transcript is what the pane is there to replace. A build without
+ * mods never sets it, and gets all of it.
  */
 const MOD_ENV_VAR = "SIGNPOSTS_MOD";
 const MOD_LOADED = "1";
@@ -921,6 +923,9 @@ function main(): void {
     return;
   }
   if (process.argv.includes(SEARCH_HIT_FLAG)) {
+    if (process.env[MOD_ENV_VAR] === MOD_LOADED) {
+      return; // The mod puts the claims in its pane.
+    }
     const input = JSON.parse(readFileSync(0, "utf8")) as { tool_response?: unknown };
     const notice = searchHitNotice(input.tool_response);
     if (notice !== null) {
@@ -964,7 +969,8 @@ function main(): void {
     if (!initialised && reasons !== null) {
       mergeIntoStatus(paths.statuslineState, { eligibleSessions: reasons.sessions, updatedAt: new Date().toISOString() });
     }
-    write(hookOutput(reindexOnly(reasons), indexContext(paths.indexFile), true));
+    // The reindex shows in the pane, off the phase the worker writes.
+    write(hookOutput(null, indexContext(paths.indexFile)));
     return;
   }
   const quiet = offerInstructionIsQuiet(reasons, paths.statuslineState, Date.now());
@@ -975,11 +981,6 @@ function write(output: Record<string, unknown> | null): void {
   if (output !== null) {
     process.stdout.write(JSON.stringify(output) + "\n");
   }
-}
-
-/** What is left to announce once the mod has the sessions: the reindex, or nothing. */
-export function reindexOnly(reasons: WakeReasons | null): WakeReasons | null {
-  return reasons?.staleIndex === true ? { sessions: 0, staleIndex: true } : null;
 }
 
 /** For a repo with no database: the eligible sessions to offer, counted with `stat` alone, or null. */
