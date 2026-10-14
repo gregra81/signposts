@@ -79,3 +79,9 @@ test('personal storage: the offer and the outcome say where the findings go', as
   expect(offerLine(1, true)).toBe('1 session ready to distil. A run saves what it finds on this machine.')
   expect(outcomeLine(2, 1, null, '/home/dana/.signposts/abc/corpus')).toBe('2 changes saved in /home/dana/.signposts/abc/corpus')
 })
+
+test('personal storage: flagged changes are counted and pointed at', async () => {
+  expect(outcomeLine(2, 1, null, '/s/corpus', 1)).toBe(
+    '2 changes saved in /s/corpus. 1 to look at closely, listed in the signposts pane (/signposts-pane)',
+  )
+})

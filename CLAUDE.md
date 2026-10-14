@@ -428,11 +428,12 @@ before Claude Code has loaded the mod.
 signposts on their machine instead of in the repo. `derivePaths` points `knowledgeDir` at
 `<STATE_DIR>/corpus`, so the index, the mirror, search and the hook's corpus context all read the
 store without knowing it is one. `makePersonalCommitPort` (`src/io/commit/commit-port.ts`) writes
-there and commits in the store, which is a git repository of its own, created on first use with the
-checkout's `user.email` and `user.name`. There is no branch, forge or CLAUDE.md pointer, and
-`publish` returns nothing. The outcome carries `store` instead of a branch, and the skill and the mod
-report it rather than publish. The PR was the review; here the store's history is, one commit per
-session, and `git revert` undoes one.
+the signposts and `index.md` there and does nothing else: the store is a plain folder, not a git
+repository, by Greg's ruling. There is no branch, forge, commit or CLAUDE.md pointer, and `publish`
+returns nothing. The outcome carries `store` instead of a branch, and `flagged`: the gate's "Look
+closely at" lines, which a branch keeps in its commit message and the PR, and which nothing else
+keeps here. The skill and the mod report both rather than publish. There is no undo but editing
+the files.
 
 It is per developer: the repo's `.signposts/config.yaml` is the team's file, so `storage` there is
 dropped with a warning, the way `git.auto_merge: true` is. The hook and the mod cannot run the

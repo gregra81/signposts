@@ -119,10 +119,18 @@ export interface CommitOutcome {
    */
   pr: number | null;
   /**
-   * Under personal storage (STORAGE_PERSONAL), the store the commit is in: on
-   * this machine only, with nothing to publish. Absent when it went to a branch.
+   * Under personal storage (STORAGE_PERSONAL), the store the signposts were
+   * written to: on this machine only, with nothing to publish. Absent when
+   * they went to a branch.
    */
   store?: string;
+  /**
+   * Under personal storage, what the gate flagged, one line each with the
+   * reason. A branch carries these in its commit message and so in the pull
+   * request; the store has no history to carry them, so whoever reports the
+   * run shows them instead.
+   */
+  flagged?: string[];
 }
 
 /**

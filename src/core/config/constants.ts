@@ -435,9 +435,9 @@ export const WORKTREE_DIRNAME = "pr-worktree";
 
 /**
  * Where a run's signposts are kept. `repo`: in `.signposts/` on a branch, reaching
- * the checkout through a pull request. `personal`: in a git repository of their own
- * under the state directory (PERSONAL_STORE_DIRNAME), on this machine only, committed
- * as they are made with nothing to review. Per developer: ~/.signposts/config.yaml or
+ * the checkout through a pull request. `personal`: in a plain folder under the state
+ * directory (PERSONAL_STORE_DIRNAME), on this machine only, written as they are made,
+ * with no git and nothing to review. Per developer: ~/.signposts/config.yaml or
  * SIGNPOSTS_STORAGE, never the repo's config.yaml, which the team shares.
  */
 export const STORAGE_REPO = "repo";

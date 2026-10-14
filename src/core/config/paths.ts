@@ -83,8 +83,8 @@ export function derivePaths(
   const repoHash = hashRepoRoot(repoRoot);
   const globalRoot = path.join(homeDir, SIGNPOSTS_DIRNAME);
   const stateDir = path.join(globalRoot, repoHash);
-  // The personal store is the root of a git repository of its own, so the
-  // signposts sit at its top rather than under a `.signposts/` of their own.
+  // The personal store is a folder of its own, so the signposts sit at its
+  // top rather than under a `.signposts/` inside it.
   const knowledgeDir =
     storage === STORAGE_PERSONAL ? path.join(stateDir, PERSONAL_STORE_DIRNAME) : path.join(repoRoot, SIGNPOSTS_DIRNAME);
 

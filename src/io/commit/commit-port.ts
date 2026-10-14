@@ -30,13 +30,13 @@ import { CONVENTIONS_FILENAME, INDEX_FILENAME, SIGNPOSTS_DIRNAME } from "../../c
 import { branchPrefix, pickBranch } from "../../core/git/branch.ts";
 import { ensureClaudeMdPointer } from "../../core/init/policy.ts";
 import { readClaudeMd, writeClaudeMd } from "../init/claude-md.ts";
-import { sessionCommitMessage } from "../../core/pr/body.ts";
+import { flaggedLines, sessionCommitMessage } from "../../core/pr/body.ts";
 import { applyOperations, signpostPath } from "../../core/signpost/apply-operations.ts";
 import { parseSignpost, serialiseSignpost } from "../../core/signpost/codec.ts";
 import { generateIndexDoc } from "../../core/signpost/index-doc.ts";
 import type { Signpost } from "../../core/signpost/schema.ts";
 import { readSignpostFiles } from "../signpost/read-dir.ts";
-import { commitAll, ensureStore, ensureWorktree, unpushedMessages, worktreeBranch } from "../git/worktree.ts";
+import { commitAll, ensureWorktree, unpushedMessages, worktreeBranch } from "../git/worktree.ts";
 
 export interface CommitPortInput {
   repoRoot: string;
@@ -115,8 +115,7 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
 }
 
 export interface PersonalCommitPortInput {
-  repoRoot: string;
-  /** The personal store — `paths.knowledgeDir` under STORAGE_PERSONAL. */
+  /** The personal store, a plain folder — `paths.knowledgeDir` under STORAGE_PERSONAL. */
   storeDir: string;
   warn: (message: string) => void;
   committed: (outcome: CommitOutcome) => void;
@@ -124,10 +123,11 @@ export interface PersonalCommitPortInput {
 }
 
 /**
- * Node 10 under personal storage: the same write, into a git repository of the
- * developer's own on this machine, committed there. No branch, no forge, no
- * CLAUDE.md pointer and nothing for `publish` to do. The pull request was the
- * review; here the store's history is, and `git revert` undoes a session.
+ * Node 10 under personal storage: the same write, into a folder on the
+ * developer's own machine, and nothing more. No git, no branch, no forge, no
+ * CLAUDE.md pointer and nothing for `publish` to do. What the gate flagged
+ * rides on the outcome, because there is no pull request or commit message to
+ * carry it.
  */
 export function makePersonalCommitPort(input: PersonalCommitPortInput): CommitPort {
   return {
@@ -135,11 +135,8 @@ export function makePersonalCommitPort(input: PersonalCommitPortInput): CommitPo
       if (operations.operations.length === 0) {
         return;
       }
-      const store = ensureStore(input.storeDir, input.repoRoot);
-      if (!store.ok) {
-        throw new Error(`signposts: could not prepare the personal store at ${input.storeDir}: ${store.output}`);
-      }
-      const written = applyAndWrite({
+      mkdirSync(input.storeDir, { recursive: true });
+      applyAndWrite({
         root: input.storeDir,
         knowledgeDir: input.storeDir,
         where: "in the personal store",
@@ -147,15 +144,7 @@ export function makePersonalCommitPort(input: PersonalCommitPortInput): CommitPo
         today: input.today,
         warn: input.warn,
       });
-      const committed = commitAll({
-        worktreeDir: input.storeDir,
-        paths: written,
-        message: sessionCommitMessage(operations.sessionId, operations.operations, operations.flagged),
-      });
-      if (!committed.ok) {
-        throw new Error(`signposts: could not commit to the personal store at ${input.storeDir}: ${committed.output}`);
-      }
-      input.committed({ branch: null, pr: null, store: input.storeDir });
+      input.committed({ branch: null, pr: null, store: input.storeDir, flagged: flaggedLines(operations.flagged) });
     },
   };
 }

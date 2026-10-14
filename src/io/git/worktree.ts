@@ -264,32 +264,6 @@ export function commitAll(input: {
   return git(worktreeDir, ["commit", "-m", message]);
 }
 
-/**
- * The personal store as a git repository of its own, created on first use.
- * It takes the checkout's identity, which may be set only there: a store with
- * no `user.email` of its own would commit as whoever the global config names,
- * or refuse to commit at all.
- */
-export function ensureStore(storeDir: string, repoRoot: string): GitResult {
-  if (existsSync(path.join(storeDir, ".git"))) {
-    return { ok: true, output: storeDir };
-  }
-  mkdirSync(storeDir, { recursive: true });
-  const created = git(storeDir, ["init", "--quiet"]);
-  if (!created.ok) {
-    return created;
-  }
-  for (const key of IDENTITY_KEYS) {
-    const value = git(repoRoot, ["config", key]);
-    if (value.ok && value.output !== "") {
-      git(storeDir, ["config", key, value.output]);
-    }
-  }
-  return { ok: true, output: storeDir };
-}
-
-const IDENTITY_KEYS = ["user.email", "user.name"] as const;
-
 export function push(worktreeDir: string, branch: string): GitResult {
   return git(worktreeDir, ["push", "--set-upstream", "origin", branch]);
 }

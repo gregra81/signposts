@@ -92,7 +92,6 @@ const openRunWith = async (
       commit:
         config.storage === STORAGE_PERSONAL
           ? makePersonalCommitPort({
-              repoRoot,
               storeDir: config.paths.knowledgeDir,
               warn,
               committed: (outcome) => {

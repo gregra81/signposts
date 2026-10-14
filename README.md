@@ -177,10 +177,10 @@ searches it.
 
 Put `storage: personal` in `~/.signposts/config.yaml`, or set `SIGNPOSTS_STORAGE=personal`, and
 runs keep what they find on your machine instead of in the repo. It goes to
-`~/.signposts/<repo-hash>/corpus/`, a git repository of its own with one commit per session: no
-branch, no pull request, no `CLAUDE.md` pointer. Sessions in that repo still get the index and the
-search, and `git revert` in the store undoes a session. It is your setting, not the team's, so the
-repo's own `.signposts/config.yaml` cannot turn it on.
+`~/.signposts/<repo-hash>/corpus/`, a plain folder of markdown: no git, no branch, no pull request,
+no `CLAUDE.md` pointer. Sessions in that repo still get the index and the search. What a pull
+request would have flagged for a closer look is listed at the end of the run instead. It is your
+setting, not the team's, so the repo's own `.signposts/config.yaml` cannot turn it on.
 
 ## Requirements
 
