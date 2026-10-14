@@ -61,6 +61,9 @@ const MS_PER_MINUTE = 60_000
 const RUN_PROGRESS_STALE_MS = 15 * MS_PER_MINUTE
 const CENSUS_STALE_MS = 24 * 60 * MS_PER_MINUTE
 const REPO_HASH_LENGTH = 12
+// Personal storage, read as hooks/session-start.ts reads it: the variable,
+// then one line of the user's config (src/core/config/schema.ts is the authority).
+const PERSONAL_STORAGE_LINE = /^storage:\s*["']?personal["']?\s*(#.*)?$/m
 
 type Status = {
   phase?: string
@@ -78,7 +81,8 @@ type RunOutput = {
   status: 'waiting' | 'finished' | 'skipped'
   pending: { id: string; request: ModelRequest }[]
   proposed: string[]
-  commit: unknown
+  /** src/graph/ports.ts's CommitOutcome; `store` is set under personal storage. */
+  commit: { branch: string | null; pr: number | null; store?: string } | null
   reason?: string
 }
 /** src/cli/run-port.ts; `reason` says why there is no pull request, or why it is stale. */
@@ -130,9 +134,16 @@ export function promptFor(request: ModelRequest): string {
   )
 }
 
+/** The offer, saying where a run's findings go. */
+export function offerLine(count: number, isPersonal: boolean): string {
+  const goesTo = isPersonal ? 'A run saves what it finds on this machine.' : 'A run opens a pull request with what it finds.'
+  return `${plural(count, 'session')} ready to distil. ${goesTo}`
+}
+
 /** The run's last line: what it proposed, and where it went or why it went nowhere. */
-export function outcomeLine(found: number, sessions: number, outcome: PublishOutcome | null): string {
+export function outcomeLine(found: number, sessions: number, outcome: PublishOutcome | null, store?: string): string {
   if (found === 0) return `${plural(sessions, 'session')} read, nothing proposed`
+  if (store !== undefined) return `${plural(found, 'change')} saved in ${store}`
   const where = outcome?.url ?? (outcome?.pr == null ? null : `PR #${outcome.pr}`)
   if (outcome?.reason == null) return `${plural(found, 'change')} proposed${where === null ? '' : ` — ${where}`}`
   const finish = outcome.manualCommand === null ? '' : '. The command to finish it is in the signposts pane (/signposts-pane)'
@@ -178,6 +189,17 @@ async function hashRepoRoot(repoRoot: string): Promise<string> {
 // Set at session.start; a reload runs it again.
 let repoRoot: string | null = null
 let statusPath: string | null = null
+let isPersonal = false
+
+async function readIsPersonal($: EngineInterface, home: string): Promise<boolean> {
+  const fromEnv = await $.env.get('SIGNPOSTS_STORAGE')
+  if (fromEnv !== undefined) return fromEnv === 'personal'
+  try {
+    return PERSONAL_STORAGE_LINE.test(await $.fs.read(`${home}/.signposts/config.yaml`))
+  } catch {
+    return false
+  }
+}
 
 async function signpost($: EngineInterface, args: string[], stdin?: string): Promise<unknown> {
   const result = await $.process.run(['signpost', ...args], {
@@ -233,6 +255,7 @@ async function runAll($: EngineInterface): Promise<void> {
     const model = await $.session.model()
     const { sessions } = (await signpost($, ['sessions'])) as { sessions: { sessionId: string }[] }
     let found = 0
+    let store: string | undefined
     for (const [index, { sessionId }] of sessions.entries()) {
       await update($, detail, () => `session ${index + 1}/${sessions.length}`)
       let out = (await signpost($, ['run', '--session', sessionId, ...(index === 0 ? ['--first'] : [])])) as RunOutput
@@ -246,10 +269,12 @@ async function runAll($: EngineInterface): Promise<void> {
         await refresh($)
       }
       found += out.proposed.length
+      store = out.commit?.store ?? store
     }
-    const published = found === 0 ? null : ((await signpost($, ['publish'])) as PublishOutput)
+    // A personal store is committed to as the run goes; there is nothing to push.
+    const published = found === 0 || store !== undefined ? null : ((await signpost($, ['publish'])) as PublishOutput)
     await update($, manualCommand, () => published?.publish?.manualCommand ?? '')
-    await update($, detail, () => outcomeLine(found, sessions.length, published?.publish ?? null))
+    await update($, detail, () => outcomeLine(found, sessions.length, published?.publish ?? null, store))
     await update($, phase, () => 'done')
   } catch (error) {
     await update($, detail, () => (error instanceof Error ? error.message : String(error)))
@@ -275,6 +300,7 @@ export const register: Register = on => {
       // Resolved, as the hook does: the CLI keys STATE_DIR on its realpath'd cwd.
       repoRoot = (await $.fs.stat(top.stdout.trim(), { resolve: true })).realPath ?? top.stdout.trim()
       statusPath = `${home}/.signposts/${await hashRepoRoot(repoRoot)}/status.json`
+      isPersonal = await readIsPersonal($, home)
       await $.command.register({ name: COMMAND, description: 'Show the signposts pane' })
       await openPane($)
       await refresh($)
@@ -339,7 +365,7 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="column">
           {isRowShown && <Text>{line}</Text>}
-          {isOffer && <Text>{plural(count, 'session')} ready to distil. A run opens a pull request with what it finds.</Text>}
+          {isOffer && <Text>{offerLine(count, isPersonal)}</Text>}
           {isOffer && (
             <Box>
               <Button key="run" label="Run" variant="primary" onPress={() => void runAll($)} />
@@ -393,7 +419,7 @@ export const register: Register = on => {
       <Box>
         <Text>
           {PREFIX}
-          {plural(count, 'session')} ready to distil. A run opens a pull request with what it finds.{' '}
+          {offerLine(count, isPersonal)}{' '}
         </Text>
         <Button key="run" label="Run" variant="primary" onPress={() => void runAll($)} />
         <Button key="dismiss" label="Not now" onPress={() => update($, isDismissed, () => true)} />

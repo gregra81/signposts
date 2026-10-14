@@ -11,10 +11,10 @@
 // every halt.
 
 import type { OpenedRun, OpenRun, RunHandle } from "../cli/run-port.ts";
-import { EMBEDDING_MODEL } from "../core/config/constants.ts";
+import { EMBEDDING_MODEL, STORAGE_PERSONAL } from "../core/config/constants.ts";
 import { buildExtractionGraph } from "../graph/index.ts";
 import type { CommitOutcome } from "../graph/ports.ts";
-import { makeCommitPort } from "./commit/commit-port.ts";
+import { makeCommitPort, makePersonalCommitPort } from "./commit/commit-port.ts";
 import { openCheckpointer } from "./db/checkpointer.ts";
 import { openDb } from "./db/migrate.ts";
 import { markBootstrapComplete } from "./db/repo-state.ts";
@@ -89,20 +89,31 @@ const openRunWith = async (
       neighbourK: config.retrieval.k,
       author,
       now: () => new Date(),
-      commit: makeCommitPort({
-        repoRoot,
-        worktreeDir: config.paths.worktreeDir,
-        branchPattern: config.git.branch_pattern,
-        author,
-        // The checkout, not the worktree: the forge is asked which branch to
-        // create the worktree on, before it exists (src/io/forge/gh-forge.ts).
-        forge: forgeFor(repoRoot),
-        warn,
-        committed: (outcome) => {
-          commitOutcome = outcome;
-        },
-        today: () => isoDate(new Date()),
-      }),
+      commit:
+        config.storage === STORAGE_PERSONAL
+          ? makePersonalCommitPort({
+              repoRoot,
+              storeDir: config.paths.knowledgeDir,
+              warn,
+              committed: (outcome) => {
+                commitOutcome = outcome;
+              },
+              today: () => isoDate(new Date()),
+            })
+          : makeCommitPort({
+              repoRoot,
+              worktreeDir: config.paths.worktreeDir,
+              branchPattern: config.git.branch_pattern,
+              author,
+              // The checkout, not the worktree: the forge is asked which branch to
+              // create the worktree on, before it exists (src/io/forge/gh-forge.ts).
+              forge: forgeFor(repoRoot),
+              warn,
+              committed: (outcome) => {
+                commitOutcome = outcome;
+              },
+              today: () => isoDate(new Date()),
+            }),
     });
 
     const graph = buildExtractionGraph({ ports, checkpointer });

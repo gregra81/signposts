@@ -194,3 +194,20 @@ describe("the tool's declared surface", () => {
     expect(searchOutputSchema.safeParse(unavailableOutput(SEARCH_UNAVAILABLE.no_index)).success).toBe(true);
   });
 });
+
+// Under personal storage the files are in the store, not in `.signposts/`, and
+// a fallback naming the repo's folder sends the reader to one that is not there.
+describe("the fallback under personal storage", () => {
+  const STORE = "/home/dana/.signposts/abc123def456/corpus";
+
+  it("names the store when nothing could be searched", () => {
+    const diagnostic = unavailableOutput(SEARCH_UNAVAILABLE.no_index, STORE).diagnostic!;
+    expect(diagnostic).toContain(`Read ${STORE}/${INDEX_FILENAME}`);
+    expect(diagnostic).not.toContain(`Read ${SIGNPOSTS_DIRNAME}/`);
+  });
+
+  it("names the store beside degraded results", () => {
+    const diagnostic = searchOutput([], [SEARCH_UNAVAILABLE.stale_index], STORE).diagnostic!;
+    expect(diagnostic).toContain(`grep ${STORE}/`);
+  });
+});

@@ -17,6 +17,8 @@ import {
   IDLE_HOURS,
   MAX_AGE_DAYS,
   NEIGHBOUR_K,
+  STORAGE,
+  STORAGE_MODES,
 } from "./constants.ts";
 
 const thresholdsSchema = z.object({
@@ -51,6 +53,7 @@ const gitSchema = z.object({
 // a partial literal like `{}` as its argument.
 const rawConfigSchema = z.object({
   version: z.literal(1).default(1),
+  storage: z.enum(STORAGE_MODES).default(STORAGE),
   thresholds: thresholdsSchema.optional(),
   bootstrap: bootstrapSchema.optional(),
   retrieval: retrievalSchema.optional(),
@@ -59,6 +62,7 @@ const rawConfigSchema = z.object({
 
 export const configSchema = rawConfigSchema.transform((raw) => ({
   version: raw.version,
+  storage: raw.storage,
   thresholds: thresholdsSchema.parse(raw.thresholds ?? {}),
   bootstrap: bootstrapSchema.parse(raw.bootstrap ?? {}),
   retrieval: retrievalSchema.parse(raw.retrieval ?? {}),

@@ -23,7 +23,7 @@
 // an ONNX pipeline and paying that per query would be seconds each time.
 
 import type { ResolvedConfig } from "../../core/config/resolve.ts";
-import { EMBEDDING_MODEL } from "../../core/config/constants.ts";
+import { EMBEDDING_MODEL, STORAGE_PERSONAL } from "../../core/config/constants.ts";
 import {
   SEARCH_UNAVAILABLE,
   searchOutput,
@@ -56,6 +56,9 @@ export interface CreateSearchServiceInput {
 }
 
 export function createSearchService({ config, repoRoot, warn }: CreateSearchServiceInput): SearchService {
+  const store = config.storage === STORAGE_PERSONAL ? config.paths.knowledgeDir : undefined;
+  const unavailable = (reason: SearchUnavailable): SearchToolOutput => unavailableOutput(reason, store);
+
   // Both resolved lazily, and both kept: the repo key costs a `git` subprocess
   // and the embedder costs a model load, and neither changes for the life of
   // the process. Resolving them at construction would also mean doing it
@@ -85,7 +88,7 @@ export function createSearchService({ config, repoRoot, warn }: CreateSearchServ
       try {
         repo ??= resolveRepo(repoRoot);
         if (repo === null) {
-          return unavailableOutput(SEARCH_UNAVAILABLE.no_repo);
+          return unavailable(SEARCH_UNAVAILABLE.no_repo);
         }
 
         // Two different things to say, and one of them is not a fault: no
@@ -93,10 +96,10 @@ export function createSearchService({ config, repoRoot, warn }: CreateSearchServ
         // build cannot read is a schema worth naming (../db/read-only.ts).
         const opened = openReadOnlyDb(config.paths.dbPath);
         if (opened.status === "missing") {
-          return unavailableOutput(SEARCH_UNAVAILABLE.no_index);
+          return unavailable(SEARCH_UNAVAILABLE.no_index);
         }
         if (opened.status === "unreadable") {
-          return unavailableOutput(SEARCH_UNAVAILABLE.unreadable);
+          return unavailable(SEARCH_UNAVAILABLE.unreadable);
         }
 
         const db = opened.db;
@@ -106,7 +109,7 @@ export function createSearchService({ config, repoRoot, warn }: CreateSearchServ
           // repo that has only consented is in the first state, not stale.
           const state = indexState(db, repo);
           if (state === "missing") {
-            return unavailableOutput(SEARCH_UNAVAILABLE.not_indexed);
+            return unavailable(SEARCH_UNAVAILABLE.not_indexed);
           }
 
           const caveats: SearchUnavailable[] = [];
@@ -130,13 +133,13 @@ export function createSearchService({ config, repoRoot, warn }: CreateSearchServ
             embedding,
             ...(input.paths === undefined ? {} : { paths: input.paths }),
           };
-          return searchOutput(searchSignposts(db, repo, candidate, input.limit), caveats);
+          return searchOutput(searchSignposts(db, repo, candidate, input.limit), caveats, store);
         } finally {
           db.close();
         }
       } catch (error) {
         warn(`signposts: search failed: ${String(error)}`);
-        return unavailableOutput(SEARCH_UNAVAILABLE.unreadable);
+        return unavailable(SEARCH_UNAVAILABLE.unreadable);
       }
     },
   };

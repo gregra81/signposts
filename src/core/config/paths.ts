@@ -16,7 +16,10 @@ import {
   REPLIES_FILENAME,
   ENDED_DIRNAME,
   MODEL_CACHE_DIRNAME,
+  PERSONAL_STORE_DIRNAME,
   SIGNPOSTS_DIRNAME,
+  STORAGE,
+  STORAGE_PERSONAL,
   CLAUDE_CONFIG_ROOT,
   STATUSLINE_FILENAME,
   TRANSCRIPT_DIRNAME,
@@ -39,6 +42,7 @@ export interface DerivedPaths {
   repliesPath: string;
   /** Global — NOT under stateDir. Shared across every repo on the machine. */
   modelCacheDir: string;
+  /** Where the signposts are: `<repoRoot>/.signposts`, or `<stateDir>/corpus` under personal storage. */
   knowledgeDir: string;
   indexFile: string;
   /** Second checkout of this repo, on the signposts branch — see WORKTREE_DIRNAME. */
@@ -74,11 +78,15 @@ export function derivePaths(
   repoRoot: string,
   homeDir: string,
   claudeConfigDir?: string | undefined,
+  storage: string = STORAGE,
 ): DerivedPaths {
   const repoHash = hashRepoRoot(repoRoot);
   const globalRoot = path.join(homeDir, SIGNPOSTS_DIRNAME);
   const stateDir = path.join(globalRoot, repoHash);
-  const knowledgeDir = path.join(repoRoot, SIGNPOSTS_DIRNAME);
+  // The personal store is the root of a git repository of its own, so the
+  // signposts sit at its top rather than under a `.signposts/` of their own.
+  const knowledgeDir =
+    storage === STORAGE_PERSONAL ? path.join(stateDir, PERSONAL_STORE_DIRNAME) : path.join(repoRoot, SIGNPOSTS_DIRNAME);
 
   return {
     repoRoot,

@@ -102,4 +102,12 @@ describe("derivePaths", () => {
     expect(a.stateDir).not.toBe(c.stateDir);
     expect(a.knowledgeDir).not.toBe(c.knowledgeDir);
   });
+
+  it("puts KNOWLEDGE_DIR in the personal store, under STATE_DIR, under personal storage", () => {
+    const paths = derivePaths(repoRoot, homeDir, undefined, "personal");
+
+    expect(paths.knowledgeDir).toBe(`${paths.stateDir}/corpus`);
+    expect(paths.indexFile).toBe(`${paths.stateDir}/corpus/index.md`);
+    expect(paths.worktreeDir).toBe(derivePaths(repoRoot, homeDir).worktreeDir);
+  });
 });

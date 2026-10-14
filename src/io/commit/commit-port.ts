@@ -36,7 +36,7 @@ import { parseSignpost, serialiseSignpost } from "../../core/signpost/codec.ts";
 import { generateIndexDoc } from "../../core/signpost/index-doc.ts";
 import type { Signpost } from "../../core/signpost/schema.ts";
 import { readSignpostFiles } from "../signpost/read-dir.ts";
-import { commitAll, ensureWorktree, unpushedMessages, worktreeBranch } from "../git/worktree.ts";
+import { commitAll, ensureStore, ensureWorktree, unpushedMessages, worktreeBranch } from "../git/worktree.ts";
 
 export interface CommitPortInput {
   repoRoot: string;
@@ -92,24 +92,14 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
         throw new Error(`signposts: could not prepare the worktree for ${branch}: ${worktree.output}`);
       }
 
-      const knowledgeDir = path.join(input.worktreeDir, SIGNPOSTS_DIRNAME);
-      const applied = applyOperations({
-        corpus: readCorpus(knowledgeDir),
-        operations: operations.operations,
-        now: input.today(),
+      const written = applyAndWrite({
+        root: input.worktreeDir,
+        knowledgeDir: path.join(input.worktreeDir, SIGNPOSTS_DIRNAME),
+        where: `on ${branch}`,
+        operations,
+        today: input.today,
+        warn: input.warn,
       });
-
-      // Reported, not thrown: an operation that could not be applied is one
-      // proposal, and losing the whole session over it costs every model call
-      // the developer answered by hand. The branch carries the rest.
-      for (const skip of applied.skipped) {
-        input.warn(
-          `signposts: skipped ${skip.op} ${skip.id} on ${branch} — ${skip.reason}. ` +
-            "Re-run `signpost index` if the base branch has moved.",
-        );
-      }
-
-      const written = writeCorpus(knowledgeDir, applied.corpus, applied.changed);
       const committed = commitAll({
         worktreeDir: input.worktreeDir,
         paths: [...written, ...writePointer(input.worktreeDir)],
@@ -122,6 +112,84 @@ export function makeCommitPort(input: CommitPortInput): CommitPort {
       input.committed({ branch, pr: cycle.openPr });
     },
   };
+}
+
+export interface PersonalCommitPortInput {
+  repoRoot: string;
+  /** The personal store — `paths.knowledgeDir` under STORAGE_PERSONAL. */
+  storeDir: string;
+  warn: (message: string) => void;
+  committed: (outcome: CommitOutcome) => void;
+  today: () => string;
+}
+
+/**
+ * Node 10 under personal storage: the same write, into a git repository of the
+ * developer's own on this machine, committed there. No branch, no forge, no
+ * CLAUDE.md pointer and nothing for `publish` to do. The pull request was the
+ * review; here the store's history is, and `git revert` undoes a session.
+ */
+export function makePersonalCommitPort(input: PersonalCommitPortInput): CommitPort {
+  return {
+    async apply(operations: CommitInput): Promise<void> {
+      if (operations.operations.length === 0) {
+        return;
+      }
+      const store = ensureStore(input.storeDir, input.repoRoot);
+      if (!store.ok) {
+        throw new Error(`signposts: could not prepare the personal store at ${input.storeDir}: ${store.output}`);
+      }
+      const written = applyAndWrite({
+        root: input.storeDir,
+        knowledgeDir: input.storeDir,
+        where: "in the personal store",
+        operations,
+        today: input.today,
+        warn: input.warn,
+      });
+      const committed = commitAll({
+        worktreeDir: input.storeDir,
+        paths: written,
+        message: sessionCommitMessage(operations.sessionId, operations.operations, operations.flagged),
+      });
+      if (!committed.ok) {
+        throw new Error(`signposts: could not commit to the personal store at ${input.storeDir}: ${committed.output}`);
+      }
+      input.committed({ branch: null, pr: null, store: input.storeDir });
+    },
+  };
+}
+
+interface ApplyInput {
+  /** The git working tree the returned paths are relative to. */
+  root: string;
+  knowledgeDir: string;
+  /** Where the corpus lives, for a warning or an error: "on <branch>". */
+  where: string;
+  operations: CommitInput;
+  today: () => string;
+  warn: (message: string) => void;
+}
+
+/** Applies a session's operations to the corpus in `knowledgeDir` and writes it. Returns the paths to commit. */
+function applyAndWrite(input: ApplyInput): string[] {
+  const applied = applyOperations({
+    corpus: readCorpus(input.knowledgeDir, input.where),
+    operations: input.operations.operations,
+    now: input.today(),
+  });
+
+  // Reported, not thrown: an operation that could not be applied is one
+  // proposal, and losing the whole session over it costs every model call
+  // the developer answered by hand. The commit carries the rest.
+  for (const skip of applied.skipped) {
+    input.warn(
+      `signposts: skipped ${skip.op} ${skip.id} ${input.where} — ${skip.reason}. ` +
+        "Re-run `signpost index` if the base branch has moved.",
+    );
+  }
+
+  return writeCorpus(input.root, input.knowledgeDir, applied.corpus, applied.changed);
 }
 
 /** The branch this session commits on, and the pull request it already has. */
@@ -170,8 +238,8 @@ async function chooseBranch(input: CommitPortInput): Promise<Cycle> {
   };
 }
 
-/** Every signpost currently on the branch. A file that no longer parses stops the run. */
-function readCorpus(knowledgeDir: string): Signpost[] {
+/** Every signpost currently in the corpus. A file that no longer parses stops the run. */
+function readCorpus(knowledgeDir: string, where: string): Signpost[] {
   return readSignpostFiles(knowledgeDir).map((file) => {
     try {
       return parseSignpost(file.content);
@@ -181,7 +249,7 @@ function readCorpus(knowledgeDir: string): Signpost[] {
       // refuses: the corpus is about to be edited, and applying operations
       // against a corpus missing one of its members can write a duplicate id
       // or reinforce something it cannot see.
-      throw new Error(`signposts: ${file.path} on the signposts branch does not parse: ${detail}`);
+      throw new Error(`signposts: ${file.path} ${where} does not parse: ${detail}`);
     }
   });
 }
@@ -204,8 +272,9 @@ function writePointer(worktreeDir: string): string[] {
   return [CONVENTIONS_FILENAME];
 }
 
-/** Writes the changed signposts and the regenerated index. Returns paths relative to the worktree. */
+/** Writes the changed signposts and the regenerated index. Returns paths relative to `root`. */
 function writeCorpus(
+  root: string,
   knowledgeDir: string,
   corpus: readonly Signpost[],
   changed: readonly string[],
@@ -215,17 +284,16 @@ function writeCorpus(
 
   for (const id of changed) {
     const signpost = byId.get(id)!;
-    const relative = path.join(SIGNPOSTS_DIRNAME, signpostPath(signpost));
-    const absolute = path.join(path.dirname(knowledgeDir), relative);
+    const absolute = path.join(knowledgeDir, signpostPath(signpost));
     mkdirSync(path.dirname(absolute), { recursive: true });
     writeFileSync(absolute, serialiseSignpost(signpost), "utf8");
-    written.push(relative);
+    written.push(path.relative(root, absolute));
   }
 
-  const indexRelative = path.join(SIGNPOSTS_DIRNAME, INDEX_FILENAME);
+  const index = path.join(knowledgeDir, INDEX_FILENAME);
   mkdirSync(knowledgeDir, { recursive: true });
-  writeFileSync(path.join(knowledgeDir, INDEX_FILENAME), generateIndexDoc(corpus), "utf8");
-  written.push(indexRelative);
+  writeFileSync(index, generateIndexDoc(corpus), "utf8");
+  written.push(path.relative(root, index));
 
   return written;
 }

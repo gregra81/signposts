@@ -49,7 +49,7 @@ Every command prints one JSON object. A run advances one halt at a time.
      and read `status` again. Take `<hash>` and `<repliesPath>` from the very
      output you are answering.
    - `finished` — `proposed` lists what was committed to the local branch named
-     in `commit`. Move to the next session.
+     in `commit`, or to the personal store it names. Move to the next session.
    - `reExtracted`, on any status, means the critic rejected most of a batch and
      sent it back to `extract` that many times. Tell the developer in one line.
    - `skipped` — the transcript can never be extracted (empty, only subagent
@@ -88,6 +88,11 @@ reading first. That path is outside the checkout and allowed without a prompt. D
 
 If no session committed anything (every `commit` was null), say so in one line
 and stop.
+
+If a `commit` names a `store`, this developer keeps signposts on their own machine:
+each session is already committed there and there is nothing to publish. Report
+which sessions ran, what was saved, and the store's path, and stop. Changes the gate
+flagged are in the store's commit messages under "Look closely at".
 
 Otherwise run `signpost publish`. It pushes the branch and opens the pull
 request, or adds to the one `commit.pr` names. Report which sessions ran, what was

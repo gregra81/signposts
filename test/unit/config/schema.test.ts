@@ -12,12 +12,14 @@ import {
   IDLE_HOURS,
   MAX_AGE_DAYS,
   NEIGHBOUR_K,
+  STORAGE,
 } from "../../../src/core/config/constants.js";
 
 describe("configSchema", () => {
   it("parsing {} fills every leaf from the constants module", () => {
     expect(configSchema.parse({})).toEqual({
       version: 1,
+      storage: STORAGE,
       thresholds: {
         auto_publish_confidence: AUTO_PUBLISH_CONFIDENCE,
         hedge_confidence_cap: HEDGE_CONFIDENCE_CAP,

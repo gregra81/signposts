@@ -97,6 +97,8 @@ const STATUSLINE_FILENAME = "status.json";
 const LOCKFILE_FILENAME = "run.lock";
 const INDEX_FILENAME = "index.md";
 const ENDED_DIRNAME = "ended-sessions";
+const PERSONAL_STORE_DIRNAME = "corpus";
+const CONFIG_FILENAME = "config.yaml";
 
 const MS_PER_MINUTE = 60_000;
 const MS_PER_HOUR = 3_600_000;
@@ -153,6 +155,17 @@ const CONFIG_DIR_ENV_VAR = "CLAUDE_CONFIG_DIR";
  * row in the transcript is what the pane is there to replace. A build without
  * mods never sets it, and gets all of it.
  */
+/**
+ * Personal storage (STORAGE_PERSONAL in src/core/config/constants.ts): the
+ * signposts are kept in a store under the state directory, not in the repo.
+ * The CLI resolves it from the layered config; this hook cannot afford the YAML
+ * parser, so it reads the variable and then one line of the user's file, the
+ * only two places the setting may come from (the repo file cannot set it).
+ */
+const STORAGE_ENV_VAR = "SIGNPOSTS_STORAGE";
+const STORAGE_PERSONAL = "personal";
+const PERSONAL_STORAGE_LINE = /^storage:\s*["']?personal["']?\s*(#.*)?$/m;
+
 const MOD_ENV_VAR = "SIGNPOSTS_MOD";
 const MOD_LOADED = "1";
 
@@ -188,8 +201,22 @@ export interface HookPaths {
   transcriptRoot: string;
 }
 
-export function derivePaths(repoRoot: string, homeDir: string, claudeConfigDir?: string): HookPaths {
+/** Whether this developer keeps signposts in the personal store — see STORAGE_ENV_VAR. */
+export function storageIsPersonal(env: NodeJS.ProcessEnv, homeDir: string): boolean {
+  const fromEnv = env[STORAGE_ENV_VAR];
+  if (fromEnv !== undefined) {
+    return fromEnv === STORAGE_PERSONAL;
+  }
+  try {
+    return PERSONAL_STORAGE_LINE.test(readFileSync(path.join(homeDir, SIGNPOSTS_DIRNAME, CONFIG_FILENAME), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+export function derivePaths(repoRoot: string, homeDir: string, claudeConfigDir?: string, personal = false): HookPaths {
   const stateDir = path.join(homeDir, SIGNPOSTS_DIRNAME, hashRepoRoot(repoRoot));
+  const knowledgeDir = personal ? path.join(stateDir, PERSONAL_STORE_DIRNAME) : path.join(repoRoot, SIGNPOSTS_DIRNAME);
   const configRoot =
     claudeConfigDir === undefined || claudeConfigDir === ""
       ? path.join(homeDir, CLAUDE_CONFIG_DIRNAME)
@@ -202,8 +229,8 @@ export function derivePaths(repoRoot: string, homeDir: string, claudeConfigDir?:
     statuslineState: path.join(stateDir, STATUSLINE_FILENAME),
     lockfile: path.join(stateDir, LOCKFILE_FILENAME),
     endedDir: path.join(stateDir, ENDED_DIRNAME),
-    knowledgeDir: path.join(repoRoot, SIGNPOSTS_DIRNAME),
-    indexFile: path.join(repoRoot, SIGNPOSTS_DIRNAME, INDEX_FILENAME),
+    knowledgeDir,
+    indexFile: path.join(knowledgeDir, INDEX_FILENAME),
     transcriptRoot: path.join(configRoot, TRANSCRIPT_DIRNAME),
   };
 }
@@ -678,25 +705,32 @@ function plural(count: number, noun: string): string {
  * improvement — read it as "no worse", not as "better". It also says the 18 of
  * 18 above is not reproducible: the shipped wording scored 15 of 18 that day.
  */
-export function contextFor(reasons: WakeReasons): string | null {
+export function contextFor(reasons: WakeReasons, personal = false): string | null {
   const waiting: string[] = [];
   if (reasons.sessions > 0) {
+    const into = personal ? "knowledge kept on this machine" : "team knowledge";
     waiting.push(
-      `${plural(reasons.sessions, "session")} of this repo's history ready to distil into team knowledge (\`signpost run\`)`,
+      `${plural(reasons.sessions, "session")} of this repo's history ready to distil into ${into} (\`signpost run\`)`,
     );
   }
   if (waiting.length === 0) {
     return null;
   }
 
+  // Personal storage changes where the result goes and nothing else: the
+  // wording around it is the measured one above.
+  const goesTo = personal
+    ? "a run saves what it finds on this machine, for them alone,"
+    : "a run opens a pull request with what it finds";
+  const noSecondAsk = personal ? "do not ask again." : "do not ask again before the pull request.";
   return (
     `signposts has ${waiting.join(", and ")}. ` +
     "Ask the developer about this before anything else in this session: before your first tool call " +
-    "and before starting what they asked for. Put it in one sentence that says a run opens a pull " +
-    "request with what it finds and runs in the background, outside this conversation, so they can " +
+    `and before starting what they asked for. Put it in one sentence that says ${goesTo} ` +
+    "and runs in the background, outside this conversation, so they can " +
     "keep working, then end your turn and wait for their answer — a run spends this " +
-    "session's tokens, so it is theirs to start. On a yes, drive it with the signposts skill and do " +
-    "not ask again before the pull request. On a no, drop it and do not raise it again this session."
+    "session's tokens, so it is theirs to start. On a yes, drive it with the signposts skill and " +
+    `${noSecondAsk} On a no, drop it and do not raise it again this session.`
   );
 }
 
@@ -722,15 +756,31 @@ const INDEX_POINTER =
   "This repo records team knowledge in `.signposts/`, and its index is too large to include here. " +
   "Read `.signposts/index.md` before work that may touch a recorded claim.";
 
+function personalPreamble(store: string): string {
+  return (
+    `Knowledge this developer keeps for this repo in ${store}, on this machine only: claims from their ` +
+    "own sessions that cannot be read off the code. Apply one when the work touches it; the full " +
+    `signpost and its evidence are in ${store}/<category>/<id>.md.\n\n`
+  );
+}
+
+function personalPointer(store: string): string {
+  return (
+    `This developer keeps knowledge for this repo in ${store}, and its index is too large to include ` +
+    `here. Read ${store}/${INDEX_FILENAME} before work that may touch a recorded claim.`
+  );
+}
+
 /**
  * What Claude is told about the corpus: `index.md` whole, a pointer once it
  * passes INDEX_CONTEXT_MAX_BYTES, or null when there is no claim to carry.
+ * `personalStore` names the store when that is where the corpus is kept.
  *
  * No claim row means no index yet (it arrives with the first merged PR) or
  * the renderer's "No active signposts.", and neither is worth context.
  * `stat` first, so an oversized index is never read at all.
  */
-export function indexContext(indexFile: string): string | null {
+export function indexContext(indexFile: string, personalStore?: string): string | null {
   let bytes: number;
   try {
     bytes = statSync(indexFile).size;
@@ -738,10 +788,11 @@ export function indexContext(indexFile: string): string | null {
     return null;
   }
   if (bytes > INDEX_CONTEXT_MAX_BYTES) {
-    return INDEX_POINTER;
+    return personalStore === undefined ? INDEX_POINTER : personalPointer(personalStore);
   }
   const text = readFileSync(indexFile, "utf8");
-  return text.split("\n").some((line) => line.startsWith(CLAIM_ROW_PREFIX)) ? INDEX_PREAMBLE + text : null;
+  const preamble = personalStore === undefined ? INDEX_PREAMBLE : personalPreamble(personalStore);
+  return text.split("\n").some((line) => line.startsWith(CLAIM_ROW_PREFIX)) ? preamble + text : null;
 }
 
 /**
@@ -764,8 +815,9 @@ export function hookOutput(
   reasons: WakeReasons | null,
   index: string | null = null,
   suppressOfferInstruction = false,
+  personal = false,
 ): Record<string, unknown> | null {
-  const offer = reasons === null || suppressOfferInstruction ? null : contextFor(reasons);
+  const offer = reasons === null || suppressOfferInstruction ? null : contextFor(reasons, personal);
   const context = [index, offer].filter((part) => part !== null).join("\n\n");
   const output: Record<string, unknown> = {};
   if (reasons !== null) {
@@ -940,7 +992,9 @@ function main(): void {
     return; // Not a git repo. Nothing signposts does applies here.
   }
 
-  const paths = derivePaths(repoRoot, homedir(), process.env[CONFIG_DIR_ENV_VAR]);
+  const personal = storageIsPersonal(process.env, homedir());
+  const paths = derivePaths(repoRoot, homedir(), process.env[CONFIG_DIR_ENV_VAR], personal);
+  const store = personal ? paths.knowledgeDir : undefined;
 
   // A repo with neither a corpus nor a database — nothing has run in it and
   // nobody has merged a signpost into it — gets the offer and nothing else. It
@@ -970,11 +1024,11 @@ function main(): void {
       mergeIntoStatus(paths.statuslineState, { eligibleSessions: reasons.sessions, updatedAt: new Date().toISOString() });
     }
     // The reindex shows in the pane, off the phase the worker writes.
-    write(hookOutput(null, indexContext(paths.indexFile)));
+    write(hookOutput(null, indexContext(paths.indexFile, store)));
     return;
   }
   const quiet = offerInstructionIsQuiet(reasons, paths.statuslineState, Date.now());
-  write(hookOutput(reasons, indexContext(paths.indexFile), quiet));
+  write(hookOutput(reasons, indexContext(paths.indexFile, store), quiet, personal));
 }
 
 function write(output: Record<string, unknown> | null): void {

@@ -110,13 +110,19 @@ export interface CommitInput {
  * proposed and said yes — see src/io/commit/publish.ts.
  */
 export interface CommitOutcome {
-  branch: string;
+  /** The developer's signposts branch; null under personal storage, which has none. */
+  branch: string | null;
   /**
    * The open pull request this branch already has, which `publish` will add
    * to. Null when it has none and `publish` will open one. The commit is not
    * on it either way until `publish` pushes.
    */
   pr: number | null;
+  /**
+   * Under personal storage (STORAGE_PERSONAL), the store the commit is in: on
+   * this machine only, with nothing to publish. Absent when it went to a branch.
+   */
+  store?: string;
 }
 
 /**

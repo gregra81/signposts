@@ -82,8 +82,28 @@ const OBJECT_SECTION_KEYS: Readonly<Record<string, true>> = {
   git: true,
 };
 
+/**
+ * The repo layer without `storage`. Where one developer keeps what their runs
+ * find is theirs to choose, and the repo file is the team's: a `personal` there
+ * would take every teammate's runs off the pull request without any of them
+ * choosing it. Dropped with a warning, as `git.auto_merge: true` is.
+ */
+function withoutStorage(layer: Record<string, unknown>): Record<string, unknown> {
+  if (!Object.hasOwn(layer, STORAGE_KEY)) {
+    return layer;
+  }
+  console.warn(
+    "storage is set per developer, in ~/.signposts/config.yaml or SIGNPOSTS_STORAGE; " +
+      "the repo's .signposts/config.yaml cannot set it, and its value has been ignored.",
+  );
+  const { [STORAGE_KEY]: _ignored, ...rest } = layer;
+  return rest;
+}
+
+const STORAGE_KEY = "storage";
+
 export function resolveConfig(input: ResolveConfigInput): ResolvedConfig {
-  const repoLayer = parseYamlLayer(input.repoFileContents, "repo config (.signposts/config.yaml)");
+  const repoLayer = withoutStorage(parseYamlLayer(input.repoFileContents, "repo config (.signposts/config.yaml)"));
   const userLayer = parseYamlLayer(input.userFileContents, "user config (~/.signposts/config.yaml)");
   const envLayer = parseEnvLayer(input.env);
 
@@ -107,7 +127,7 @@ export function resolveConfig(input: ResolveConfigInput): ResolvedConfig {
     git = { ...git, auto_merge: false };
   }
 
-  const paths = derivePaths(input.repoRoot, input.homeDir, input.claudeConfigDir);
+  const paths = derivePaths(input.repoRoot, input.homeDir, input.claudeConfigDir, config.storage);
 
   return Object.freeze({ ...config, git, paths });
 }

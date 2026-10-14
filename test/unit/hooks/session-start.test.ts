@@ -4,7 +4,7 @@
 // test/behaviour/hooks/session-start.test.ts.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -22,6 +22,7 @@ import type { Signpost } from "../../../src/core/signpost/schema.ts";
 import {
   alreadyJudged,
   anyWork,
+  contextFor,
   derivePaths,
   findRepoRoot,
   hookOutput,
@@ -33,6 +34,7 @@ import {
   offerIsQuiet,
   recordSessionEnd,
   searchHitNotice,
+  storageIsPersonal,
   watermarkMs,
 } from "../../../hooks/session-start.ts";
 
@@ -505,5 +507,72 @@ describe("searchHitNotice", () => {
     expect(searchHitNotice("not json")).toBe(null);
     expect(searchHitNotice(null)).toBe(null);
     expect(searchHitNotice(JSON.stringify({ results: "x" }))).toBe(null);
+  });
+});
+
+// Personal storage (STORAGE_PERSONAL): the hook reads the setting without the
+// config resolver, so it is held here to the two places the CLI takes it from.
+describe("personal storage", () => {
+  function homeWith(config: string | null): string {
+    const home = mkdtempSync(path.join(tmpdir(), "signposts-home-"));
+    if (config !== null) {
+      mkdirSync(path.join(home, ".signposts"));
+      writeFileSync(path.join(home, ".signposts", "config.yaml"), config);
+    }
+    return home;
+  }
+
+  it("is read from the user's config file", () => {
+    for (const [config, expected] of [
+      ["storage: personal\n", true],
+      ['retrieval:\n  k: 6\nstorage: "personal"  # mine only\n', true],
+      ["storage: repo\n", false],
+      ["  storage: personal\n", false],
+      [null, false],
+    ] as const) {
+      const home = homeWith(config);
+      try {
+        expect(storageIsPersonal({}, home)).toBe(expected);
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("takes SIGNPOSTS_STORAGE over the file, as the CLI does", () => {
+    const home = homeWith("storage: personal\n");
+    try {
+      expect(storageIsPersonal({ SIGNPOSTS_STORAGE: "repo" }, home)).toBe(false);
+      expect(storageIsPersonal({ SIGNPOSTS_STORAGE: "personal" }, homeWith(null))).toBe(true);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("derives the same store as src/core/config/paths.ts", () => {
+    const mine = derivePaths("/repo", "/home/dev", undefined, true);
+    const theirs = deriveAppPaths("/repo", "/home/dev", undefined, "personal");
+    expect(mine.knowledgeDir).toBe(theirs.knowledgeDir);
+    expect(mine.indexFile).toBe(theirs.indexFile);
+  });
+
+  it("offers a run that saves to this machine, not a pull request", () => {
+    const offer = contextFor({ sessions: 2, staleIndex: false }, true)!;
+    expect(offer).toContain("knowledge kept on this machine");
+    expect(offer).toContain("a run saves what it finds on this machine");
+    expect(offer).not.toContain("pull request");
+  });
+
+  it("names the store when it carries the corpus", () => {
+    const home = homeWith(null);
+    const index = path.join(home, "index.md");
+    writeFileSync(index, "| id | claim |\n| `a` | b |\n");
+    try {
+      const context = indexContext(index, "/home/dev/.signposts/abc/corpus")!;
+      expect(context).toContain("/home/dev/.signposts/abc/corpus/<category>/<id>.md");
+      expect(context).not.toContain("`.signposts/");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

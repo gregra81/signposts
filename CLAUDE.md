@@ -422,6 +422,27 @@ and `tsc -p mod` once Claude Code has laid the types (it does that when it loads
 its own job with Claude Code pinned. `tsc -p mod` stays local, because CI has no way to get the types
 before Claude Code has loaded the mod.
 
+## Personal storage
+
+`storage: personal` (in `~/.signposts/config.yaml`, or `SIGNPOSTS_STORAGE`) keeps a developer's
+signposts on their machine instead of in the repo. `derivePaths` points `knowledgeDir` at
+`<STATE_DIR>/corpus`, so the index, the mirror, search and the hook's corpus context all read the
+store without knowing it is one. `makePersonalCommitPort` (`src/io/commit/commit-port.ts`) writes
+there and commits in the store, which is a git repository of its own, created on first use with the
+checkout's `user.email` and `user.name`. There is no branch, forge or CLAUDE.md pointer, and
+`publish` returns nothing. The outcome carries `store` instead of a branch, and the skill and the mod
+report it rather than publish. The PR was the review; here the store's history is, one commit per
+session, and `git revert` undoes one.
+
+It is per developer: the repo's `.signposts/config.yaml` is the team's file, so `storage` there is
+dropped with a warning, the way `git.auto_merge: true` is. The hook and the mod cannot run the
+config resolver, so each reads `SIGNPOSTS_STORAGE` and then one `storage: personal` line of the user
+file. The offer says a run saves to this machine; the rest of the measured wording is unchanged.
+
+What it still needs: a GitHub `origin`, because the repo key is derived from it. A new signpost is
+searchable after the next session start, when the worker reindexes the store, which is the same lag
+a merged PR has.
+
 ## The MCP server
 
 `signpost mcp` (`src/cli/commands/mcp.ts`) serves one tool, `search_signposts`, over stdio. It is
