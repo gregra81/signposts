@@ -143,8 +143,15 @@ export const searchOutputSchema = z.object({
 
 export type SearchToolOutput = z.infer<typeof searchOutputSchema>;
 
-/** Where to send the reader when the index cannot answer: the files themselves. */
-const FALLBACK = `Read ${SIGNPOSTS_DIRNAME}/${INDEX_FILENAME} and grep ${SIGNPOSTS_DIRNAME}/ directly — the signposts are markdown in this repo and are readable without this tool.`;
+/**
+ * Where to send the reader when the index cannot answer: the files themselves,
+ * in the repo, or in the personal store when that is where they are kept.
+ */
+function fallback(personalStore: string | undefined): string {
+  return personalStore === undefined
+    ? `Read ${SIGNPOSTS_DIRNAME}/${INDEX_FILENAME} and grep ${SIGNPOSTS_DIRNAME}/ directly — the signposts are markdown in this repo and are readable without this tool.`
+    : `Read ${personalStore}/${INDEX_FILENAME} and grep ${personalStore}/ directly — the signposts are markdown kept on this machine and are readable without this tool.`;
+}
 
 const REBUILD = "`signpost index` rebuilds it, and the session-start hook rebuilds it on its own in the background.";
 
@@ -168,8 +175,8 @@ const REASONS: Readonly<Record<SearchUnavailable, string>> = {
     "The embedding model is not available locally, so this query was matched by keyword only, not by meaning. `signpost doctor` reports the model cache.",
 };
 
-function diagnosticOf(reasons: readonly SearchUnavailable[]): string {
-  return [...reasons.map((reason) => REASONS[reason]), FALLBACK].join(" ");
+function diagnosticOf(reasons: readonly SearchUnavailable[], personalStore?: string): string {
+  return [...reasons.map((reason) => REASONS[reason]), fallback(personalStore)].join(" ");
 }
 
 export function diagnosticFor(reason: SearchUnavailable): string {
@@ -177,8 +184,8 @@ export function diagnosticFor(reason: SearchUnavailable): string {
 }
 
 /** An empty result carrying the reason — the only shape an unhappy path takes. */
-export function unavailableOutput(reason: SearchUnavailable): SearchToolOutput {
-  return { results: [], diagnostic: diagnosticFor(reason) };
+export function unavailableOutput(reason: SearchUnavailable, personalStore?: string): SearchToolOutput {
+  return { results: [], diagnostic: diagnosticOf([reason], personalStore) };
 }
 
 /**
@@ -190,10 +197,11 @@ export function unavailableOutput(reason: SearchUnavailable): SearchToolOutput {
 export function searchOutput(
   hits: readonly SignpostHit[],
   caveats: readonly SearchUnavailable[] = [],
+  personalStore?: string,
 ): SearchToolOutput {
   const reasons = hits.length === 0 ? [...caveats, SEARCH_UNAVAILABLE.no_match] : caveats;
   const results = [...hits];
-  return reasons.length === 0 ? { results } : { results, diagnostic: diagnosticOf(reasons) };
+  return reasons.length === 0 ? { results } : { results, diagnostic: diagnosticOf(reasons, personalStore) };
 }
 
 /**

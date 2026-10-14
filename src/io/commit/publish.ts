@@ -25,17 +25,22 @@ import { PR_TITLE, prBody, prLabelsForSections, sectionFromCommit } from "../../
 import { manualPrCommand, manualPushCommand } from "../../core/pr/manual-command.ts";
 import { authorEmail, ensureWorktree, push, unpushedMessages, worktreeBranch } from "../git/worktree.ts";
 import { REGENERATED_PATHS } from "./commit-port.ts";
+import { STORAGE_PERSONAL } from "../../core/config/constants.ts";
 
 /** `publish` over a given forge — a test passes a fake one, production `gh`. */
 export function makePublish(forgeFor: (repoRoot: string) => Forge): Publish {
-  return ({ config, repoRoot, warn }) =>
-    publishBranch({
+  return async ({ config, repoRoot, warn }) => {
+    if (config.storage === STORAGE_PERSONAL) {
+      return null; // Committed where it is kept: there is no branch to push.
+    }
+    return publishBranch({
       repoRoot,
       worktreeDir: config.paths.worktreeDir,
       branchPattern: config.git.branch_pattern,
       forge: forgeFor(repoRoot),
       warn,
     });
+  };
 }
 
 export interface PublishBranchInput {

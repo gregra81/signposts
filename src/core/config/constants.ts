@@ -433,6 +433,21 @@ export const DB_FILENAME = "signposts.db";
  */
 export const WORKTREE_DIRNAME = "pr-worktree";
 
+/**
+ * Where a run's signposts are kept. `repo`: in `.signposts/` on a branch, reaching
+ * the checkout through a pull request. `personal`: in a plain folder under the state
+ * directory (PERSONAL_STORE_DIRNAME), on this machine only, written as they are made,
+ * with no git and nothing to review. Per developer: ~/.signposts/config.yaml or
+ * SIGNPOSTS_STORAGE, never the repo's config.yaml, which the team shares.
+ */
+export const STORAGE_REPO = "repo";
+export const STORAGE_PERSONAL = "personal";
+export const STORAGE_MODES = [STORAGE_REPO, STORAGE_PERSONAL] as const;
+export const STORAGE = STORAGE_REPO;
+
+/** Per-repo state subdirectory holding the personal store — see STORAGE_PERSONAL. */
+export const PERSONAL_STORE_DIRNAME = "corpus";
+
 export const CHECKPOINT_FILENAME = "checkpoints.db";
 
 export const STATUSLINE_FILENAME = "status.json";

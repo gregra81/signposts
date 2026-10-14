@@ -220,3 +220,40 @@ describe("resolveConfig — frozen result", () => {
     }).toThrow(TypeError);
   });
 });
+
+// Where a developer's runs keep what they find is theirs to choose; the repo
+// file is the team's (STORAGE_PERSONAL in src/core/config/constants.ts).
+describe("resolveConfig — storage", () => {
+  it("keeps signposts in the repo by default", () => {
+    const config = resolveConfig(baseInput());
+    expect(config.storage).toBe("repo");
+    expect(config.paths.knowledgeDir).toBe(`${REPO_ROOT}/.signposts`);
+  });
+
+  it("takes personal storage from the user file and moves the corpus into the state directory", () => {
+    const config = resolveConfig(baseInput({ userFileContents: "storage: personal\n" }));
+    expect(config.storage).toBe("personal");
+    expect(config.paths.knowledgeDir).toBe(`${config.paths.stateDir}/corpus`);
+    expect(config.paths.indexFile).toBe(`${config.paths.stateDir}/corpus/index.md`);
+  });
+
+  it("takes it from SIGNPOSTS_STORAGE over the user file", () => {
+    const config = resolveConfig(
+      baseInput({ userFileContents: "storage: personal\n", env: { SIGNPOSTS_STORAGE: "repo" } }),
+    );
+    expect(config.storage).toBe("repo");
+  });
+
+  it("ignores it in the repo file, and says so", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const config = resolveConfig(baseInput({ repoFileContents: "storage: personal\nretrieval:\n  k: 9\n" }));
+    expect(config.storage).toBe("repo");
+    expect(config.retrieval.k).toBe(9);
+    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/storage is set per developer/);
+    warnSpy.mockRestore();
+  });
+
+  it("refuses a value that is neither", () => {
+    expect(() => resolveConfig(baseInput({ env: { SIGNPOSTS_STORAGE: "cloud" } }))).toThrow(/storage/);
+  });
+});

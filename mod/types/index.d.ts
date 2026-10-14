@@ -14,6 +14,7 @@ declare module 'claude-code' {
       searches: SignpostsSearch[]
       isPanePlaced: boolean
       manualCommand: string
+      flagged: string[]
     }
   }
 }

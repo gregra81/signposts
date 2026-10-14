@@ -64,7 +64,10 @@ const SECTION_MAPPINGS: Readonly<Record<string, readonly LeafMapping[]>> = {
 // number — so a developer who exported the pin the installer told them about
 // got a stack trace out of every command, doctor included
 // (19-value-to-a-user.md item 5). The installer's use is the published one.
-const TOP_LEVEL_MAPPING = { envVar: "SIGNPOSTS_CONFIG_VERSION", leaf: "version", type: "number" } as const;
+const TOP_LEVEL_MAPPINGS: readonly LeafMapping[] = [
+  { envVar: "SIGNPOSTS_CONFIG_VERSION", leaf: "version", type: "number" },
+  { envVar: "SIGNPOSTS_STORAGE", leaf: "storage", type: "string" },
+];
 
 function coerce(raw: string, type: EnvType, envVar: string): unknown {
   switch (type) {
@@ -102,9 +105,11 @@ export function parseEnvLayer(
 ): Record<string, unknown> {
   const layer: Record<string, unknown> = {};
 
-  const topRaw = env[TOP_LEVEL_MAPPING.envVar];
-  if (topRaw !== undefined) {
-    layer[TOP_LEVEL_MAPPING.leaf] = coerce(topRaw, TOP_LEVEL_MAPPING.type, TOP_LEVEL_MAPPING.envVar);
+  for (const mapping of TOP_LEVEL_MAPPINGS) {
+    const raw = env[mapping.envVar];
+    if (raw !== undefined) {
+      layer[mapping.leaf] = coerce(raw, mapping.type, mapping.envVar);
+    }
   }
 
   for (const [section, mappings] of Object.entries(SECTION_MAPPINGS)) {

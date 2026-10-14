@@ -110,13 +110,27 @@ export interface CommitInput {
  * proposed and said yes — see src/io/commit/publish.ts.
  */
 export interface CommitOutcome {
-  branch: string;
+  /** The developer's signposts branch; null under personal storage, which has none. */
+  branch: string | null;
   /**
    * The open pull request this branch already has, which `publish` will add
    * to. Null when it has none and `publish` will open one. The commit is not
    * on it either way until `publish` pushes.
    */
   pr: number | null;
+  /**
+   * Under personal storage (STORAGE_PERSONAL), the store the signposts were
+   * written to: on this machine only, with nothing to publish. Absent when
+   * they went to a branch.
+   */
+  store?: string;
+  /**
+   * Under personal storage, what the gate flagged, one line each with the
+   * reason. A branch carries these in its commit message and so in the pull
+   * request; the store has no history to carry them, so whoever reports the
+   * run shows them instead.
+   */
+  flagged?: string[];
 }
 
 /**

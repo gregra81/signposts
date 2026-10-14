@@ -99,6 +99,11 @@ function targetId(operation: Operation): string {
   return operation.op === OPERATION_TAGS.add ? operation.signpost.id : operation.id;
 }
 
+/** One line per flagged operation: what it does and why the gate held it back. */
+export function flaggedLines(flagged: Flagged): string[] {
+  return flagged.map(({ operation, reason }) => `${operation.op} ${targetId(operation)} — ${REASON_TEXT[reason]}`);
+}
+
 /** The list under a session's table naming what to look at closely, or "" when nothing was held back. */
 function flaggedList(flagged: Flagged): string {
   if (flagged.length === 0) {

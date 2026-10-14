@@ -183,9 +183,7 @@ async function* newestPerThread(
  * thread must not take the whole listing down.
  */
 function identify(values: Record<string, unknown> | undefined): ThreadIdentity | undefined {
-  const repo = values?.["repo"];
-  const sessionId = values?.["sessionId"];
-  const contentHash = values?.["contentHash"];
+  const { repo, sessionId, contentHash } = values ?? {};
   if (
     typeof repo !== "string" ||
     typeof sessionId !== "string" ||

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { claimsIn, isSearchOnly, outcomeLine, parseReply, promptFor, statusLine } from '../hooks/register.tsx'
+import { claimsIn, isSearchOnly, offerLine, outcomeLine, parseReply, promptFor, statusLine } from '../hooks/register.tsx'
 
 const NOW = Date.parse('2026-10-12T12:00:00.000Z')
 const RECENT = '2026-10-12T11:58:00.000Z'
@@ -72,4 +72,16 @@ test('transcript: a group is hidden only when it holds the search and what loade
   expect(isSearchOnly(['ToolSearch', search])).toBe(true)
   expect(isSearchOnly(['ToolSearch'])).toBe(false)
   expect(isSearchOnly(['Read', search])).toBe(false)
+})
+
+test('personal storage: the offer and the outcome say where the findings go', async () => {
+  expect(offerLine(2, false)).toBe('2 sessions ready to distil. A run opens a pull request with what it finds.')
+  expect(offerLine(1, true)).toBe('1 session ready to distil. A run saves what it finds on this machine.')
+  expect(outcomeLine(2, 1, null, '/home/dana/.signposts/abc/corpus')).toBe('2 changes saved in /home/dana/.signposts/abc/corpus')
+})
+
+test('personal storage: flagged changes are counted and pointed at', async () => {
+  expect(outcomeLine(2, 1, null, '/s/corpus', 1)).toBe(
+    '2 changes saved in /s/corpus. 1 to look at closely, listed in the signposts pane (/signposts-pane)',
+  )
 })
