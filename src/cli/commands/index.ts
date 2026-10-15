@@ -50,7 +50,7 @@ export async function runIndex({ config, repoRoot, stderr, onFailures }: RunInde
   // `repo` (the signposts/index_meta key) comes from the `origin` git remote —
   // resolved here rather than eagerly at the composition root (see
   // src/io/production-app.ts) so a repo with no GitHub origin fails gracefully.
-  const repo = resolveRepo(repoRoot);
+  const repo = resolveRepo(repoRoot, config.storage);
   if (repo === null) {
     stderr.write(
       "signposts: could not determine repo (owner/name) from the 'origin' git remote — is this a git repo with a GitHub origin configured?\n",

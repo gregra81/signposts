@@ -137,3 +137,16 @@ describe("help and version", () => {
     expect(parseCommand(["run", "--help"])).toEqual({ name: "help" });
   });
 });
+
+describe("parseCommand — init's storage flags", () => {
+  it("reads --personal and --repo, the last one winning", () => {
+    expect(parseCommand(["init", "--personal"])).toMatchObject({ options: { storage: "personal" } });
+    expect(parseCommand(["init", "--repo"])).toMatchObject({ options: { storage: "repo" } });
+    expect(parseCommand(["init", "--personal", "--repo"])).toMatchObject({ options: { storage: "repo" } });
+  });
+
+  it("leaves storage unset without either", () => {
+    const parsed = parseCommand(["init"]);
+    expect(parsed.name === "init" && parsed.options.storage).toBeUndefined();
+  });
+});

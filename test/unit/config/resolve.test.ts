@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveConfig, type ResolveConfigInput } from "../../../src/core/config/resolve.js";
+import { resolveConfig, withStorage, type ResolveConfigInput } from "../../../src/core/config/resolve.js";
 import {
   AUTO_PUBLISH_CONFIDENCE,
   BRANCH_PATTERN,
@@ -221,8 +221,9 @@ describe("resolveConfig — frozen result", () => {
   });
 });
 
-// Where a developer's runs keep what they find is theirs to choose; the repo
-// file is the team's (STORAGE_PERSONAL in src/core/config/constants.ts).
+// Where a developer's runs keep what they find is chosen per checkout, in the
+// checkout's own file; the repo file is the team's and the user file is
+// machine-wide (STORAGE_PERSONAL in src/core/config/constants.ts).
 describe("resolveConfig — storage", () => {
   it("keeps signposts in the repo by default", () => {
     const config = resolveConfig(baseInput());
@@ -230,30 +231,43 @@ describe("resolveConfig — storage", () => {
     expect(config.paths.knowledgeDir).toBe(`${REPO_ROOT}/.signposts`);
   });
 
-  it("takes personal storage from the user file and moves the corpus into the state directory", () => {
-    const config = resolveConfig(baseInput({ userFileContents: "storage: personal\n" }));
+  it("takes personal storage from the checkout's file and moves the corpus into the state directory", () => {
+    const config = resolveConfig(baseInput({ checkoutFileContents: "storage: personal\n" }));
     expect(config.storage).toBe("personal");
     expect(config.paths.knowledgeDir).toBe(`${config.paths.stateDir}/corpus`);
     expect(config.paths.indexFile).toBe(`${config.paths.stateDir}/corpus/index.md`);
+    expect(config.paths.checkoutConfigFile).toBe(`${config.paths.stateDir}/config.yaml`);
   });
 
-  it("takes it from SIGNPOSTS_STORAGE over the user file", () => {
-    const config = resolveConfig(
-      baseInput({ userFileContents: "storage: personal\n", env: { SIGNPOSTS_STORAGE: "repo" } }),
-    );
-    expect(config.storage).toBe("repo");
+  it("reads nothing but storage from the checkout's file", () => {
+    const config = resolveConfig(baseInput({ checkoutFileContents: "storage: personal\nretrieval:\n  k: 9\n" }));
+    expect(config.retrieval.k).not.toBe(9);
   });
 
-  it("ignores it in the repo file, and says so", () => {
+  it.each([
+    ["the repo file", { repoFileContents: "storage: personal\nretrieval:\n  k: 9\n" }],
+    ["the user file", { userFileContents: "storage: personal\nretrieval:\n  k: 9\n" }],
+  ])("ignores it in %s, and says so", (_file, layer) => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const config = resolveConfig(baseInput({ repoFileContents: "storage: personal\nretrieval:\n  k: 9\n" }));
+    const config = resolveConfig(baseInput(layer));
     expect(config.storage).toBe("repo");
     expect(config.retrieval.k).toBe(9);
-    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/storage is set per developer/);
+    expect(warnSpy.mock.calls[0]?.[0]).toMatch(/storage is chosen per checkout/);
     warnSpy.mockRestore();
   });
 
+  it("no longer reads SIGNPOSTS_STORAGE", () => {
+    expect(resolveConfig(baseInput({ env: { SIGNPOSTS_STORAGE: "personal" } })).storage).toBe("repo");
+  });
+
   it("refuses a value that is neither", () => {
-    expect(() => resolveConfig(baseInput({ env: { SIGNPOSTS_STORAGE: "cloud" } }))).toThrow(/storage/);
+    expect(() => resolveConfig(baseInput({ checkoutFileContents: "storage: cloud\n" }))).toThrow(/storage/);
+  });
+
+  it("switches storage on a resolved config, paths included", () => {
+    const personal = withStorage(resolveConfig(baseInput()), "personal");
+    expect(personal.storage).toBe("personal");
+    expect(personal.paths.knowledgeDir).toBe(`${personal.paths.stateDir}/corpus`);
+    expect(withStorage(personal, "repo").paths.knowledgeDir).toBe(`${REPO_ROOT}/.signposts`);
   });
 });

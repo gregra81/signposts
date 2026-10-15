@@ -49,7 +49,7 @@ function currentNodeMajorVersion(): number {
 }
 
 export function runDoctor({ config, repoRoot, stdout }: RunDoctorInput): ExitCode {
-  const git = checkGitFacts(repoRoot);
+  const git = checkGitFacts(repoRoot, config.storage);
   const facts: DoctorFacts = {
     nodeMajorVersion: currentNodeMajorVersion(),
     nodeMinVersion: NODE_MIN_VERSION,

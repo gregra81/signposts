@@ -122,7 +122,7 @@ describe("the personal commit port", () => {
   });
 
   it("gives publish nothing to do", async () => {
-    const config = resolveConfig({ repoRoot, homeDir: root, env: { SIGNPOSTS_STORAGE: "personal" } });
+    const config = resolveConfig({ repoRoot, homeDir: root, env: {}, checkoutFileContents: "storage: personal\n" });
     const forge = new FakeForge();
 
     expect(await makePublish(() => forge)({ config, repoRoot, warn: () => {} })).toBeNull();

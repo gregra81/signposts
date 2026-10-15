@@ -8,6 +8,8 @@
 // are driven by a skill, and a named flag survives being reordered by
 // whatever assembles the command line.
 
+import { STORAGE_PERSONAL, STORAGE_REPO } from "../config/constants.ts";
+
 // `worker` and `mcp` are dispatched but not typed by a person: the SessionStart
 // hook spawns the first (hooks/session-start.ts) and the plugin manifest
 // starts the second (.claude-plugin/plugin.json). Both are commands rather
@@ -64,6 +66,8 @@ export interface CommandOptions {
    * works.
    */
   verbose: boolean;
+  /** `--personal` or `--repo`, for `init`: where this checkout's signposts are kept. The last one given wins. */
+  storage?: typeof STORAGE_PERSONAL | typeof STORAGE_REPO;
 }
 
 export type ParsedCommand =
@@ -81,6 +85,8 @@ const REPLIES_FLAG = "--replies";
 const FIRST_FLAG = "--first";
 const ADOPT_LOCK_FLAG = "--adopt-lock";
 const VERBOSE_FLAG = "--verbose";
+const PERSONAL_FLAG = "--personal";
+const REPO_FLAG = "--repo";
 
 /**
  * A flag's value, or undefined when the next argument is another flag.
@@ -104,6 +110,10 @@ function parseOptions(argv: readonly string[]): CommandOptions {
       options.adoptLock = true;
     } else if (argument === VERBOSE_FLAG) {
       options.verbose = true;
+    } else if (argument === PERSONAL_FLAG) {
+      options.storage = STORAGE_PERSONAL;
+    } else if (argument === REPO_FLAG) {
+      options.storage = STORAGE_REPO;
     } else if (argument === SESSION_FLAG) {
       const value = valueAt(argv, index + 1);
       if (value !== undefined) {

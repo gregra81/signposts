@@ -26,7 +26,7 @@ import type { App } from "../app.ts";
 import { createApp } from "../app.ts";
 import { EXIT_CODES } from "../core/cli/exit-codes.ts";
 import { resolveConfig } from "../core/config/resolve.ts";
-import { readRepoConfigFile, readUserConfigFile } from "./config.ts";
+import { readCheckoutConfigFile, readRepoConfigFile, readUserConfigFile } from "./config.ts";
 import { findRepoRoot } from "./git/repo-root.ts";
 import { openRun } from "./open-run.ts";
 import { makePublish } from "./commit/publish.ts";
@@ -114,6 +114,7 @@ export function buildProductionApp(): App {
       homeDir,
       repoFileContents: readRepoConfigFile(repoRoot),
       userFileContents: readUserConfigFile(homeDir),
+      checkoutFileContents: readCheckoutConfigFile(repoRoot, homeDir),
       env: process.env,
       claudeConfigDir: process.env["CLAUDE_CONFIG_DIR"],
     });

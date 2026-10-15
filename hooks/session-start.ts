@@ -158,12 +158,11 @@ const CONFIG_DIR_ENV_VAR = "CLAUDE_CONFIG_DIR";
 /**
  * Personal storage (STORAGE_PERSONAL in src/core/config/constants.ts): the
  * signposts are kept in a store under the state directory, not in the repo.
- * The CLI resolves it from the layered config; this hook cannot afford the YAML
- * parser, so it reads the variable and then one line of the user's file, the
- * only two places the setting may come from (the repo file cannot set it).
+ * It is chosen per checkout, by `signpost init --personal`, and recorded in
+ * the checkout's own config.yaml in its state directory, the only place the
+ * setting may come from. The CLI parses that file as YAML; this hook cannot
+ * afford the parser, so it reads the one line `init` writes.
  */
-const STORAGE_ENV_VAR = "SIGNPOSTS_STORAGE";
-const STORAGE_PERSONAL = "personal";
 const PERSONAL_STORAGE_LINE = /^storage:\s*["']?personal["']?\s*(#.*)?$/m;
 
 const MOD_ENV_VAR = "SIGNPOSTS_MOD";
@@ -201,14 +200,11 @@ export interface HookPaths {
   transcriptRoot: string;
 }
 
-/** Whether this developer keeps signposts in the personal store — see STORAGE_ENV_VAR. */
-export function storageIsPersonal(env: NodeJS.ProcessEnv, homeDir: string): boolean {
-  const fromEnv = env[STORAGE_ENV_VAR];
-  if (fromEnv !== undefined) {
-    return fromEnv === STORAGE_PERSONAL;
-  }
+/** Whether this checkout's signposts are kept in the personal store — see PERSONAL_STORAGE_LINE. */
+export function storageIsPersonal(repoRoot: string, homeDir: string): boolean {
+  const file = path.join(homeDir, SIGNPOSTS_DIRNAME, hashRepoRoot(repoRoot), CONFIG_FILENAME);
   try {
-    return PERSONAL_STORAGE_LINE.test(readFileSync(path.join(homeDir, SIGNPOSTS_DIRNAME, CONFIG_FILENAME), "utf8"));
+    return PERSONAL_STORAGE_LINE.test(readFileSync(file, "utf8"));
   } catch {
     return false;
   }
@@ -992,7 +988,7 @@ function main(): void {
     return; // Not a git repo. Nothing signposts does applies here.
   }
 
-  const personal = storageIsPersonal(process.env, homedir());
+  const personal = storageIsPersonal(repoRoot, homedir());
   const paths = derivePaths(repoRoot, homedir(), process.env[CONFIG_DIR_ENV_VAR], personal);
   const store = personal ? paths.knowledgeDir : undefined;
 

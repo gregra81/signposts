@@ -9,9 +9,18 @@
 // It asks nothing and writes nothing into the checkout the team shares: the
 // skill ships in the plugin, and the CLAUDE.md pointer arrives with the first
 // signposts commit (src/io/commit/commit-port.ts).
+//
+// It is also where a checkout's storage is chosen: `--personal` keeps what its
+// runs find on this machine, `--repo` puts it back on the pull request. The
+// choice goes into the checkout's state directory, not the repo, and not
+// ~/.signposts/config.yaml, because it is one developer's and one repo's.
+// Without either flag, init leaves whatever was chosen before.
 
 import type { ExitCode, Stdio } from "../../app.ts";
-import type { ResolvedConfig } from "../../core/config/resolve.ts";
+import { STORAGE_PERSONAL } from "../../core/config/constants.ts";
+import { withStorage, type ResolvedConfig } from "../../core/config/resolve.ts";
+import type { CommandOptions } from "../../core/cli/dispatch.ts";
+import { writeCheckoutStorage } from "../../io/config.ts";
 import { setUpRepo } from "../setup.ts";
 
 /**
@@ -24,6 +33,8 @@ export interface RunInitInput {
   config: ResolvedConfig;
   repoRoot: string;
   stdio: Stdio;
+  /** `--personal` or `--repo`; absent leaves the checkout's choice as it was. */
+  storage?: CommandOptions["storage"];
   /**
    * Absent in tests that are not about it: the real one downloads a model.
    * The composition root always passes it.
@@ -31,15 +42,23 @@ export interface RunInitInput {
   prefetchModel?: PrefetchModel;
 }
 
-export async function runInit({ config, repoRoot, stdio, prefetchModel }: RunInitInput): Promise<ExitCode> {
+export async function runInit({ config: resolved, repoRoot, stdio, storage, prefetchModel }: RunInitInput): Promise<ExitCode> {
   const say = (line: string): void => {
     stdio.output.write(`signposts: ${line}\n`);
   };
 
+  let config = resolved;
+  if (storage !== undefined) {
+    writeCheckoutStorage(config.paths.checkoutConfigFile, storage);
+    config = withStorage(config, storage);
+  }
+  const personal = config.storage === STORAGE_PERSONAL;
+
   const outcome = setUpRepo({ config, repoRoot, say });
   if (outcome.status === "no-origin") {
     stdio.error.write(
-      "signposts: could not determine repo (owner/name) from the 'origin' git remote — is this a git repo with a GitHub origin configured?\n",
+      "signposts: could not determine repo (owner/name) from the 'origin' git remote — is this a git repo with a GitHub origin configured? " +
+        "`signpost init --personal` keeps signposts on this machine and needs no origin.\n",
     );
     return 1;
   }
@@ -55,7 +74,10 @@ export async function runInit({ config, repoRoot, stdio, prefetchModel }: RunIni
   // ended is eligible with no wait, so `/clear` brings the offer up in the same
   // window. Falling quiet without ending still waits IDLE_HOURS, which is the
   // slow path and not worth a sentence here.
-  say("ready. When you clear or close a Claude conversation here, Claude offers to write up what you worked out in it and open a pull request.");
+  say(
+    "ready. When you clear or close a Claude conversation here, Claude offers to write up what you worked out in it and " +
+      (personal ? `keep it on this machine, in ${config.paths.knowledgeDir}.` : "open a pull request."),
+  );
   await prefetchModel?.(config, say);
   return 0;
 }

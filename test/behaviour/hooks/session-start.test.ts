@@ -632,40 +632,47 @@ describe("after a search", () => {
 });
 
 // Personal storage: the corpus is in the state directory's store, and the
-// offer says the run saves to this machine.
+// offer says the run saves to this machine. Chosen per checkout, in the
+// state directory's config.yaml, where `signpost init --personal` writes it.
 describe("under personal storage", () => {
-  const PERSONAL = { SIGNPOSTS_STORAGE: "personal" };
+  function personal<F extends { stateDir: string }>(f: F): F {
+    mkdirSync(f.stateDir, { recursive: true });
+    writeFileSync(path.join(f.stateDir, "config.yaml"), "storage: personal\n");
+    return f;
+  }
 
   it("carries the store's index, named as the store", () => {
-    const f = withCurrentIndex(withTranscript(fixture(), "old", IDLE_HOURS + 1));
+    const f = personal(withCurrentIndex(withTranscript(fixture(), "old", IDLE_HOURS + 1)));
     const store = path.join(f.stateDir, "corpus");
     mkdirSync(store, { recursive: true });
     writeFileSync(path.join(store, "index.md"), "| id | claim |\n| `a` | kept for me |\n");
 
-    const output = JSON.parse(runHook(f, PERSONAL).stdout) as { hookSpecificOutput: { additionalContext: string } };
+    const output = JSON.parse(runHook(f).stdout) as { hookSpecificOutput: { additionalContext: string } };
 
     expect(output.hookSpecificOutput.additionalContext).toContain("kept for me");
     expect(output.hookSpecificOutput.additionalContext).toContain(`${store}/<category>/<id>.md`);
   });
 
   it("offers a run that saves to this machine in a repo nothing has run in", () => {
-    const f = withTranscript(fixture(), "old", IDLE_HOURS + 1);
+    const f = personal(withTranscript(fixture(), "old", IDLE_HOURS + 1));
     rmSync(path.join(f.repoRoot, ".signposts"), { recursive: true });
 
-    const output = JSON.parse(runHook(f, PERSONAL).stdout) as { hookSpecificOutput: { additionalContext: string } };
+    const output = JSON.parse(runHook(f).stdout) as { hookSpecificOutput: { additionalContext: string } };
 
     expect(output.hookSpecificOutput.additionalContext).toContain("a run saves what it finds on this machine");
     expect(output.hookSpecificOutput.additionalContext).not.toContain("pull request");
   });
 
-  it("reads the setting from ~/.signposts/config.yaml", () => {
+  it("does not take the setting from ~/.signposts/config.yaml or SIGNPOSTS_STORAGE, which are machine-wide", () => {
     const f = withTranscript(fixture(), "old", IDLE_HOURS + 1);
     rmSync(path.join(f.repoRoot, ".signposts"), { recursive: true });
     mkdirSync(path.join(f.home, ".signposts"), { recursive: true });
     writeFileSync(path.join(f.home, ".signposts", "config.yaml"), "storage: personal\n");
 
-    const output = JSON.parse(runHook(f).stdout) as { hookSpecificOutput: { additionalContext: string } };
+    const output = JSON.parse(runHook(f, { SIGNPOSTS_STORAGE: "personal" }).stdout) as {
+      hookSpecificOutput: { additionalContext: string };
+    };
 
-    expect(output.hookSpecificOutput.additionalContext).toContain("a run saves what it finds on this machine");
+    expect(output.hookSpecificOutput.additionalContext).toContain("a run opens a pull request");
   });
 });

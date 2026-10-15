@@ -424,8 +424,10 @@ before Claude Code has loaded the mod.
 
 ## Personal storage
 
-`storage: personal` (in `~/.signposts/config.yaml`, or `SIGNPOSTS_STORAGE`) keeps a developer's
-signposts on their machine instead of in the repo. `derivePaths` points `knowledgeDir` at
+`signpost init --personal` keeps one checkout's signposts on the developer's machine instead of in
+the repo, and `signpost init --repo` puts them back. `init` writes `storage: personal` (or `repo`)
+into `<STATE_DIR>/config.yaml`, the checkout's own file, and that is the only place `storage` is
+read from. Without a flag, `init` leaves the choice as it was. `derivePaths` points `knowledgeDir` at
 `<STATE_DIR>/corpus`, so the index, the mirror, search and the hook's corpus context all read the
 store without knowing it is one. `makePersonalCommitPort` (`src/io/commit/commit-port.ts`) writes
 the signposts and `index.md` there and does nothing else: the store is a plain folder, not a git
@@ -435,12 +437,17 @@ closely at" lines, which a branch keeps in its commit message and the PR, and wh
 keeps here. The skill and the mod report both rather than publish. There is no undo but editing
 the files.
 
-It is per developer: the repo's `.signposts/config.yaml` is the team's file, so `storage` there is
-dropped with a warning, the way `git.auto_merge: true` is. The hook and the mod cannot run the
-config resolver, so each reads `SIGNPOSTS_STORAGE` and then one `storage: personal` line of the user
-file. The offer says a run saves to this machine; the rest of the measured wording is unchanged.
+It is per developer and per checkout, by Greg's ruling: one developer keeps some repos to
+themself and shares others. So `storage` in the repo's `.signposts/config.yaml` (the team's) or in
+`~/.signposts/config.yaml` (machine-wide) is dropped with a warning, the way `git.auto_merge: true`
+is, and there is no environment variable. The hook and the mod cannot run the config resolver, so
+each reads the one `storage: personal` line of the checkout's file; the mod reads it on every
+refresh, so an `init --personal` typed mid-session reaches the pane's offer. The offer says a run
+saves to this machine; the rest of the measured wording is unchanged.
 
-What it still needs: a GitHub `origin`, because the repo key is derived from it. A new signpost is
+It runs without a GitHub `origin`: a repo whose origin yields no `owner/name` is keyed
+`local/<directory name>` (`localRepoKey`), since the branch and the PR are what need the remote. The
+key need not be unique, because the state directory is already per checkout. A new signpost is
 searchable after the next session start, when the worker reindexes the store, which is the same lag
 a merged PR has.
 
