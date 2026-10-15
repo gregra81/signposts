@@ -343,7 +343,8 @@
             <a href="https://code.claude.com/docs/en/memory#storage-location">its docs</a> call it
             "machine-local", and nobody reviews it. Memory plugins work the same way: per developer,
             stored outside the repo. Keep them for your personal preferences. signposts is for what the
-            whole team needs to know.
+            whole team needs to know. A lesson that is only for you can stay
+            <a href="#personal">on your machine</a> instead.
           </p>
           <div class="table-wrap">
             <table class="compare">
@@ -444,7 +445,26 @@
             <summary>What leaves my machine?</summary>
             <p>
               Redacted excerpts go to Claude through your own session. The branch goes to your GitHub
-              origin. There is no signposts server.
+              origin, unless you keep your signposts to yourself (below). There is no signposts server.
+            </p>
+          </details>
+          <details id="personal">
+            <summary>Can I keep them to myself?</summary>
+            <p>
+              Yes. Put <code>storage: personal</code> in <code>~/.signposts/config.yaml</code>, and runs
+              save what they find to a plain folder under <code>~/.signposts/</code>. No branch, no pull
+              request, nothing in the repo. Your own sessions still search them; your teammates never
+              see them. The repo's config cannot turn this on for you.
+            </p>
+          </details>
+          <details>
+            <summary>Does it fill my transcript with notices?</summary>
+            <p>
+              Not in a Claude Code build that loads mods. The installer adds <code>signposts-mod</code>,
+              which puts signposts in a pane beside the transcript: the offer with a Run button, the run's
+              progress and result, and what each search found. A narrow terminal gets a row above the
+              prompt instead, and <code>/signposts-pane</code> opens the pane at any width. Other builds
+              get the notice line and the question shown above.
             </p>
           </details>
           <details>
