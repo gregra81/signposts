@@ -343,7 +343,8 @@
             <a href="https://code.claude.com/docs/en/memory#storage-location">its docs</a> call it
             "machine-local", and nobody reviews it. Memory plugins work the same way: per developer,
             stored outside the repo. Keep them for your personal preferences. signposts is for what the
-            whole team needs to know.
+            whole team needs to know. A lesson that is only for you can stay
+            <a href="#personal">on your machine</a> instead.
           </p>
           <div class="table-wrap">
             <table class="compare">
@@ -447,7 +448,7 @@
               origin, unless you keep your signposts to yourself (below). There is no signposts server.
             </p>
           </details>
-          <details>
+          <details id="personal">
             <summary>Can I keep them to myself?</summary>
             <p>
               Yes. Put <code>storage: personal</code> in <code>~/.signposts/config.yaml</code>, and runs
