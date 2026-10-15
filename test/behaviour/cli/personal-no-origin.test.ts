@@ -49,7 +49,7 @@ describe("a repo with no origin", () => {
   it(
     "lets `signpost index` run under personal storage",
     async () => {
-      const resolved = resolveConfig({ repoRoot, homeDir, env: { SIGNPOSTS_STORAGE: STORAGE_PERSONAL } });
+      const resolved = resolveConfig({ repoRoot, homeDir, env: {}, checkoutFileContents: `storage: ${STORAGE_PERSONAL}\n` });
       const config = {
         ...resolved,
         paths: { ...resolved.paths, modelCacheDir: testModelCache() },

@@ -84,6 +84,8 @@ const USAGE = "usage: signpost <init|index|doctor|sessions|run|resume|publish> [
 // (19-value-to-a-user.md item 5).
 const HELP = `${USAGE}
   init       set this repo up now (the first run does it anyway)
+               --personal            keep this repo's signposts on this machine: no branch, no pull request
+               --repo                keep them in the repo, through a pull request (the default)
   index      rebuild the search index from the signposts on disk
   doctor     check this machine and repo; exits 1 if something blocks a run
   sessions   list transcripts eligible for a run (JSON)
@@ -167,6 +169,7 @@ export function createApp({ config, openRun, publish, stdio, version, prefetchMo
             config,
             repoRoot,
             stdio: io,
+            ...(command.options.storage === undefined ? {} : { storage: command.options.storage }),
             ...(prefetchModel === undefined ? {} : { prefetchModel }),
           });
         case "index":

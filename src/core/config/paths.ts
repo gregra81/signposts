@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   CHECKPOINT_FILENAME,
+  CONFIG_FILENAME,
   DB_FILENAME,
   INDEX_FILENAME,
   LOCKFILE_FILENAME,
@@ -44,6 +45,8 @@ export interface DerivedPaths {
   modelCacheDir: string;
   /** Where the signposts are: `<repoRoot>/.signposts`, or `<stateDir>/corpus` under personal storage. */
   knowledgeDir: string;
+  /** This checkout's own config, holding its storage choice — see STORAGE_PERSONAL. */
+  checkoutConfigFile: string;
   indexFile: string;
   /** Second checkout of this repo, on the signposts branch — see WORKTREE_DIRNAME. */
   worktreeDir: string;
@@ -61,6 +64,28 @@ function expandHome(homeRelative: string, homeDir: string): string {
 /** sha256(repoRoot), hex-encoded, first 12 characters — repoRoot taken as given, unnormalised. */
 export function hashRepoRoot(repoRoot: string): string {
   return createHash("sha256").update(repoRoot).digest("hex").slice(0, 12);
+}
+
+function stateDirFor(repoRoot: string, homeDir: string): string {
+  return path.join(homeDir, SIGNPOSTS_DIRNAME, hashRepoRoot(repoRoot));
+}
+
+/** `<stateDir>/config.yaml`: read before the config is resolved, so it is derivable on its own. */
+export function checkoutConfigFile(repoRoot: string, homeDir: string): string {
+  return path.join(stateDirFor(repoRoot, homeDir), CONFIG_FILENAME);
+}
+
+/** Where the signposts are under `storage`, and the index beside them. */
+export function storagePaths(
+  repoRoot: string,
+  stateDir: string,
+  storage: string,
+): Pick<DerivedPaths, "knowledgeDir" | "indexFile"> {
+  // The personal store is a folder of its own, so the signposts sit at its
+  // top rather than under a `.signposts/` inside it.
+  const knowledgeDir =
+    storage === STORAGE_PERSONAL ? path.join(stateDir, PERSONAL_STORE_DIRNAME) : path.join(repoRoot, SIGNPOSTS_DIRNAME);
+  return { knowledgeDir, indexFile: path.join(knowledgeDir, INDEX_FILENAME) };
 }
 
 /**
@@ -82,11 +107,7 @@ export function derivePaths(
 ): DerivedPaths {
   const repoHash = hashRepoRoot(repoRoot);
   const globalRoot = path.join(homeDir, SIGNPOSTS_DIRNAME);
-  const stateDir = path.join(globalRoot, repoHash);
-  // The personal store is a folder of its own, so the signposts sit at its
-  // top rather than under a `.signposts/` inside it.
-  const knowledgeDir =
-    storage === STORAGE_PERSONAL ? path.join(stateDir, PERSONAL_STORE_DIRNAME) : path.join(repoRoot, SIGNPOSTS_DIRNAME);
+  const stateDir = stateDirFor(repoRoot, homeDir);
 
   return {
     repoRoot,
@@ -99,8 +120,8 @@ export function derivePaths(
     endedDir: path.join(stateDir, ENDED_DIRNAME),
     repliesPath: path.join(stateDir, REPLIES_FILENAME),
     modelCacheDir: path.join(globalRoot, MODEL_CACHE_DIRNAME),
-    knowledgeDir,
-    indexFile: path.join(knowledgeDir, INDEX_FILENAME),
+    ...storagePaths(repoRoot, stateDir, storage),
+    checkoutConfigFile: path.join(stateDir, CONFIG_FILENAME),
     worktreeDir: path.join(stateDir, WORKTREE_DIRNAME),
     transcriptRoot: path.join(
       claudeConfigDir === undefined || claudeConfigDir === ""

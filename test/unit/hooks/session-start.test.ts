@@ -511,39 +511,44 @@ describe("searchHitNotice", () => {
 });
 
 // Personal storage (STORAGE_PERSONAL): the hook reads the setting without the
-// config resolver, so it is held here to the two places the CLI takes it from.
+// config resolver, so it is held here to the one place the CLI takes it from:
+// the checkout's own config.yaml, where `signpost init --personal` writes it.
 describe("personal storage", () => {
+  const REPO = "/repo";
+
   function homeWith(config: string | null): string {
     const home = mkdtempSync(path.join(tmpdir(), "signposts-home-"));
     if (config !== null) {
-      mkdirSync(path.join(home, ".signposts"));
-      writeFileSync(path.join(home, ".signposts", "config.yaml"), config);
+      const file = deriveAppPaths(REPO, home).checkoutConfigFile;
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, config);
     }
     return home;
   }
 
-  it("is read from the user's config file", () => {
+  it("is read from the checkout's own config file", () => {
     for (const [config, expected] of [
       ["storage: personal\n", true],
-      ['retrieval:\n  k: 6\nstorage: "personal"  # mine only\n', true],
+      ['storage: "personal"  # mine only\n', true],
       ["storage: repo\n", false],
       ["  storage: personal\n", false],
       [null, false],
     ] as const) {
       const home = homeWith(config);
       try {
-        expect(storageIsPersonal({}, home)).toBe(expected);
+        expect(storageIsPersonal(REPO, home)).toBe(expected);
       } finally {
         rmSync(home, { recursive: true, force: true });
       }
     }
   });
 
-  it("takes SIGNPOSTS_STORAGE over the file, as the CLI does", () => {
-    const home = homeWith("storage: personal\n");
+  it("is not read from the user's config file, which is machine-wide", () => {
+    const home = homeWith(null);
     try {
-      expect(storageIsPersonal({ SIGNPOSTS_STORAGE: "repo" }, home)).toBe(false);
-      expect(storageIsPersonal({ SIGNPOSTS_STORAGE: "personal" }, homeWith(null))).toBe(true);
+      mkdirSync(path.join(home, ".signposts"));
+      writeFileSync(path.join(home, ".signposts", "config.yaml"), "storage: personal\n");
+      expect(storageIsPersonal(REPO, home)).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

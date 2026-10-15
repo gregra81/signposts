@@ -154,7 +154,7 @@ drives the loop.
 | `signpost sessions`, `run`, `resume` | The loop the skill drives. One JSON object per invocation. |
 | `signpost publish` | Pushes what the runs committed and opens or updates the PR. The skill runs it at the end. |
 | `signpost index` | Rebuilds the local search index by hand. The session-start hook does it in the background. |
-| `signpost init` | Sets a repo up and downloads the embedding model ahead of time. Optional: the first run does the same. |
+| `signpost init` | Sets a repo up and downloads the embedding model ahead of time. Optional: the first run does the same. `--personal` keeps this repo's signposts on your machine; `--repo` switches back. |
 
 `--verbose` narrates a run on stderr: which transcript it picked, what each halt is waiting on,
 and the exact command that answers it. stdout stays one JSON object, so a pipe through `jq` still
@@ -175,13 +175,14 @@ searches it.
 
 ## Keeping them to yourself
 
-Put `storage: personal` in `~/.signposts/config.yaml`, or set `SIGNPOSTS_STORAGE=personal`, and
-runs keep what they find on your machine instead of in the repo. It goes to
+Run `signpost init --personal` in a repo, and runs there keep what they find on your machine
+instead of in the repo. It goes to
 `~/.signposts/<repo-hash>/corpus/`, a plain folder of markdown: no git, no branch, no pull request,
 no `CLAUDE.md` pointer. Sessions in that repo still get the index and the search. What a pull
-request would have flagged for a closer look is listed at the end of the run instead. It is your
-setting, not the team's, so the repo's own `.signposts/config.yaml` cannot turn it on. It also works
-in a repo with no GitHub `origin`.
+request would have flagged for a closer look is listed at the end of the run instead. The choice
+is yours and covers that one checkout: other repos on your machine still open pull requests, and
+the repo's own `.signposts/config.yaml` cannot turn it on for the team. `signpost init --repo`
+switches back. It also works in a repo with no GitHub `origin`.
 
 ## Requirements
 

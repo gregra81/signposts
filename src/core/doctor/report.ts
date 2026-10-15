@@ -329,7 +329,7 @@ export function buildDoctorReport(facts: DoctorFacts): string[] {
     gitLine(
       "git origin",
       facts.git.repo,
-      "no 'origin' remote, or none that yields an owner/name — `init` and `index` refuse to run without it, unless `storage: personal` is set",
+      "no 'origin' remote, or none that yields an owner/name — `init` and `index` refuse to run without it, unless `signpost init --personal` keeps this repo's signposts on this machine",
     ),
     ghLine(facts),
     modelCacheLine(facts),

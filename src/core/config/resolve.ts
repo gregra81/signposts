@@ -1,7 +1,8 @@
 // Layers every signposts tunable, lowest to highest precedence: built-in
 // constants -> repo file (.signposts/config.yaml) -> user file
-// (~/.signposts/config.yaml) -> environment variables. Returns one frozen
-// object, including the derived state paths.
+// (~/.signposts/config.yaml) -> environment variables. `storage` is the
+// exception: it comes only from the checkout's own file in its state
+// directory. Returns one frozen object, including the derived state paths.
 //
 // File contents, env, and homeDir all arrive as explicit arguments — this
 // function reads no ambient state itself (no `fs`, no `process.env`, no
@@ -12,7 +13,7 @@ import { parse as parseYaml } from "yaml";
 import { configSchema, type SignpostsConfig } from "./schema.ts";
 import { mergeLeaves } from "./merge.ts";
 import { parseEnvLayer } from "./env.ts";
-import { derivePaths, type DerivedPaths } from "./paths.ts";
+import { derivePaths, storagePaths, type DerivedPaths } from "./paths.ts";
 import { formatZodError } from "../errors/format-zod-error.ts";
 
 export interface ResolveConfigInput {
@@ -24,6 +25,8 @@ export interface ResolveConfigInput {
   repoFileContents?: string | undefined;
   /** Raw YAML text of `~/.signposts/config.yaml`, if the file exists. */
   userFileContents?: string | undefined;
+  /** Raw YAML text of `~/.signposts/<repo-hash>/config.yaml`, if the file exists: `storage` and nothing else. */
+  checkoutFileContents?: string | undefined;
   /** In place of reading `process.env` directly. */
   env: Readonly<Record<string, string | undefined>>;
   /** `CLAUDE_CONFIG_DIR`, when the caller's environment sets it. */
@@ -83,34 +86,51 @@ const OBJECT_SECTION_KEYS: Readonly<Record<string, true>> = {
 };
 
 /**
- * The repo layer without `storage`. Where one developer keeps what their runs
- * find is theirs to choose, and the repo file is the team's: a `personal` there
- * would take every teammate's runs off the pull request without any of them
- * choosing it. Dropped with a warning, as `git.auto_merge: true` is.
+ * A layer without `storage`. Where a developer keeps what their runs find in
+ * one checkout is theirs to choose, checkout by checkout. The repo file is the
+ * team's: a `personal` there would take every teammate's runs off the pull
+ * request without any of them choosing it. The user file is machine-wide, and
+ * one developer keeps some repos to themself and shares others. Dropped with a
+ * warning, as `git.auto_merge: true` is.
  */
-function withoutStorage(layer: Record<string, unknown>): Record<string, unknown> {
+function withoutStorage(layer: Record<string, unknown>, file: string): Record<string, unknown> {
   if (!Object.hasOwn(layer, STORAGE_KEY)) {
     return layer;
   }
   console.warn(
-    "storage is set per developer, in ~/.signposts/config.yaml or SIGNPOSTS_STORAGE; " +
-      "the repo's .signposts/config.yaml cannot set it, and its value has been ignored.",
+    `storage is chosen per checkout, with \`signpost init --personal\` or \`--repo\`; ` +
+      `${file} cannot set it, and its value has been ignored.`,
   );
   const { [STORAGE_KEY]: _ignored, ...rest } = layer;
   return rest;
 }
 
+/** The checkout's own file, of which only `storage` is read. */
+function onlyStorage(layer: Record<string, unknown>): Record<string, unknown> {
+  return Object.hasOwn(layer, STORAGE_KEY) ? { [STORAGE_KEY]: layer[STORAGE_KEY] } : {};
+}
+
 const STORAGE_KEY = "storage";
 
 export function resolveConfig(input: ResolveConfigInput): ResolvedConfig {
-  const repoLayer = withoutStorage(parseYamlLayer(input.repoFileContents, "repo config (.signposts/config.yaml)"));
-  const userLayer = parseYamlLayer(input.userFileContents, "user config (~/.signposts/config.yaml)");
+  const repoLayer = withoutStorage(
+    parseYamlLayer(input.repoFileContents, "repo config (.signposts/config.yaml)"),
+    "the repo's .signposts/config.yaml",
+  );
+  const userLayer = withoutStorage(
+    parseYamlLayer(input.userFileContents, "user config (~/.signposts/config.yaml)"),
+    "~/.signposts/config.yaml",
+  );
   const envLayer = parseEnvLayer(input.env);
+  const checkoutLayer = onlyStorage(parseYamlLayer(input.checkoutFileContents, "this checkout's config"));
 
   // Constants enter via the schema's own defaults (configSchema.parse({})
   // fills every leaf from a ./constants.ts export), so there is no
   // separate "defaults" object here duplicating those values.
-  const merged = mergeLeaves(mergeLeaves(mergeLeaves({}, repoLayer), userLayer), envLayer);
+  const merged = mergeLeaves(
+    mergeLeaves(mergeLeaves(mergeLeaves({}, repoLayer), userLayer), envLayer),
+    checkoutLayer,
+  );
 
   const result = configSchema.safeParse(merged);
   if (!result.success) {
@@ -130,4 +150,10 @@ export function resolveConfig(input: ResolveConfigInput): ResolvedConfig {
   const paths = derivePaths(input.repoRoot, input.homeDir, input.claudeConfigDir, config.storage);
 
   return Object.freeze({ ...config, git, paths });
+}
+
+/** `config` with `storage` switched, as `init` needs it after recording a new choice. */
+export function withStorage(config: ResolvedConfig, storage: SignpostsConfig["storage"]): ResolvedConfig {
+  const { repoRoot, stateDir } = config.paths;
+  return Object.freeze({ ...config, storage, paths: { ...config.paths, ...storagePaths(repoRoot, stateDir, storage) } });
 }

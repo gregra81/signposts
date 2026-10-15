@@ -63,8 +63,9 @@ const MS_PER_MINUTE = 60_000
 const RUN_PROGRESS_STALE_MS = 15 * MS_PER_MINUTE
 const CENSUS_STALE_MS = 24 * 60 * MS_PER_MINUTE
 const REPO_HASH_LENGTH = 12
-// Personal storage, read as hooks/session-start.ts reads it: the variable,
-// then one line of the user's config (src/core/config/schema.ts is the authority).
+// Personal storage, read as hooks/session-start.ts reads it: the one line
+// `signpost init --personal` writes into this checkout's state directory
+// (src/core/config/schema.ts is the authority).
 const PERSONAL_STORAGE_LINE = /^storage:\s*["']?personal["']?\s*(#.*)?$/m
 
 type Status = {
@@ -200,13 +201,13 @@ async function hashRepoRoot(repoRoot: string): Promise<string> {
 // Set at session.start; a reload runs it again.
 let repoRoot: string | null = null
 let statusPath: string | null = null
+let configPath: string | null = null
 let isPersonal = false
 
-async function readIsPersonal($: EngineInterface, home: string): Promise<boolean> {
-  const fromEnv = await $.env.get('SIGNPOSTS_STORAGE')
-  if (fromEnv !== undefined) return fromEnv === 'personal'
+async function readIsPersonal($: EngineInterface): Promise<boolean> {
+  if (configPath === null) return false
   try {
-    return PERSONAL_STORAGE_LINE.test(await $.fs.read(`${home}/.signposts/config.yaml`))
+    return PERSONAL_STORAGE_LINE.test(await $.fs.read(configPath))
   } catch {
     return false
   }
@@ -241,6 +242,8 @@ async function openPane($: EngineInterface): Promise<void> {
 
 async function refresh($: EngineInterface): Promise<void> {
   if (statusPath === null) return
+  // Read on every refresh, so an `init --personal` typed mid-session reaches the offer.
+  isPersonal = await readIsPersonal($)
   let status: Status = {}
   try {
     status = JSON.parse(await $.fs.read(statusPath)) as Status
@@ -314,8 +317,9 @@ export const register: Register = on => {
     if (top.exitCode === 0 && home !== undefined) {
       // Resolved, as the hook does: the CLI keys STATE_DIR on its realpath'd cwd.
       repoRoot = (await $.fs.stat(top.stdout.trim(), { resolve: true })).realPath ?? top.stdout.trim()
-      statusPath = `${home}/.signposts/${await hashRepoRoot(repoRoot)}/status.json`
-      isPersonal = await readIsPersonal($, home)
+      const stateDir = `${home}/.signposts/${await hashRepoRoot(repoRoot)}`
+      statusPath = `${stateDir}/status.json`
+      configPath = `${stateDir}/config.yaml`
       await $.command.register({ name: COMMAND, description: 'Show the signposts pane' })
       await openPane($)
       await refresh($)
