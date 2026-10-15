@@ -180,11 +180,12 @@ runs keep what they find on your machine instead of in the repo. It goes to
 `~/.signposts/<repo-hash>/corpus/`, a plain folder of markdown: no git, no branch, no pull request,
 no `CLAUDE.md` pointer. Sessions in that repo still get the index and the search. What a pull
 request would have flagged for a closer look is listed at the end of the run instead. It is your
-setting, not the team's, so the repo's own `.signposts/config.yaml` cannot turn it on.
+setting, not the team's, so the repo's own `.signposts/config.yaml` cannot turn it on. It also works
+in a repo with no GitHub `origin`.
 
 ## Requirements
 
-Node 24 or newer, git, and a repo with a GitHub `origin`. `gh` authenticated if you want
+Node 24 or newer, git, and a repo with a GitHub `origin` (personal storage runs without one). `gh` authenticated if you want
 `signpost publish` to open the pull request for you; without it the branch is still pushed and you
 get the `gh pr create` line to run yourself. The first run downloads a 23MB embedding model, once per machine, after which
 retrieval works offline.

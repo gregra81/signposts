@@ -11,6 +11,6 @@ import type { GitFacts } from "../../core/doctor/report.ts";
 import { resolveRepo } from "../git/remote-origin.ts";
 import { authorEmail } from "../git/worktree.ts";
 
-export function checkGitFacts(repoRoot: string): GitFacts {
-  return { authorEmail: authorEmail(repoRoot), repo: resolveRepo(repoRoot) };
+export function checkGitFacts(repoRoot: string, storage: string): GitFacts {
+  return { authorEmail: authorEmail(repoRoot), repo: resolveRepo(repoRoot, storage) };
 }

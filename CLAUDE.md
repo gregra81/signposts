@@ -440,7 +440,9 @@ dropped with a warning, the way `git.auto_merge: true` is. The hook and the mod 
 config resolver, so each reads `SIGNPOSTS_STORAGE` and then one `storage: personal` line of the user
 file. The offer says a run saves to this machine; the rest of the measured wording is unchanged.
 
-What it still needs: a GitHub `origin`, because the repo key is derived from it. A new signpost is
+It runs without a GitHub `origin`: a repo whose origin yields no `owner/name` is keyed
+`local/<directory name>` (`localRepoKey`), since the branch and the PR are what need the remote. The
+key need not be unique, because the state directory is already per checkout. A new signpost is
 searchable after the next session start, when the worker reindexes the store, which is the same lag
 a merged PR has.
 

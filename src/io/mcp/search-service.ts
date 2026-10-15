@@ -86,7 +86,7 @@ export function createSearchService({ config, repoRoot, warn }: CreateSearchServ
   return {
     async search(input: SearchInput): Promise<SearchToolOutput> {
       try {
-        repo ??= resolveRepo(repoRoot);
+        repo ??= resolveRepo(repoRoot, config.storage);
         if (repo === null) {
           return unavailable(SEARCH_UNAVAILABLE.no_repo);
         }

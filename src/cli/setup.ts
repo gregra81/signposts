@@ -41,7 +41,7 @@ export type SetupOutcome =
 
 /** Sets the repo up whether or not it was already; every step is idempotent. */
 export function setUpRepo({ config, repoRoot, say }: SetupInput): SetupOutcome {
-  const repo = resolveRepo(repoRoot);
+  const repo = resolveRepo(repoRoot, config.storage);
   if (repo === null) {
     return { status: "no-origin" };
   }
@@ -95,7 +95,7 @@ export function setUpRepo({ config, repoRoot, say }: SetupInput): SetupOutcome {
 export function ensureSetUp(
   input: SetupInput & { fail: (message: string) => void },
 ): "ready" | "set-up" | "failed" {
-  const repo = resolveRepo(input.repoRoot);
+  const repo = resolveRepo(input.repoRoot, input.config.storage);
   if (repo === null) {
     return "ready";
   }

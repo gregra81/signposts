@@ -56,7 +56,7 @@ const openRunWith = async (
   forgeFor: (repoRoot: string) => Forge,
   { config, repoRoot, warn }: Parameters<OpenRun>[0],
 ): Promise<OpenedRun> => {
-  const repo = resolveRepo(repoRoot);
+  const repo = resolveRepo(repoRoot, config.storage);
   if (repo === null) {
     return { reason: NO_REPO };
   }

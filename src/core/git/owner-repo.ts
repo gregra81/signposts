@@ -6,6 +6,8 @@
 // decision logic — string in, string or null out — so no filesystem, no
 // subprocess).
 
+import path from "node:path";
+
 const SSH_REMOTE = /^[\w.-]+@[^:]+:(?<path>.+)$/;
 const HTTP_REMOTE = /^https?:\/\/[^/]+\/(?<path>.+)$/;
 
@@ -33,4 +35,17 @@ export function deriveOwnerRepo(remoteUrl: string): string | null {
   // `name` is guaranteed defined here: a reversed array only has index 1
   // (owner) filled when index 0 (name) is too.
   return `${owner}/${name!}`;
+}
+
+/** The owner half of the key a repo with no `owner/name` origin is filed under. */
+const LOCAL_OWNER = "local";
+
+/**
+ * `local/<directory name>`: the key for a repo whose origin yields no
+ * `owner/name`, which only personal storage accepts, since nothing it does
+ * leaves the machine. It need not be unique: the state directory, and with it
+ * the database and the store, is already per checkout (sha256 of repoRoot).
+ */
+export function localRepoKey(repoRoot: string): string {
+  return `${LOCAL_OWNER}/${path.basename(repoRoot)}`;
 }
