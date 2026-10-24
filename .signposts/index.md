@@ -17,3 +17,5 @@
 | id | claim | repo |
 | --- | --- | --- |
 | `the-sessionstart-hook-s-injected-context-is` | The SessionStart hook's injected context is scoped to startup and resume so it never lands mid-session, because a mid-session injection breaks prompt caching. | gregra81/signposts |
+| `storage-mode-repo-vs-personal-is-chosen-per` | Storage mode (repo vs personal) is chosen per repo via `signpost init`, not globally, because some repos keep signposts in the repo and others keep them private. | gregra81/signposts |
+| `personal-storage-mode-writes-signposts-to-a` | Personal storage mode writes signposts to a plain local folder with no git; the git-backed personal store was rejected, while repo mode keeps the branch, commit and PR flow. | gregra81/signposts |
