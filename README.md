@@ -218,4 +218,4 @@ and not obviously hedged. The PR review is what catches a wrong one.
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Built by [Greg Rashkevitch](https://gregras.com).
